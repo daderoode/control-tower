@@ -11,6 +11,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Added
 
+- **Developed in the open.** control-tower's repository is public, and its CI (the quality
+  gate, the secret scan and the macOS job) runs on GitHub's runners.
 - **control-tower's first public version.** A taskboard for a team of Claude Code agents
   working in herdr: what the work is, how far along it is, and where the owner is needed.
   Repos each have one lead; milestones and tasks move through waiting, in progress and
