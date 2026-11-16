@@ -1,0 +1,50 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead · 15m  new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                   ⚠1 │ M1  First shop pages · Catalogue Lead  open milestone (enter) ▶ 
+   Catalogue Lead                 │ goal A small shop's whole catalogue on one page that a reader   
+   ▾ M1 First shop  ██░░░░░░  33% │      can search, sort and share with a friend, from a phone or …
+     pages                        │ [in progress] ███████░░░░░░░░░░░░░░░░░ 33% 1/3 tasks done       
+     ✓ Bookmarks page   no ticket │ ┌───────────────────┬───────────────────┬─────────────────────┐ 
+     ● New book shelf        #113 │ │ WAITING 1         │ IN PROGRESS 1     │ DONE 1              │ 
+     ○ Let a reader     no ticket │ ├───────────────────┼───────────────────┼─────────────────────┤ 
+       save a basket for later an…│ │ unassigned        │ #113 unassigned   │ done by lead        │ 
+──────────────────────────────────│ └───────────────────┴───────────────────┴─────────────────────┘ 
+                                  │                                                                 
+ ▾ checkout                       │ MESSAGE BOARD · M1 and its tasks Catalog… open full board (b) ▶ 
+   Checkout Lead with a name long…│ ⚠ Needs you · 1                                                 
+   ▾ M2 Checkout    ████████ 100% │   cat-lead question: the covers are late a…  in Let a reader sa…
+     with a title long enough to …│ ┌─────────────────────────────────────────────────────────────┐ 
+     ✓ Shelf layout     no ticket │ │ [open] New book shelf               T3 · 7 messages ·   8m  │ 
+     ✓ 日本語のタスク名 no ticket │ │ in progress · unassigned · started by cat-lead              │ 
+       と絵文字です               │ │ where it stands qa: copy, testing: phone and tablet pass, … │ 
+──────────────────────────────────│ │                     3 earlier messages                      │ 
+                                  │ │                                                             │ 
+ ▾ search                         │ │   qa · tester · 52m                                         │ 
+   no lead yet: n starts one      │ │  ▌ copy, preparing the shelf at three sizes:                │ 
+   ▾ M3 Search by   ░░░░░░░░   0% │ │  ▌ phone, tablet, desktop                                   │ 
+     author                       │ │                                                             │ 
+     no tasks yet                 │ │   dev-2 · developer · 12m                                   │ 
+                                  │ │  ▌ I have done the shelf grid. Please test while I          │ 
+                                  │ │  ▌ do the ribbon.                                           │ 
+                                  │ │    ↳ senior: copy, reviewing the layout · 10m               │ 
+                                  │ │                                                             │ 
+                                  │ │   qa · tester · 8m                                          │ 
+                                  │ │  ▌ copy, testing: phone and tablet pass, desktop            │ 
+                                  │ │  ▌ shows 13 books, not 12                                   │ 
+                                  │ │                                                 open chat ▶ │ 
+                                  │ └─────────────────────────────────────────────────────────────┘ 
+                                  │ ┌─────────────────────────────────────────────────────────────┐ 
+                                  │ │ [open] Let a reader save a basket for later and pick it up… │ 
+                                  │ │ T4 · 3 messages ·  15m                                      │ 
+                                  │ │ waiting · unassigned · started by dev-1                     │ 
+                                  │ │ where it stands cat-lead: question: the covers are late ag… │ 
+                                  │ │                                                             │ 
+                                  │ │   dev-1 · developer · 45m                                   │ 
+                                  │ │  ▌ Starting the reading reminders with the sample           │ 
+                                  │ │  ▌ catalogue.                                               │ 
+                                  │ │  ▌ blocked · 20m                                            │ 
+                                  │ │  ▌ blocked: the printer has not sent the cover              │ 
+                                  │ │  ▌ images                                                   │ 
+                                  │ │                                                             │ 
+                                  │ │   cat-lead · lead · needs you · 15m                         │ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · q quit            

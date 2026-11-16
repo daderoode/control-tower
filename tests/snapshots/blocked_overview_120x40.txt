@@ -1,0 +1,40 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead in ‘Sh…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue               ⚠1 1 blocked │ M1  First shop pages · Catalogue Lead                open milestone (enter) ▶ 
+   Catalogue Lead                       │ goal A reader can find a book, see its page and save it.                      
+   ▾ M1 First shop pages  ██░░░░░░  33% │ [in progress] ███████░░░░░░░░░░░░░░░░░ 33% 1/3 tasks done                     
+     ✓ Bookmarks page         no ticket │ ┌────────────────────────┬────────────────────────┬─────────────────────────┐ 
+     ● New book shelf              #113 │ │ WAITING 1              │ IN PROGRESS 1          │ DONE 1                  │ 
+     ○ Show each book's     ! no ticket │ ├────────────────────────┼────────────────────────┼─────────────────────────┤ 
+       reviews under its cover, newest …│ │ dev-1 !                │ #113 dev-2             │ unassigned              │ 
+────────────────────────────────────────│ └────────────────────────┴────────────────────────┴─────────────────────────┘ 
+                                        │                                                                               
+ ▾ checkout                             │ MESSAGE BOARD · M1 and its tasks Catalogue Lead         open full board (b) ▶ 
+   Checkout Lead with a name long enoug…│ ⚠ Needs you · 1                                                               
+   ▾ M2 Checkout with a   ████████ 100% │   cat-lead question: the covers are late again. @ma…  in Show each book's rev…
+     title long enough to be cut in a n…│ ┌───────────────────────────────────────────────────────────────────────────┐ 
+     ✓ Shelf layout           no ticket │ │ [open] New book shelf                             T3 · 7 messages ·   8m  │ 
+     ✓ 日本語のタスク名と絵文 no ticket │ │ in progress · dev-2 · started by cat-lead                                 │ 
+       字です                           │ │ where it stands dev-2: testing the shelf grid                             │ 
+────────────────────────────────────────│ │                            3 earlier messages                             │ 
+                                        │ │                                                                           │ 
+ ▾ search                               │ │   qa · tester · 52m                                                       │ 
+   no lead yet: n starts one            │ │  ▌ copy, preparing the shelf at three sizes: phone, tablet,               │ 
+   ▾ M3 Search by author  ░░░░░░░░   0% │ │  ▌ desktop                                                                │ 
+     no tasks yet                       │ │                                                                           │ 
+                                        │ │   dev-2 · developer · 12m                                                 │ 
+                                        │ │  ▌ I have done the shelf grid. Please test while I do the                 │ 
+                                        │ │  ▌ ribbon.                                                                │ 
+                                        │ │    ↳ senior: copy, reviewing the layout · 10m                             │ 
+                                        │ │                                                                           │ 
+                                        │ │   qa · tester · 8m                                                        │ 
+                                        │ │  ▌ copy, testing: phone and tablet pass, desktop shows 13                 │ 
+                                        │ │  ▌ books, not 12                                                          │ 
+                                        │ │                                                               open chat ▶ │ 
+                                        │ └───────────────────────────────────────────────────────────────────────────┘ 
+                                        │ ┌───────────────────────────────────────────────────────────────────────────┐ 
+                                        │ │ [open] Show each book's reviews under its cover, newest first, with a li… │ 
+                                        │ │ T4 · 3 messages ·  15m                                                    │ 
+                                        │ │ waiting · dev-1 · started by dev-1                                        │ 
+                                        │ │ where it stands dev-1: blocked: printer has not sent the covers           │ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · PgUp PgDn scroll · q quit             

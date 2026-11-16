@@ -1,0 +1,36 @@
+ nothing needs you                                                                   new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                            │ task #41 Sort the poetry shelf by poet [in progress]                          
+   Catalogue Lead                       │ milestone  standalone, in no repo yet: tower task set 41 --repo R<n>          
+   ▾ M1 First shop pages  ██░░░░░░  33% │ assigned   dev-3                                                              
+     ✓ Bookmarks page         no ticket │ doing      nothing posted yet                                                 
+     ● New book shelf              #113 │ blocked by nothing                                                            
+     ○ Show each book's       no ticket │ MR         none yet                                                           
+       reviews under its cover, newest …│ context    none                                                               
+────────────────────────────────────────│ ticket     #64                                                                
+                                        │ tracker    https://gitlab.example.com/acme/bookshop/-/work_items/64           
+ ▾ checkout                             │                                                                               
+   Checkout Lead with a name long enoug…│ DESCRIPTION                                                                   
+   ▾ M2 Checkout with a   ████████ 100% │ Books by the same poet sit together.                                          
+     title long enough to be cut in a n…│                                                                               
+     ✓ Shelf layout           no ticket │ ACCEPTANCE CRITERIA 0/0                                                       
+     ✓ 日本語のタスク名と絵文 no ticket │ none                                                                          
+       字です                           │                                                                               
+────────────────────────────────────────│ SUBTASKS 1/3                                                                  
+                                        │ [x] #51 step 51                                                               
+ ▾ search                               │ [ ] #52 step 52                                                               
+   no lead yet: n starts one            │ [ ] #53 step 53                                                               
+   ▾ M3 Search by author  ░░░░░░░░   0% │                                                                               
+     no tasks yet                       │                                                                               
+────────────────────────────────────────│                                                                               
+                                        │                                                                               
+ No repo yet                            │                                                                               
+   tower milestone set / task set --rep…│                                                                               
+                                        │                                                                               
+     ● Sort the       #64 · dev-3 · 1/3 │                                                                               
+       poetry shelf by poet             │                                                                               
+     ○ Add a     no ticket · unassigned │                                                                               
+       notes box to each bookmark with …│                                                                               
+     ✓ Dust the  no ticket · unassigned │                                                                               
+       shelves                          │                                                                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · o open ticket · i inbox · n new lead · PgUp PgDn scroll · q quit                    

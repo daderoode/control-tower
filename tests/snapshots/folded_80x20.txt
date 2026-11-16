@@ -1,0 +1,20 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead · catalo… · 15m 14:32 
+ ▾ catalogue     ⚠1 1 blocked │ catalogue · Catalogue Lead  open repo (enter) ▶ 
+   Catalogue Lead             │ checkout /src/catalogue                         
+   ▸ M1 First   ██░░░░░░  33% │  ● M1 First shop pages          ███░░░░░░░  33% 
+     shop pages               │  standalone 0 · Done 0 milestones               
+     3 tasks ✓1 ●1 ○1 !1      │                                                 
+──────────────────────────────│ MESSAGE BOARD · whole re… open full board (b) ▶ 
+                              │ ⚠ Needs you · 1                                 
+ ▾ checkout                   │   cat-lead question: the covers…  in Show each …
+   Checkout Lead with a name …│ ┌─────────────────────────────────────────────┐ 
+   ▾ M2         ████████ 100% │ │ [open] New book shelf                       │ 
+     Checkout with a title lo…│ │ T3 · 7 messages ·   8m                      │ 
+     ✓ Shelf layout no ticket │ │ in progress · dev-2 · started by cat-lead   │ 
+     ✓ 日本語のタス no ticket │ │ where it stands dev-2: testing the shelf g… │ 
+       ク名と絵文字です       │ │             3 earlier messages              │ 
+──────────────────────────────│ │                                             │ 
+                              │ │   qa · tester · 52m                         │ 
+ ▾ search                     │ │  ▌ copy, preparing the shelf at             │ 
+────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · enter open · b board · i inbox · n new lead · q quit               

@@ -1,0 +1,50 @@
+ ⚠ 2 need you · ⓘ 1 for your awareness · newest: cat-lead · 15m   14:32 
+ ▾ catalogue            ⚠2 ⓘ1 │ Done  3 milestones · catalogue ·… ⚠1 ⓘ1 
+   Catalogue Lead             │ Milestones with the lead's Done mark, m…
+   ▾ M1 First   ██░░░░░░  33% │  ✓ M6 0.1.7: repo lea… 1/1 · 14/01/2027 
+     shop pages               │  ✓ M4 0.1.6: dashboar… 2/2 · 13/01/2027 
+     ✓ Bookmarks    no ticket │  ✓ M5 0.1.5: l… 1/1 · date not recorded 
+       page                   │                                         
+     ● New book shelf    #113 │ MESSAGE BOARD · … open full board (b) ▶ 
+     ○ Show each    no ticket │ ⚠ Needs you · 1                         
+       book's reviews under i…│   cat-lead question: @mana…  in Is 0.1.…
+                              │ ┌─────────────────────────────────────┐ 
+   ▸ Done  3 milestones ⚠1 ⓘ1 │ │ [open] task 62                      │ 
+──────────────────────────────│ │ T10 · 1 message ·  30m              │ 
+                              │ │ done · unassigned · started by cat… │ 
+ ▾ checkout                   │ │ where it stands cat-lead: decision… │ 
+   Checkout Lead with a name …│ │                                     │ 
+   ▾ M2         ████████ 100% │ │   cat-lead · decision · 30m         │ 
+     Checkout with a title lo…│ │  ▌ decision: @manager notes         │ 
+     ✓ Shelf layout no ticket │ │  ▌ go in CHANGELOG.md only          │ 
+     ✓ 日本語のタス no ticket │ │                         open chat ▶ │ 
+       ク名と絵文字です       │ └─────────────────────────────────────┘ 
+──────────────────────────────│ ┌─────────────────────────────────────┐ 
+                              │ │ [open] Is 0.1.6 ready to mark Done? │ 
+ ▾ search                     │ │ T9 · 1 message ·  30m               │ 
+   no lead yet: n starts one  │ │ on M4 · started by cat-lead         │ 
+   ▾ M3 Search  ░░░░░░░░   0% │ │ where it stands cat-lead: question… │ 
+     by author                │ │                                     │ 
+     no tasks yet             │ │   cat-lead · needs you · 30m        │ 
+                              │ │  ▌ question: @manager 0.1.6         │ 
+                              │ │  ▌ is out. Do you want to           │ 
+                              │ │  ▌ read more                        │ 
+                              │ │                         open chat ▶ │ 
+                              │ └─────────────────────────────────────┘ 
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+                              │                                         
+────────────────────────────────────────────────────────────────────────
+ ↑↓ select · enter open · b board · i inbox · n new lead · q quit       

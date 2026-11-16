@@ -1,0 +1,50 @@
+ ⚠ 2 need you · ⓘ 1 for your awareness · newest: cat-lead in ‘Show each book's revie…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                             ⚠2 ⓘ1 │ M4  0.1.6: dashboard workspace · Catalogue Lead                   open milestone (enter) ▶ 
+   Catalogue Lead                              │ goal 0.1.6: dashboard workspace, released.                                                 
+   ▾ M1 First shop pages         ██░░░░░░  33% │ [done] ████████████████████████ 100% 2/2 tasks done marked Done 13/01/2027                 
+     ✓ Bookmarks page                no ticket │ ┌────────────────────────────┬────────────────────────────┬──────────────────────────────┐ 
+     ● New book shelf                     #113 │ │ WAITING 0                  │ IN PROGRESS 0              │ DONE 2                       │ 
+     ○ Show each book's reviews      no ticket │ ├────────────────────────────┼────────────────────────────┼──────────────────────────────┤ 
+       under its cover, newest first, with a l…│ │ none                       │ none                       │ unassigned                   │ 
+                                               │ │                            │                            │ unassigned                   │ 
+   ▾ Done  3 milestones                  ⚠1 ⓘ1 │ └────────────────────────────┴────────────────────────────┴──────────────────────────────┘ 
+     ✓ M6 0.1.7: repo leads         14/01/2027 │                                                                                            
+     ✓ M4 0.1.6: dashboard          13/01/2027 │ MESSAGE BOARD · M4 and its tasks Catalogue Lead                      open full board (b) ▶ 
+       workspace                               │ ⚠ Needs you · 1                                                                            
+     ✓ M5 0.1.5: lead skill  date not recorded │   cat-lead question: @manager 0.1.6 is out. Do you want to t…  in Is 0.1.6 ready to mark D…
+───────────────────────────────────────────────│ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
+                                               │ │ [open] task 62                                                 T10 · 1 message ·  30m  │ 
+ ▾ checkout                                    │ │ done · unassigned · started by cat-lead                                                │ 
+   Checkout Lead with a name long enough to be…│ │ where it stands cat-lead: decision: @manager notes go in CHANGELOG.md only             │ 
+   ▾ M2 Checkout with a title    ████████ 100% │ │                                                                                        │ 
+     long enough to be cut in a narrow pane    │ │   cat-lead · lead · decision · 30m                                                     │ 
+     ✓ Shelf layout                  no ticket │ │  ▌ decision: @manager notes go in CHANGELOG.md only                                    │ 
+     ✓ 日本語のタスク名と絵文字です  no ticket │ │                                                                            open chat ▶ │ 
+───────────────────────────────────────────────│ └────────────────────────────────────────────────────────────────────────────────────────┘ 
+                                               │ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
+ ▾ search                                      │ │ [open] Is 0.1.6 ready to mark Done?                             T9 · 1 message ·  30m  │ 
+   no lead yet: n starts one                   │ │ on M4 · started by cat-lead                                                            │ 
+   ▾ M3 Search by author         ░░░░░░░░   0% │ │ where it stands cat-lead: question: @manager 0.1.6 is out. Do you want to trial it be… │ 
+     no tasks yet                              │ │                                                                                        │ 
+                                               │ │   cat-lead · lead · needs you · 30m                                                    │ 
+                                               │ │  ▌ question: @manager 0.1.6 is out. Do you want to trial it before I mark              │ 
+                                               │ │  ▌ it Done?                                                                            │ 
+                                               │ │                                                                            open chat ▶ │ 
+                                               │ └────────────────────────────────────────────────────────────────────────────────────────┘ 
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · PgUp PgDn scroll · click a row or card · q quit           

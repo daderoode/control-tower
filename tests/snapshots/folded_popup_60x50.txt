@@ -1,0 +1,50 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness   inbox (i) ▶  14:32 
+ ▾ catalogue         ⚠1 │ M1  First shop … open milestone ▶ 
+   Catalogue Lead       │ goal A small shop's whole         
+   ▸ M1   ██░░░░░░  33% │      catalogue on one page that a…
+     First shop pages   │ [in progress] 33% 1/3 tasks done  
+     3 tasks ✓1 ●1 ○1   │ ┌───────────────────────────────┐ 
+────────────────────────│ │ WAITING 1                     │ 
+                        │ ├───────────────────────────────┤ 
+ ▾ checkout             │ │ unassigned                    │ 
+   Checkout Lead with a…│ └───────────────────────────────┘ 
+   ▾ M2   ████████ 100% │ ┌───────────────────────────────┐ 
+     Checkout with a ti…│ │ IN PROGRESS 1                 │ 
+     ✓ Shelf  no ticket │ ├───────────────────────────────┤ 
+       layout           │ │ #113 unassigned               │ 
+     ✓ 日本語 no ticket │ └───────────────────────────────┘ 
+       のタスク名と絵文…│ ┌───────────────────────────────┐ 
+────────────────────────│ │ DONE 1                        │ 
+                        │ ├───────────────────────────────┤ 
+ ▾ search               │ │ done by lead                  │ 
+   no lead yet: n start…│ └───────────────────────────────┘ 
+   ▾ M3   ░░░░░░░░   0% │                                   
+     Search by author   │ MESSAGE BOARD … open full board ▶ 
+     no tasks yet       │ ⚠ Needs you · 1                   
+                        │   cat-lead question: t…  in Let a…
+                        │ ┌───────────────────────────────┐ 
+                        │ │ [open] New book shelf         │ 
+                        │ │ T3 · 7 messages ·   8m        │ 
+                        │ │ in progress · unassigned · s… │ 
+                        │ │ where it stands qa: copy, te… │ 
+                        │ │      4 earlier messages       │ 
+                        │ │                               │ 
+                        │ │   dev-2 · 12m                 │ 
+                        │ │  ▌ I have done the shelf      │ 
+                        │ │  ▌ grid. Please test          │ 
+                        │ │  ▌ read more                  │ 
+                        │ │    ↳ senior: copy,            │ 
+                        │ │      reviewing the            │ 
+                        │ │      layout · 10m             │ 
+                        │ │                               │ 
+                        │ │   qa · tester · 8m            │ 
+                        │ │  ▌ copy, testing: phone       │ 
+                        │ │  ▌ and tablet pass,           │ 
+                        │ │  ▌ read more                  │ 
+                        │ │                   open chat ▶ │ 
+                        │ └───────────────────────────────┘ 
+                        │ ┌───────────────────────────────┐ 
+                        │ │ [open] Let a reader save a b… │ 
+                        │ │ T4 · 3 messages ·  15m        │ 
+────────────────────────────────────────────────────────────
+ ↑↓ select · enter open · esc back · q close                

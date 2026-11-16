@@ -1,0 +1,70 @@
+ ◀ back  MESSAGE BOARD · catalogue · Catalogue Lead · whole repo                                                  14:32 
+ ⚠ Needs you · 2                                                                                                        
+   cat-lead question: the covers are late again. @manager can you call the prin…  in Show each book's reviews under its…
+   cat-lead question: @manager print the reading list now, or wait for the reply?               in New book shelf · 20m 
+                                                                                                                        
+ OPEN 2                                 │ [open] New book shelf                                 T3 · 12 messages ·  now 
+ ● New book shelf                   now │ in progress · unassigned · started by cat-lead                                
+   manager: Wait for the proofs.        │ where it stands manager: Wait for the proofs.                                 
+                                        │───────────────────────────────────────────────────────────────────────────────
+ ● Show each book's reviews under   15m │                                                                               
+   its cover, newest first, with …      │ ───────────────────────────────── yesterday ───────────────────────────────── 
+   cat-lead: question: the covers are l…│                                                                               
+                                        │  cat-lead · lead · 1d                                                         
+ RESOLVED 1 ▸                           │ ▌ Picked up #13 yesterday; team below.                                        
+                                        │   ↳ dev-2: copy · 1d                                                          
+                                        │                                                                               
+                                        │ ────────────────────────────────── 3h ago ─────────────────────────────────── 
+                                        │                                                                               
+                                        │  dev-2 · developer · 3h                                                       
+                                        │ ▌ 1. a step of the plan with enough words to wrap a little                    
+                                        │ ▌ 2. a step of the plan with enough words to wrap a little                    
+                                        │ ▌ 3. a step of the plan with enough words to wrap a little                    
+                                        │ ▌ 4. a step of the plan with enough words to wrap a little                    
+                                        │ ▌ read more                                                                   
+                                        │                                                                               
+                                        │ ────────────────────────────────── 2h ago ─────────────────────────────────── 
+                                        │                                                                               
+                                        │                           dev-2 was nudged 2 times                            
+                                        │                                                                               
+                                        │                  delivery failed to Catalogue Lead · details                  
+                                        │                                                                               
+                                        │ ────────────────────────────── within the hour ────────────────────────────── 
+                                        │                                                                               
+                                        │  qa · tester · blocked · 50m                                                  
+                                        │ ▌ blocked: the printer has not replied                                        
+                                        │ ▌ 40m                                                                         
+                                        │ ▌ unblocked, testing now                                                      
+                                        │                                                                               
+                                        │  cat-lead · lead · needs you · 20m                                            
+                                        │ ▌ question: @manager print the reading list now, or wait for the              
+                                        │ ▌ reply?                                                                      
+                                        │                                                                               
+                                        │                                                          you (manager) · 10m  
+                                        │                                             Wait for the proofs.            ▐ 
+                                        │                                               ↳ cat-lead: copy, waiting · 5m  
+                                        │                                                                               
+                                        │ ──────────────────────────────────── now ──────────────────────────────────── 
+                                        │                                                                               
+                                        │                    dev-2 left herdr while on #13 · details                    
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │───────────────────────────────────────────────────────────────────────────────
+                                        │ manager ▌Type to write to the team, e.g. copy, approved                 Post  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ message · → read more or less · ← threads · type to write · enter posts · alt+enter new line · esc back             

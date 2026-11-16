@@ -1,0 +1,60 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead · 15m   14:32 
+ ▾ catalogue               ⚠1 │ M1  First sho… open milestone (enter) ▶ 
+   Catalogue Lead             │ goal A reader can find a book, see its  
+   ▾ M1 First   ██░░░░░░  33% │      page and save it.                  
+     shop pages               │ [in progress] 33% 1/3 tasks done        
+     ✓ Bookmarks    no ticket │ ┌─────────────────────────────────────┐ 
+       page                   │ │ WAITING 1                           │ 
+     ● New book shelf    #113 │ ├─────────────────────────────────────┤ 
+     ○ Show each    no ticket │ │ unassigned                          │ 
+       book's reviews under i…│ └─────────────────────────────────────┘ 
+──────────────────────────────│ ┌─────────────────────────────────────┐ 
+                              │ │ IN PROGRESS 1                       │ 
+ ▾ checkout                   │ ├─────────────────────────────────────┤ 
+   Checkout Lead with a name …│ │ #113 unassigned                     │ 
+   ▾ M2         ████████ 100% │ └─────────────────────────────────────┘ 
+     Checkout with a title lo…│ ┌─────────────────────────────────────┐ 
+     ✓ Shelf layout no ticket │ │ DONE 1                              │ 
+     ✓ 日本語のタス no ticket │ ├─────────────────────────────────────┤ 
+       ク名と絵文字です       │ │ unassigned                          │ 
+──────────────────────────────│ └─────────────────────────────────────┘ 
+                              │                                         
+ ▾ search                     │ MESSAGE BOARD · … open full board (b) ▶ 
+   no lead yet: n starts one  │ ⚠ Needs you · 1                         
+   ▾ M3 Search  ░░░░░░░░   0% │   cat-lead question: the c…  in Show ea…
+     by author                │ ┌─────────────────────────────────────┐ 
+     no tasks yet             │ │ [open] New book shelf               │ 
+                              │ │ T3 · 7 messages ·   8m              │ 
+                              │ │ in progress · unassigned · started… │ 
+                              │ │ where it stands qa: copy, testing:… │ 
+                              │ │         3 earlier messages          │ 
+                              │ │                                     │ 
+                              │ │   qa · tester · 52m                 │ 
+                              │ │  ▌ copy, preparing the shelf        │ 
+                              │ │  ▌ at three sizes: phone,           │ 
+                              │ │  ▌ tablet, desktop                  │ 
+                              │ │                                     │ 
+                              │ │   dev-2 · developer · 12m           │ 
+                              │ │  ▌ I have done the shelf            │ 
+                              │ │  ▌ grid. Please test while I        │ 
+                              │ │  ▌ do the ribbon.                   │ 
+                              │ │    ↳ senior: copy,                  │ 
+                              │ │      reviewing the layout · 10m     │ 
+                              │ │                                     │ 
+                              │ │   qa · tester · 8m                  │ 
+                              │ │  ▌ copy, testing: phone and         │ 
+                              │ │  ▌ tablet pass, desktop shows       │ 
+                              │ │  ▌ 13 books, not 12                 │ 
+                              │ │                         open chat ▶ │ 
+                              │ └─────────────────────────────────────┘ 
+                              │ ┌─────────────────────────────────────┐ 
+                              │ │ [open] Show each book's reviews un… │ 
+                              │ │ T4 · 3 messages ·  15m              │ 
+                              │ │ waiting · unassigned · started by … │ 
+                              │ │ where it stands cat-lead: question… │ 
+                              │ │                                     │ 
+                              │ │   dev-1 · developer · 45m           │ 
+                              │ │  ▌ Starting the reading             │ 
+                              │ │  ▌ reminders with the sample        │ 
+────────────────────────────────────────────────────────────────────────
+ ↑↓ select · enter open · b board · i inbox · n new lead · q quit       

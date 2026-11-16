@@ -1,0 +1,138 @@
+name: Release
+
+# On a version tag this workflow builds the macOS binary, publishes it as a release on the
+# public daderoode/homebrew-tap repo, and commits the rendered formula there. See README.md,
+# Releasing. Apple silicon only: macOS minutes cost ten times Linux ones; v0.3.1 is the
+# last release with an Intel build.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Check the tagged commit is on master
+        run: |
+          git fetch origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on origin/master"
+            exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # the stable branch on 2026-10-16
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+      - name: Check the tag matches the package and plugin versions
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          PLUGIN_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("herdr-plugin.toml", "rb"))["version"])')
+          CLAUDE_VERSION=$(jq -r '.version' claude-plugin/.claude-plugin/plugin.json)
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ] || [ "$TAG_VERSION" != "$PLUGIN_VERSION" ] || [ "$TAG_VERSION" != "$CLAUDE_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml ($CARGO_VERSION), herdr-plugin.toml ($PLUGIN_VERSION) and claude-plugin/.claude-plugin/plugin.json ($CLAUDE_VERSION)"
+            exit 1
+          fi
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          ARCHIVE=tower-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          mkdir -p stage/claude
+          cp target/${{ matrix.target }}/release/tower herdr-plugin.toml stage/
+          cp -R .claude-plugin claude-plugin stage/claude/
+          tar -czf "$ARCHIVE" -C stage tower herdr-plugin.toml claude
+          shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish to Homebrew tap
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Render formula
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          SHA_ARM=$(awk '{print $1}' "dist/tower-${TAG}-aarch64-apple-darwin.tar.gz.sha256")
+          BASE_URL="https://github.com/daderoode/homebrew-tap/releases/download/control-tower-${TAG}"
+          sh packaging/render-formula.sh "$VERSION" "$BASE_URL" "$SHA_ARM" > control-tower.rb
+
+      - name: Create release on homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          RELEASE="control-tower-${TAG}"
+          # A re-run after a later step failed finds the release already there: replace its
+          # assets. Only "release not found" creates one; any other failure stops the job.
+          if VIEW=$(gh release view "$RELEASE" --repo daderoode/homebrew-tap --json tagName 2>&1); then
+            EXISTS=yes
+          elif printf '%s' "$VIEW" | grep -q 'release not found'; then
+            EXISTS=no
+          else
+            echo "::error::cannot check for release $RELEASE: $VIEW"
+            exit 1
+          fi
+          if [ "$EXISTS" = yes ]; then
+            gh release upload "$RELEASE" --repo daderoode/homebrew-tap --clobber \
+              dist/tower-"${TAG}"-*.tar.gz dist/tower-"${TAG}"-*.tar.gz.sha256
+          else
+            gh release create "$RELEASE" \
+              --repo daderoode/homebrew-tap \
+              --title "control-tower ${TAG#v}" \
+              --notes "tower ${TAG#v} for macOS, built from daderoode/control-tower at ${GITHUB_SHA}." \
+              dist/tower-"${TAG}"-*.tar.gz dist/tower-"${TAG}"-*.tar.gz.sha256
+          fi
+
+      - name: Push formula to homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          FORMULA=Formula/control-tower.rb
+          CONTENT=$(base64 -w 0 control-tower.rb)
+          # The first release creates the file, so there is no sha to send. Any other lookup
+          # failure leaves FILE_SHA empty and the PUT below fails loudly.
+          FILE_SHA=$(gh api "repos/daderoode/homebrew-tap/contents/$FORMULA" --jq '.sha' 2>/dev/null || true)
+          set -- --method PUT \
+            --raw-field message="control-tower ${VERSION}" \
+            --raw-field content="$CONTENT" \
+            --raw-field branch="master"
+          if [ -n "$FILE_SHA" ]; then
+            set -- "$@" --raw-field sha="$FILE_SHA"
+          fi
+          gh api "repos/daderoode/homebrew-tap/contents/$FORMULA" "$@"

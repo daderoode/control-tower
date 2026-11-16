@@ -1,0 +1,30 @@
+ nothing needs you                                                                   new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                            │ M1  First shop pages · Catalogue Lead                open milestone (enter) ▶ 
+   Catalogue Lead                       │ goal A reader can find a book, see its page and save it.                      
+   ▾ M1 First shop pages  ██░░░░░░  33% │ [in progress] ███████░░░░░░░░░░░░░░░░░ 33% 1/3 tasks done                     
+     ✓ Bookmarks page         no ticket │ ┌────────────────────────┬────────────────────────┬─────────────────────────┐ 
+     ● New book shelf              #113 │ │ WAITING 1              │ IN PROGRESS 1          │ DONE 1                  │ 
+     ○ Show each book's       no ticket │ ├────────────────────────┼────────────────────────┼─────────────────────────┤ 
+       reviews under its cover, newest …│ │ unassigned             │ #113 unassigned        │ unassigned              │ 
+────────────────────────────────────────│ └────────────────────────┴────────────────────────┴─────────────────────────┘ 
+                                        │                                                                               
+ ▾ checkout                             │ MESSAGE BOARD · M1 and its tasks Catalogue Lead         open full board (b) ▶ 
+   Checkout Lead with a name long enoug…│ nothing on this board needs you                                               
+   ▾ M2 Checkout with a   ████████ 100% │ no threads yet                                                                
+     title long enough to be cut in a n…│                                                                               
+     ✓ Shelf layout           no ticket │                                                                               
+     ✓ 日本語のタスク名と絵文 no ticket │                                                                               
+       字です                           │                                                                               
+────────────────────────────────────────│                                                                               
+                                        │                                                                               
+ ▾ search                               │                                                                               
+   no lead yet: n starts one            │                                                                               
+   ▾ M3 Search by author  ░░░░░░░░   0% │                                                                               
+     no tasks yet                       │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · PgUp PgDn scroll · q quit             

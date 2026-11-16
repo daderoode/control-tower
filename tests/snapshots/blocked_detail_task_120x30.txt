@@ -1,0 +1,30 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead in ‘Sh…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue               ⚠1 1 blocked │ task #14 Show each book's reviews under its cover, newest firs… ◀ close (esc) 
+   Catalogue Lead                       │ milestone  M1 First shop pages · Catalogue Lead                               
+   ▾ M1 First shop pages  ██░░░░░░  33% │ assigned   dev-1 · team dev-2, dev-1, senior, qa                              
+     ✓ Bookmarks page         no ticket │ doing      Starting the reading reminders with the sample catalogue.          
+     ● New book shelf              #113 │ blocked    printer has not sent the covers                                    
+     ○ Show each book's     ! no ticket │ blocked by nothing                                                            
+       reviews under its cover, newest …│ MR         none yet                                                           
+────────────────────────────────────────│ context    none                                                               
+                                        │ ticket     no ticket                                                          
+ ▾ checkout                             │ tracker    none                                                               
+   Checkout Lead with a name long enoug…│                                                                               
+   ▾ M2 Checkout with a   ████████ 100% │ DESCRIPTION                                                                   
+     title long enough to be cut in a n…│ no description yet                                                            
+     ✓ Shelf layout           no ticket │                                                                               
+     ✓ 日本語のタスク名と絵文 no ticket │ ACCEPTANCE CRITERIA 0/0                                                       
+       字です                           │ none                                                                          
+────────────────────────────────────────│                                                                               
+                                        │ SUBTASKS 0/0                                                                  
+ ▾ search                               │ none                                                                          
+   no lead yet: n starts one            │                                                                               
+   ▾ M3 Search by author  ░░░░░░░░   0% │ THREAD                                                                        
+     no tasks yet                       │ ⚠ Needs you · 1                                                               
+                                        │   cat-lead question: the covers are late again. @ma…  in Show each book's rev…
+                                        │ ┌───────────────────────────────────────────────────────────────────────────┐ 
+                                        │ │ [open] Show each book's reviews under its cover, newest first, with a li… │ 
+                                        │ │ T4 · 3 messages ·  15m                                                    │ 
+                                        │ │ waiting · dev-1 · started by dev-1                                        │ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · esc back · o open ticket · b board · i inbox · n new lead · q quit                  

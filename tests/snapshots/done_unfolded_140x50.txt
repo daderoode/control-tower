@@ -1,0 +1,50 @@
+ ⚠ 2 need you · ⓘ 1 for your awareness · newest: cat-lead in ‘Show each book's revie…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                             ⚠2 ⓘ1 │ Done  3 milestones · catalogue · Catalogue Lead                                      ⚠1 ⓘ1 
+   Catalogue Lead                              │ Milestones with the lead's Done mark, most recently done first.                            
+   ▾ M1 First shop pages         ██░░░░░░  33% │  ✓ M6 0.1.7: repo leads                                                   1/1 · 14/01/2027 
+     ✓ Bookmarks page                no ticket │  ✓ M4 0.1.6: dashboard workspace                                          2/2 · 13/01/2027 
+     ● New book shelf                     #113 │  ✓ M5 0.1.5: lead skill                                            1/1 · date not recorded 
+     ○ Show each book's reviews      no ticket │                                                                                            
+       under its cover, newest first, with a l…│ MESSAGE BOARD · Done milestones Catalogue Lead                       open full board (b) ▶ 
+                                               │ ⚠ Needs you · 1                                                                            
+   ▾ Done  3 milestones                  ⚠1 ⓘ1 │   cat-lead question: @manager 0.1.6 is out. Do you want to t…  in Is 0.1.6 ready to mark D…
+     ✓ M6 0.1.7: repo leads         14/01/2027 │ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
+     ✓ M4 0.1.6: dashboard          13/01/2027 │ │ [open] task 62                                                 T10 · 1 message ·  30m  │ 
+       workspace                               │ │ done · unassigned · started by cat-lead                                                │ 
+     ✓ M5 0.1.5: lead skill  date not recorded │ │ where it stands cat-lead: decision: @manager notes go in CHANGELOG.md only             │ 
+───────────────────────────────────────────────│ │                                                                                        │ 
+                                               │ │   cat-lead · lead · decision · 30m                                                     │ 
+ ▾ checkout                                    │ │  ▌ decision: @manager notes go in CHANGELOG.md only                                    │ 
+   Checkout Lead with a name long enough to be…│ │                                                                            open chat ▶ │ 
+   ▾ M2 Checkout with a title    ████████ 100% │ └────────────────────────────────────────────────────────────────────────────────────────┘ 
+     long enough to be cut in a narrow pane    │ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
+     ✓ Shelf layout                  no ticket │ │ [open] Is 0.1.6 ready to mark Done?                             T9 · 1 message ·  30m  │ 
+     ✓ 日本語のタスク名と絵文字です  no ticket │ │ on M4 · started by cat-lead                                                            │ 
+───────────────────────────────────────────────│ │ where it stands cat-lead: question: @manager 0.1.6 is out. Do you want to trial it be… │ 
+                                               │ │                                                                                        │ 
+ ▾ search                                      │ │   cat-lead · lead · needs you · 30m                                                    │ 
+   no lead yet: n starts one                   │ │  ▌ question: @manager 0.1.6 is out. Do you want to trial it before I mark              │ 
+   ▾ M3 Search by author         ░░░░░░░░   0% │ │  ▌ it Done?                                                                            │ 
+     no tasks yet                              │ │                                                                            open chat ▶ │ 
+                                               │ └────────────────────────────────────────────────────────────────────────────────────────┘ 
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+                                               │                                                                                            
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · PgUp PgDn scroll · click a row or card · q quit           

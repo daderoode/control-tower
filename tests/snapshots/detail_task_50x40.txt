@@ -1,0 +1,40 @@
+ nothing needs you             inbox (i) ▶  14:32 
+ task #13 New book shelf [in progr… ◀ close (esc) 
+ milestone  M1 First shop pages · Catalogue Lead  
+ assigned   dev-2 · team dev-1, dev-2             
+ doing      nothing posted yet                    
+ blocked by ○ #14 Show each book's reviews under …
+            #99                                   
+ MR         !44 draft into feat/bookmarks ·       
+            pipeline running                      
+ context    Test with the sample catalogue.       
+ ticket     #13                                   
+ tracker    https://github.com/example/bookshop/is
+            sues/13                               
+                                                  
+ DESCRIPTION                                      
+ The shelf shows the twelve newest books with     
+ their covers, newest first.                      
+ A ribbon marks the books that came in this week. 
+                                                  
+ ACCEPTANCE CRITERIA 1/2                          
+ [x] Shows the 12 newest books, newest first      
+ [ ] Checked on phone, tablet and desktop         
+                                                  
+ SUBTASKS 1/2                                     
+ [x] #31 Shelf grid                               
+ [ ] #32 New-book ribbon · in progress            
+                                                  
+ THREAD                                           
+ nothing on this board needs you                  
+ no thread for this task yet                      
+                                                  
+                                                  
+                                                  
+                                                  
+                                                  
+                                                  
+                                                  
+                                                  
+──────────────────────────────────────────────────
+ ↑↓ select · esc back · q quit                    

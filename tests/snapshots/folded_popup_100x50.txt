@@ -1,0 +1,50 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead · 15m  new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue            ⚠1 │ M1  First shop pages · Catalogue Lead         open milestone (enter) ▶ 
+   Catalogue Lead          │ goal A small shop's whole catalogue on one page that a reader can      
+   ▸ M1      ██░░░░░░  33% │      search, sort and share with a friend, from a phone or a laptop, w…
+     First shop pages      │ [in progress] ███████░░░░░░░░░░░░░░░░░ 33% 1/3 tasks done              
+     3 tasks ✓1 ●1 ○1      │ ┌──────────────────────┬──────────────────────┬──────────────────────┐ 
+───────────────────────────│ │ WAITING 1            │ IN PROGRESS 1        │ DONE 1               │ 
+                           │ ├──────────────────────┼──────────────────────┼──────────────────────┤ 
+ ▾ checkout                │ │ unassigned           │ #113 unassigned      │ done by lead         │ 
+   Checkout Lead with a na…│ └──────────────────────┴──────────────────────┴──────────────────────┘ 
+   ▾ M2      ████████ 100% │                                                                        
+     Checkout with a title…│ MESSAGE BOARD · M1 and its tasks Catalogue Lead  open full board (b) ▶ 
+     ✓ Shelf     no ticket │ ⚠ Needs you · 1                                                        
+       layout              │   cat-lead question: the covers are late again…  in Let a reader save …
+     ✓ 日本語の  no ticket │ ┌────────────────────────────────────────────────────────────────────┐ 
+       タスク名と絵文字です│ │ [open] New book shelf                      T3 · 7 messages ·   8m  │ 
+───────────────────────────│ │ in progress · unassigned · started by cat-lead                     │ 
+                           │ │ where it stands qa: copy, testing: phone and tablet pass, desktop… │ 
+ ▾ search                  │ │                         4 earlier messages                         │ 
+   no lead yet: n starts o…│ │                                                                    │ 
+   ▾ M3      ░░░░░░░░   0% │ │   dev-2 · developer · 12m                                          │ 
+     Search by author      │ │  ▌ I have done the shelf grid. Please test while I do              │ 
+     no tasks yet          │ │  ▌ the ribbon.                                                     │ 
+                           │ │    ↳ senior: copy, reviewing the layout · 10m                      │ 
+                           │ │                                                                    │ 
+                           │ │   qa · tester · 8m                                                 │ 
+                           │ │  ▌ copy, testing: phone and tablet pass, desktop shows             │ 
+                           │ │  ▌ 13 books, not 12                                                │ 
+                           │ │                                                        open chat ▶ │ 
+                           │ └────────────────────────────────────────────────────────────────────┘ 
+                           │ ┌────────────────────────────────────────────────────────────────────┐ 
+                           │ │ [open] Let a reader save a basket for later and pick it up on ano… │ 
+                           │ │ T4 · 3 messages ·  15m                                             │ 
+                           │ │ waiting · unassigned · started by dev-1                            │ 
+                           │ │ where it stands cat-lead: question: the covers are late again. @m… │ 
+                           │ │                                                                    │ 
+                           │ │   dev-1 · developer · 45m                                          │ 
+                           │ │  ▌ Starting the reading reminders with the sample                  │ 
+                           │ │  ▌ catalogue.                                                      │ 
+                           │ │  ▌ blocked · 20m                                                   │ 
+                           │ │  ▌ blocked: the printer has not sent the cover images              │ 
+                           │ │                                                                    │ 
+                           │ │   cat-lead · lead · needs you · 15m                                │ 
+                           │ │  ▌ question: the covers are late again. @manager can you           │ 
+                           │ │  ▌ call the printer?                                               │ 
+                           │ │                                                        open chat ▶ │ 
+                           │ └────────────────────────────────────────────────────────────────────┘ 
+                           │ ┌────────────────────────────────────────────────────────────────────┐ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · esc back · q close

@@ -1,0 +1,20 @@
+ nothing needs you                           new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                  │ catalogue · no lead yet: n… open repo (enter) ▶ 
+   no lead yet: n starts one  │ checkout /src/catalogue                         
+   ▾ M1 First   ██░░░░░░  33% │  ● M1 First shop pages          ███░░░░░░░  33% 
+     shop pages               │  standalone 0 · Done 0 milestones               
+     ✓ Bookmarks    no ticket │                                                 
+       page                   │ MESSAGE BOARD · whole repo                      
+     ● New book shelf    #113 │ no lead yet, so no message board                
+     ○ Show each    no ticket │                                                 
+       book's reviews under i…│                                                 
+──────────────────────────────│                                                 
+                              │                                                 
+ ▾ checkout                   │                                                 
+   no lead yet: n starts one  │                                                 
+   ▾ M2         ████████ 100% │                                                 
+     Checkout with a title lo…│                                                 
+     ✓ Shelf layout no ticket │                                                 
+     ✓ 日本語のタス no ticket │                                                 
+────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · i inbox · n new lead · q quit  

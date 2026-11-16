@@ -1,0 +1,50 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead · 15m   14:32 
+ ▾ catalogue               ⚠1 │ catalogue · Catalo… open repo (enter) ▶ 
+   Catalogue Lead             │ checkout /src/catalogue                 
+   ▾ M1 First   ██░░░░░░  33% │  ● M1 First shop pages  ███░░░░░░░  33% 
+     shop pages               │  standalone 0 · Done 0 milestones       
+     ✓ Bookmarks    no ticket │                                         
+       page                   │ MESSAGE BOARD · … open full board (b) ▶ 
+     ● New book shelf    #113 │ ⚠ Needs you · 1                         
+     ○ Show each    no ticket │   cat-lead question: the c…  in Show ea…
+       book's reviews under i…│ ┌─────────────────────────────────────┐ 
+──────────────────────────────│ │ [open] Triage of the new issues     │ 
+                              │ │ T8 · 1 message ·   3m               │ 
+ ▾ checkout                   │ │ repo-wide · started by cat-lead     │ 
+   Checkout Lead with a name …│ │ where it stands cat-lead: Triage: … │ 
+   ▾ M2         ████████ 100% │ │                                     │ 
+     Checkout with a title lo…│ │   cat-lead · lead · 3m              │ 
+     ✓ Shelf layout no ticket │ │  ▌ Triage: two bugs labelled        │ 
+     ✓ 日本語のタス no ticket │ │  ▌ ready-for-agent.                 │ 
+       ク名と絵文字です       │ │                         open chat ▶ │ 
+──────────────────────────────│ └─────────────────────────────────────┘ 
+                              │ ┌─────────────────────────────────────┐ 
+ ▾ search                     │ │ [open] New book shelf               │ 
+   no lead yet: n starts one  │ │ T3 · 7 messages ·   8m              │ 
+   ▾ M3 Search  ░░░░░░░░   0% │ │ in progress · unassigned · started… │ 
+     by author                │ │ where it stands qa: copy, testing:… │ 
+     no tasks yet             │ │         3 earlier messages          │ 
+                              │ │                                     │ 
+                              │ │   qa · tester · 52m                 │ 
+                              │ │  ▌ copy, preparing the shelf        │ 
+                              │ │  ▌ at three sizes: phone,           │ 
+                              │ │  ▌ tablet, desktop                  │ 
+                              │ │                                     │ 
+                              │ │   dev-2 · developer · 12m           │ 
+                              │ │  ▌ I have done the shelf            │ 
+                              │ │  ▌ grid. Please test while I        │ 
+                              │ │  ▌ do the ribbon.                   │ 
+                              │ │    ↳ senior: copy,                  │ 
+                              │ │      reviewing the layout · 10m     │ 
+                              │ │                                     │ 
+                              │ │   qa · tester · 8m                  │ 
+                              │ │  ▌ copy, testing: phone and         │ 
+                              │ │  ▌ tablet pass, desktop shows       │ 
+                              │ │  ▌ 13 books, not 12                 │ 
+                              │ │                         open chat ▶ │ 
+                              │ └─────────────────────────────────────┘ 
+                              │ ┌─────────────────────────────────────┐ 
+                              │ │ [open] Show each book's reviews un… │ 
+                              │ │ T4 · 3 messages ·  15m              │ 
+────────────────────────────────────────────────────────────────────────
+ ↑↓ select · enter open · b board · i inbox · n new lead · q quit       

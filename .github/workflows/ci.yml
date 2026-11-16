@@ -1,0 +1,110 @@
+name: CI
+
+# The quality gate (SDLC.md) on every pull request and on master, one step per check so a
+# failure names which one. It runs here, not on a developer's machine, and on Linux,
+# which costs a tenth of a macOS minute. The product ships only for macOS: the few tests
+# that depend on how macOS behaves are #[cfg(target_os = "macos")] and run in macos.yml,
+# which also builds the hand-off binary. The job keeps the name "Quality gate", the check
+# master's branch protection requires. The toolchain is stable, so a red master after a new
+# Rust release is a lint-drift fix, not a regression.
+#
+# `cargo test` needs no herdr, claude or network: the tests use fake herdr and claude
+# scripts and temp boards. The one test against a real herdr is #[ignore]d. It runs twice:
+# as the runner has it, with no TOWER_DB, then with TOWER_DB naming a temp board, reusing
+# the build, so a test whose result depends on the caller's TOWER_DB fails CI.
+#
+# When the tests fail, the UI tests run once more with UPDATE_SNAPSHOTS=1 on this runner, so
+# with the same rendering; when a snapshot comes out new or changed, the whole snapshots
+# folder as this run renders it is uploaded, with snapshots-changed.txt naming the new and
+# changed files, as the artifact `snapshots-<first 12 characters of the PR's head commit>`:
+# the dev downloads it, checks each named file against the signed UI copy and
+# stages it, one push round however many a change touches. Never on a passing run, and
+# never committed from here.
+#
+# The secrets job runs gitleaks over the commits a pull request or a push brings, so no
+# credential lands in this public repo. The action and the gitleaks it runs are pinned, as is
+# every action here (by full commit SHA, the version in a comment).
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # the stable branch on 2026-10-16
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: cargo fmt
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: cargo test
+        id: test
+        run: cargo test
+      - name: "cargo test with TOWER_DB set (no result may depend on it)"
+        id: test_db
+        env:
+          TOWER_DB: ${{ runner.temp }}/tower-ci.db
+        run: cargo test
+      # Every UI test runs here, those after a failing one too, so each snapshot it asserts
+      # is written; their own pass or fail is the steps' above, so this step never fails.
+      - name: "Snapshots as this runner renders them (only after failing tests)"
+        id: snapshots
+        if: failure() && (steps.test.outcome == 'failure' || steps.test_db.outcome == 'failure')
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          UPDATE_SNAPSHOTS=1 cargo test --test ui > /dev/null 2>&1 || true
+          git status --porcelain --untracked-files=all -- tests/snapshots | tee snapshots-changed.txt
+          echo "sha12=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          if [ -s snapshots-changed.txt ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "new or changed snapshots: artifact snapshots-${SHA:0:12}"
+          else
+            echo "no snapshot changed: the failure is elsewhere"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure() && steps.snapshots.outputs.changed == 'true'
+        with:
+          name: snapshots-${{ steps.snapshots.outputs.sha12 }}
+          path: |
+            tests/snapshots/
+            snapshots-changed.txt
+          retention-days: 7
+
+  secrets:
+    name: Secrets scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # gitleaks-action reads a pull request's commits through the API.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_ENABLE_COMMENTS: false

@@ -1,0 +1,26 @@
+ nothing needs you    inbox (i) ▶ 
+ ▾ catalogue                      
+   Catalogue Lead                 
+   ▾ M1 First shop  ██░░░░░░  33% 
+     pages                        
+     ✓ Bookmarks page   no ticket 
+     ● New book shelf        #113 
+     ○ Show each book's no ticket 
+       reviews under its cover, n…
+                                  
+   standalone · no mile… 1/3 done 
+     ● Sort the #64 · dev-3 · 1/3 
+       poetry shelf by poet       
+     ○ Add a notes box  no ticket 
+       to each bookmark with a wo…
+     ✓ Dust the shelves no ticket 
+──────────────────────────────────
+                                  
+ ▾ checkout                       
+   Checkout Lead with a name long…
+   ▾ M2 Checkout    ████████ 100% 
+     with a title long enough to …
+     ✓ Shelf layout     no ticket 
+     ✓ 日本語のタスク名 no ticket 
+──────────────────────────────────
+ ↑↓ select · enter open · q quit  

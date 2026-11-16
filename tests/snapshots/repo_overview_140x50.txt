@@ -1,0 +1,50 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead in ‘Show each book's revie…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                                ⚠1 │ catalogue · Catalogue Lead · https://github.com/example/catalogue      open repo (enter) ▶ 
+   Catalogue Lead                              │ checkout /src/catalogue                                                                    
+   ▾ M1 First shop pages         ██░░░░░░  33% │  ● M1 First shop pages                                                     ███░░░░░░░  33% 
+     ✓ Bookmarks page                no ticket │  standalone 0 · Done 0 milestones                                                          
+     ● New book shelf                     #113 │                                                                                            
+     ○ Show each book's reviews      no ticket │ MESSAGE BOARD · whole repo Catalogue Lead                            open full board (b) ▶ 
+       under its cover, newest first, with a l…│ ⚠ Needs you · 1                                                                            
+───────────────────────────────────────────────│   cat-lead question: the covers are late again. @manager can…  in Show each book's reviews…
+                                               │ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
+ ▾ checkout                                    │ │ [open] Triage of the new issues                                 T8 · 1 message ·   3m  │ 
+   Checkout Lead with a name long enough to be…│ │ repo-wide · started by cat-lead                                                        │ 
+   ▾ M2 Checkout with a title    ████████ 100% │ │ where it stands cat-lead: Triage: two bugs labelled ready-for-agent.                   │ 
+     long enough to be cut in a narrow pane    │ │                                                                                        │ 
+     ✓ Shelf layout                  no ticket │ │   cat-lead · lead · 3m                                                                 │ 
+     ✓ 日本語のタスク名と絵文字です  no ticket │ │  ▌ Triage: two bugs labelled ready-for-agent.                                          │ 
+───────────────────────────────────────────────│ │                                                                            open chat ▶ │ 
+                                               │ └────────────────────────────────────────────────────────────────────────────────────────┘ 
+ ▾ search                                      │ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
+   no lead yet: n starts one                   │ │ [open] New book shelf                                          T3 · 7 messages ·   8m  │ 
+   ▾ M3 Search by author         ░░░░░░░░   0% │ │ in progress · unassigned · started by cat-lead                                         │ 
+     no tasks yet                              │ │ where it stands qa: copy, testing: phone and tablet pass, desktop shows 13 books, not… │ 
+                                               │ │                                   3 earlier messages                                   │ 
+                                               │ │                                                                                        │ 
+                                               │ │   qa · tester · 52m                                                                    │ 
+                                               │ │  ▌ copy, preparing the shelf at three sizes: phone, tablet, desktop                    │ 
+                                               │ │                                                                                        │ 
+                                               │ │   dev-2 · developer · 12m                                                              │ 
+                                               │ │  ▌ I have done the shelf grid. Please test while I do the ribbon.                      │ 
+                                               │ │    ↳ senior: copy, reviewing the layout · 10m                                          │ 
+                                               │ │                                                                                        │ 
+                                               │ │   qa · tester · 8m                                                                     │ 
+                                               │ │  ▌ copy, testing: phone and tablet pass, desktop shows 13 books, not 12                │ 
+                                               │ │                                                                            open chat ▶ │ 
+                                               │ └────────────────────────────────────────────────────────────────────────────────────────┘ 
+                                               │ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
+                                               │ │ [open] Show each book's reviews under its cover, newest first, with a link to the rest │ 
+                                               │ │ T4 · 3 messages ·  15m                                                                 │ 
+                                               │ │ waiting · unassigned · started by dev-1                                                │ 
+                                               │ │ where it stands cat-lead: question: the covers are late again. @manager can you call … │ 
+                                               │ │                                                                                        │ 
+                                               │ │   dev-1 · developer · 45m                                                              │ 
+                                               │ │  ▌ Starting the reading reminders with the sample catalogue.                           │ 
+                                               │ │  ▌ blocked · 20m                                                                       │ 
+                                               │ │  ▌ blocked: the printer has not sent the cover images                                  │ 
+                                               │ │                                                                                        │ 
+                                               │ │   cat-lead · lead · needs you · 15m                                                    │ 
+                                               │ │  ▌ question: the covers are late again. @manager can you call the                      │ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · PgUp PgDn scroll · click a row or card · q quit           

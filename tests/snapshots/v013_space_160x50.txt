@@ -1,0 +1,50 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead in ‘Let a reader save a basket for later and p…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                                       ⚠1 │ M1  First shop pages · Catalogue Lead                                          open milestone (enter) ▶ 
+   Catalogue Lead                                     │ goal A small shop's whole catalogue on one page that a reader can search, sort and share with a friend, 
+   ▾ M1 First shop pages                ██░░░░░░  33% │      from a phone or a laptop, with the newest books first.                                             
+     ✓ Bookmarks page                       no ticket │ [in progress] ███████░░░░░░░░░░░░░░░░░ 33% 1/3 tasks done                                               
+     ● New book shelf                            #113 │ ┌─────────────────────────────────┬─────────────────────────────────┬─────────────────────────────────┐ 
+     ○ Let a reader save a basket for later no ticket │ │ WAITING 1                       │ IN PROGRESS 1                   │ DONE 1                          │ 
+       and pick it up on another device, even after s…│ ├─────────────────────────────────┼─────────────────────────────────┼─────────────────────────────────┤ 
+──────────────────────────────────────────────────────│ │ unassigned                      │ #113 unassigned                 │ done by lead                    │ 
+                                                      │ └─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────┘ 
+ ▾ checkout                                           │                                                                                                         
+   Checkout Lead with a name long enough to be cut    │ MESSAGE BOARD · M1 and its tasks Catalogue Lead                                   open full board (b) ▶ 
+   ▾ M2 Checkout with a title long      ████████ 100% │ ⚠ Needs you · 1                                                                                         
+     enough to be cut in a narrow pane                │   cat-lead question: the covers are late again. @manager can you cal…  in Let a reader save a basket fo…
+     ✓ Shelf layout                         no ticket │ ┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐ 
+     ✓ 日本語のタスク名と絵文字です         no ticket │ │ [open] New book shelf                                                       T3 · 7 messages ·   8m  │ 
+──────────────────────────────────────────────────────│ │ in progress · unassigned · started by cat-lead                                                      │ 
+                                                      │ │ where it stands qa: copy, testing: phone and tablet pass, desktop shows 13 books, not 12            │ 
+ ▾ search                                             │ │                                         3 earlier messages                                          │ 
+   no lead yet: n starts one                          │ │                                                                                                     │ 
+   ▾ M3 Search by author                ░░░░░░░░   0% │ │   qa · tester · 52m                                                                                 │ 
+     no tasks yet                                     │ │  ▌ copy, preparing the shelf at three sizes: phone, tablet, desktop                                 │ 
+                                                      │ │                                                                                                     │ 
+                                                      │ │   dev-2 · developer · 12m                                                                           │ 
+                                                      │ │  ▌ I have done the shelf grid. Please test while I do the ribbon.                                   │ 
+                                                      │ │    ↳ senior: copy, reviewing the layout · 10m                                                       │ 
+                                                      │ │                                                                                                     │ 
+                                                      │ │   qa · tester · 8m                                                                                  │ 
+                                                      │ │  ▌ copy, testing: phone and tablet pass, desktop shows 13 books, not 12                             │ 
+                                                      │ │                                                                                         open chat ▶ │ 
+                                                      │ └─────────────────────────────────────────────────────────────────────────────────────────────────────┘ 
+                                                      │ ┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐ 
+                                                      │ │ [open] Let a reader save a basket for later and pick it up on another device, even after signing o… │ 
+                                                      │ │ T4 · 3 messages ·  15m                                                                              │ 
+                                                      │ │ waiting · unassigned · started by dev-1                                                             │ 
+                                                      │ │ where it stands cat-lead: question: the covers are late again. @manager can you call the printer?   │ 
+                                                      │ │                                                                                                     │ 
+                                                      │ │   dev-1 · developer · 45m                                                                           │ 
+                                                      │ │  ▌ Starting the reading reminders with the sample catalogue.                                        │ 
+                                                      │ │  ▌ blocked · 20m                                                                                    │ 
+                                                      │ │  ▌ blocked: the printer has not sent the cover images                                               │ 
+                                                      │ │                                                                                                     │ 
+                                                      │ │   cat-lead · lead · needs you · 15m                                                                 │ 
+                                                      │ │  ▌ question: the covers are late again. @manager can you call the printer?                          │ 
+                                                      │ │                                                                                         open chat ▶ │ 
+                                                      │ └─────────────────────────────────────────────────────────────────────────────────────────────────────┘ 
+                                                      │ ┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐ 
+                                                      │ │ [open] Scope check                                                           T6 · 1 message ·  50m  │ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · b board · i inbox · n new lead · PgUp PgDn scroll · click a row or card · q quit                               

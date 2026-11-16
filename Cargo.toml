@@ -1,0 +1,29 @@
+[package]
+name = "control-tower"
+version = "0.3.1"
+edition = "2024"
+description = "A taskboard for a team of Claude Code agents in herdr."
+publish = false
+
+[[bin]]
+name = "tower"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
+nix = { version = "0.31", default-features = false, features = ["signal", "user"] }
+ratatui = "0.30"
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+signal-hook = "0.3"
+textwrap = "0.16.4"
+unicode-segmentation = "1"
+unicode-properties = { version = "0.1", default-features = false, features = ["general-category"] }
+unicode-width = "0.2"
+url = "2.5.8"
+
+[dev-dependencies]
+tempfile = "3"

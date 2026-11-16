@@ -1,0 +1,27 @@
+{
+  "description": "control-tower: a lead may not end its turn while posts on its board are unread, and a lead's session that starts again (a restart, resume, /clear, compaction or fork) is attached again and told how to resume leading (tower lead hook does both). Any session that is not a lead passes.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tower lead hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tower lead hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

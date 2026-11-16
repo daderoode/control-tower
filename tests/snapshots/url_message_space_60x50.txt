@@ -1,0 +1,50 @@
+ ◀ back  MESSAGE BOARD · catalogue · Catalogue Lead … 14:32 
+ ⚠ Needs you · 2                                            
+   cat-lead question: @manager the book…  in New book shelf…
+   cat-lead question: the covers are la…  in Show each book…
+                                                            
+ OPEN 2                                                     
+ ● New book shelf                                        8m 
+ ● Show each book's reviews under its cover, newest f…  15m 
+                                                            
+ RESOLVED 1 ▸                                               
+────────────────────────────────────────────────────────────
+ [open] New book shelf               T3 · 9 messages ·   8m 
+ in progress · unassigned · started by cat-lead             
+────────────────────────────────────────────────────────────
+                                                            
+ ▌ Picked up #13 from the M1 spec. Opening this thread for  
+ ▌ its team.                                                
+                                                            
+  dev-2 · developer · 55m                                   
+ ▌ copy, reading the spec and the shelf fields in the       
+ ▌ catalogue                                                
+                                                            
+  senior · reviewer · 54m                                   
+ ▌ copy, I'll review as soon as there is a diff             
+                                                            
+  qa · tester · 52m                                         
+ ▌ copy, preparing the shelf at three sizes: phone,         
+ ▌ tablet, desktop                                          
+                                                            
+  dev-2 · developer · 12m                                   
+ ▌ I have done the shelf grid. Please test while I do the   
+ ▌ ribbon.                                                  
+   ↳ senior: copy, reviewing the layout · 10m               
+                                                            
+  qa · tester · 8m                                          
+ ▌ copy, testing: phone and tablet pass, desktop shows 13   
+ ▌ books, not 12                                            
+                                                            
+  cat-lead · lead · needs you · 9m                          
+ ▌ question: @manager the bookmarks preview is ready:       
+ ▌ https://gitlab.example.com/acme/bookshop/web/-/          
+ ▌   merge_requests/27                                      
+ ▌ It adds the bookmark list and the reading reminder.      
+ ▌ 8m                                                       
+ ▌ Icons live in assets/icons/bookmarks/outline/            
+ ▌ bookmark-ribbon.svg, one file an icon.                   
+────────────────────────────────────────────────────────────
+ manager ▌Type to write to the team, e.g. copy, app…  Post  
+────────────────────────────────────────────────────────────
+ ↑↓ threads · type to write · enter posts                   

@@ -1,0 +1,70 @@
+ nothing needs you                                                                   new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                            │ M1  First shop pages                                            ◀ close (esc) 
+   Catalogue Lead                       │ goal       A reader can find a book, see its page and save it.                
+   ▾ M1 First shop pages  ██░░░░░░  33% │ stage      [in progress] ██████░░░░░░░░░░░░░░ 33% 1/3 tasks done              
+     ✓ Bookmarks page         no ticket │ lead       Catalogue Lead                                                     
+     ● New book shelf               #13 │ team       dev-1, dev-2, senior, qa                                           
+     ○ Show each book's       no ticket │ context    One branch per task; you approve each release. Test with the demo  
+       reviews under its cover, newest …│            shop only.                                                         
+────────────────────────────────────────│ spec       docs/specs/first-shop-pages.md (from /to-spec)                     
+                                        │ tracker    https://github.com/example/bookshop/milestone/1                    
+ ▾ checkout                             │                                                                               
+   Checkout Lead with a name long enoug…│ TASKS 1/3                                                                     
+   ▾ M2 Checkout with a   ████████ 100% │ ✓ #12 Bookmarks page                                             dev-1 [done] 
+     title long enough to be cut in a n…│      A shelf of the newest books, so a reader sees what came in.              
+     ✓ Shelf layout           no ticket │ ● #13 New book shelf                                      dev-2 [in progress] 
+     ✓ 日本語のタスク名と絵文 no ticket │      The shelf shows the twelve newest books with their covers, newest first. 
+       字です                           │ ○ #14 Show each book's reviews under its cover, newest … unassigned [waiting] 
+────────────────────────────────────────│                                                                               
+                                        │ MESSAGE BOARD                                                                 
+ ▾ search                               │ nothing on this board needs you                                               
+   no lead yet: n starts one            │ ┌───────────────────────────────────────────────────────────────────────────┐ 
+   ▾ M3 Search by author  ░░░░░░░░   0% │ │ [open] New book shelf                             T3 · 7 messages ·   8m  │ 
+     no tasks yet                       │ │ in progress · dev-2 · started by cat-lead                                 │ 
+                                        │ │ where it stands qa: copy, testing: phone and tablet pass, desktop shows … │ 
+                                        │ │                            3 earlier messages                             │ 
+                                        │ │                                                                           │ 
+                                        │ │   qa · tester · 52m                                                       │ 
+                                        │ │  ▌ copy, preparing the shelf at three sizes: phone, tablet,               │ 
+                                        │ │  ▌ desktop                                                                │ 
+                                        │ │                                                                           │ 
+                                        │ │   dev-2 · developer · 12m                                                 │ 
+                                        │ │  ▌ I have done the shelf grid. Please test while I do the                 │ 
+                                        │ │  ▌ ribbon.                                                                │ 
+                                        │ │    ↳ senior: copy, reviewing the layout · 10m                             │ 
+                                        │ │                                                                           │ 
+                                        │ │   qa · tester · 8m                                                        │ 
+                                        │ │  ▌ copy, testing: phone and tablet pass, desktop shows 13                 │ 
+                                        │ │  ▌ books, not 12                                                          │ 
+                                        │ │                                                               open chat ▶ │ 
+                                        │ └───────────────────────────────────────────────────────────────────────────┘ 
+                                        │ ┌───────────────────────────────────────────────────────────────────────────┐ 
+                                        │ │ [open] Show each book's reviews under its cover, newest first, with a li… │ 
+                                        │ │ T4 · 3 messages ·  15m                                                    │ 
+                                        │ │ waiting · unassigned · started by dev-1                                   │ 
+                                        │ │ where it stands cat-lead: question: the covers are late again. @manager … │ 
+                                        │ │                                                                           │ 
+                                        │ │   dev-1 · developer · 45m                                                 │ 
+                                        │ │  ▌ Starting the reading reminders with the sample catalogue.              │ 
+                                        │ │  ▌ blocked · 20m                                                          │ 
+                                        │ │  ▌ blocked: the printer has not sent the cover images                     │ 
+                                        │ │                                                                           │ 
+                                        │ │   cat-lead · lead · needs you · 15m                                       │ 
+                                        │ │  ▌ question: the covers are late again. @manager can you call             │ 
+                                        │ │  ▌ the printer?                                                           │ 
+                                        │ │                                                               open chat ▶ │ 
+                                        │ └───────────────────────────────────────────────────────────────────────────┘ 
+                                        │ RESOLVED 1 ▸                                                                  
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · esc back · b board · i inbox · n new lead · PgUp PgDn scroll · q quit               

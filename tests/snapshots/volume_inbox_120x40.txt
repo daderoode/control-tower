@@ -1,0 +1,40 @@
+ ◀ back  INBOX                                                                                                    14:32 
+ ⚠ 2 NEED YOU                                                                                                           
+   cat-lead       question: the covers are late again. @manager can you call th… catalogue · Show each book's re… · 15m 
+   dev-1          question: @manager which book goes first?                                      checkout · Shelf · 30m 
+                                                                                                                        
+ ⓘ 12 FOR YOUR AWARENESS                                                                                                
+   checkout-lead  decision: phones get 1 book per row. @manager for your awareness                checkout · Shelf · 2m 
+   cat-lead       decision: books out of print also leave the shelf. @manager for your… catalogue · New book shelf · 7m 
+   checkout-lead  decision: item 89, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 88, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 87, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 86, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 85, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 84, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 83, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 82, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 81, books keep their order. @manager for your awareness          checkout · Shelf · 1h 
+   checkout-lead  decision: item 80, books keep their order. @manager for your awareness          checkout · Shelf · 2h 
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · enter open thread · r clear · esc back · PgUp PgDn scroll · click an item · q quit                         

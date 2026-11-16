@@ -1,0 +1,26 @@
+ nothing needs you                           new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                  │ catalogue · Catalogue Lead  open repo (enter) ▶ 
+   Catalogue Lead             │ checkout /src/catalogue                         
+   ▾ M1 First   ██░░░░░░  33% │  ● M1 First shop pages          ███░░░░░░░  33% 
+     shop pages               │  standalone 0 · Done 0 milestones               
+     ✓ Bookmarks    no ticket │                                                 
+       page                   │ MESSAGE BOARD · whole re… open full board (b) ▶ 
+     ● New book shelf    #113 │ nothing on this board needs you                 
+     ○ Show each    no ticket │ no threads yet                                  
+       book's reviews under i…│                                                 
+──────────────────────────────│                                                 
+                              │                                                 
+ ▾ checkout                   │                                                 
+   Checkout Lead with a name …│                                                 
+   ▾ M2         ████████ 100% │                                                 
+     Checkout with a title lo…│                                                 
+     ✓ Shelf layout no ticket │                                                 
+     ✓ 日本語のタス no ticket │                                                 
+       ク名と絵文字です       │                                                 
+──────────────────────────────│                                                 
+                              │                                                 
+ ▾ search                     │                                                 
+   no lead yet: n starts one  │                                                 
+   ▾ M3 Search  ░░░░░░░░   0% │                                                 
+────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · enter open · b board · i inbox · n new lead · q quit               

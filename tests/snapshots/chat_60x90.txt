@@ -1,0 +1,90 @@
+ ◀ back  MESSAGE BOARD · catalogue · Catalogue Lead … 14:32 
+ ⚠ Needs you · 2                                            
+   cat-lead question: the covers are la…  in Show each book…
+   cat-lead question: @manager print th…  in New book shelf…
+                                                            
+ OPEN 2                                                     
+ ● New book shelf                                       now 
+ ● Show each book's reviews under its cover, newest f…  15m 
+                                                            
+ RESOLVED 1 ▸                                               
+────────────────────────────────────────────────────────────
+ [open] New book shelf              T3 · 12 messages ·  now 
+ in progress · unassigned · started by cat-lead             
+────────────────────────────────────────────────────────────
+                                                            
+ ─────────────────────── yesterday ──────────────────────── 
+                                                            
+  cat-lead · lead · 1d                                      
+ ▌ Picked up #13 yesterday; team below.                     
+   ↳ dev-2: copy · 1d                                       
+                                                            
+ ───────────────────────── 3h ago ───────────────────────── 
+                                                            
+  dev-2 · developer · 3h                                    
+ ▌ 1. a step of the plan with enough words to wrap a        
+ ▌ little                                                   
+ ▌ 2. a step of the plan with enough words to wrap a        
+ ▌ little                                                   
+ ▌ read more                                                
+                                                            
+ ───────────────────────── 2h ago ───────────────────────── 
+                                                            
+                  dev-2 was nudged 2 times                  
+                                                            
+        delivery failed to Catalogue Lead · details         
+                                                            
+ ──────────────────── within the hour ───────────────────── 
+                                                            
+  qa · tester · blocked · 50m                               
+ ▌ blocked: the printer has not replied                     
+ ▌ 40m                                                      
+ ▌ unblocked, testing now                                   
+                                                            
+  cat-lead · lead · needs you · 20m                         
+ ▌ question: @manager print the reading list now, or wait   
+ ▌ for the reply?                                           
+                                                            
+                                       you (manager) · 10m  
+                          Wait for the proofs.            ▐ 
+                            ↳ cat-lead: copy, waiting · 5m  
+                                                            
+ ────────────────────────── now ─────────────────────────── 
+                                                            
+          dev-2 left herdr while on #13 · details           
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+────────────────────────────────────────────────────────────
+ manager ▌Type to write to the team, e.g. copy, app…  Post  
+────────────────────────────────────────────────────────────
+ ↑↓ message · type to write · enter posts                   

@@ -1,0 +1,30 @@
+ ◀ back  MESSAGE BOARD · catalogue · Catalogue Lead · whole repo                                                  14:32 
+ ⚠ Needs you · 1                                                                                                        
+   cat-lead question: the covers are late again. @manager can you call the prin…  in Show each book's reviews under its…
+                                                                                                                        
+ OPEN 2                                 │ [open] New book shelf                                  T3 · 7 messages ·   8m 
+ ○ New book shelf                    8m │ in progress · unassigned · started by cat-lead                                
+   qa: copy, testing: phone and tablet …│ where it stands qa: copy, testing: phone and tablet pass, desktop shows 13 bo…
+                                        │───────────────────────────────────────────────────────────────────────────────
+ ● Show each book's reviews under   15m │                                                                               
+   its cover, newest first, with …      │                                                                               
+   cat-lead: question: the covers are l…│  dev-2 · developer · 55m                                                      
+                                        │ ▌ copy, reading the spec and the shelf fields in the catalogue                
+ RESOLVED 1 ▸                           │                                                                               
+                                        │  senior · reviewer · 54m                                                      
+                                        │ ▌ copy, I'll review as soon as there is a diff                                
+                                        │                                                                               
+                                        │  qa · tester · 52m                                                            
+                                        │ ▌ copy, preparing the shelf at three sizes: phone, tablet, desktop            
+                                        │                                                                               
+                                        │  dev-2 · developer · 12m                                                      
+                                        │ ▌ I have done the shelf grid. Please test while I do the ribbon.              
+                                        │   ↳ senior: copy, reviewing the layout · 10m                                  
+                                        │                                                                               
+                                        │  qa · tester · 8m                                                             
+                                        │ ▌ copy, testing: phone and tablet pass, desktop shows 13 books,               
+                                        │ ▌ not 12                                                                      
+                                        │───────────────────────────────────────────────────────────────────────────────
+                                        │ manager ▌Type to write to the team, e.g. copy, approved                 Post  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ threads · → read its messages · type to write · enter posts · alt+enter new line · esc back · PgUp PgDn scroll      

@@ -1,0 +1,40 @@
+ ◀ back  MESSAGE BOARD · catalogue · Catalogue Lead · whole repo                                                  14:32 
+ ⚠ Needs you · 1                                                                                                        
+   cat-lead question: the covers are late again. @manager can you call the prin…  in Show each book's reviews under its…
+                                                                                                                        
+ ○ New book shelf                    7m │ [resolved] Author photos, round 3                   T1019 · 2 messages ·  20h 
+   cat-lead: decision: books out of pri…│ on M1 · started by dev-2                                                      
+                                        │ where it stands cat-lead: resolved: live on the site; qa checked it on a phone
+ ● Show each book's reviews under   15m │───────────────────────────────────────────────────────────────────────────────
+   its cover, newest first, with …      │                                                                               
+   cat-lead: question: the covers are l…│ ────────────────────────────────── 20h ago ────────────────────────────────── 
+                                        │                                                                               
+ RESOLVED 34 ▾                          │  dev-2 · developer · 20h                                                      
+ ✓ Shelf labels, round 1             1h │ ▌ done: Author photos ready to look at. @manager for your                     
+ ✓ Author photos, round 1            2h │ ▌ awareness                                                                   
+ ✓ Ribbon hides the cover on phon…   2h │                                                                               
+ ✓ Search typos, round 1             3h │  cat-lead · lead · 20h                                                        
+ ✓ Staff picks, round 1              4h │ ▌ resolved: live on the site; qa checked it on a phone                        
+ ✓ Cover sizes, round 1              5h │                                                                               
+ ✓ Poetry corner, round 1            6h │                                                                               
+ ✓ Signing day, round 1              7h │                                                                               
+ ✓ Opening hours, round 1            8h │                                                                               
+ ✓ Reading list, round 1             9h │                                                                               
+ ✓ Shelf labels, round 2            10h │                                                                               
+ ✓ Author photos, round 2           11h │                                                                               
+ ✓ Search typos, round 2            12h │                                                                               
+ ✓ Staff picks, round 2             13h │                                                                               
+ ✓ Cover sizes, round 2             14h │                                                                               
+ ✓ Poetry corner, round 2           15h │                                                                               
+ ✓ Signing day, round 2             16h │                                                                               
+ ✓ Opening hours, round 2           17h │                                                                               
+ ✓ Reading list, round 2            18h │                                                                               
+ ✓ Shelf labels, round 3            19h │                                                                               
+ ✓ Author photos, round 3           20h │                                                                               
+ ✓ Search typos, round 3            21h │                                                                               
+ ✓ Staff picks, round 3             22h │                                                                               
+ ✓ Cover sizes, round 3             23h │                                                                               
+ ✓ Poetry corner, round 3            1d │───────────────────────────────────────────────────────────────────────────────
+ ✓ Signing day, round 3              1d │ resolved threads are read-only                                                
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ threads · → read its messages · ← fold resolved · esc back · PgUp PgDn scroll · click a thread · q quit             

@@ -1,0 +1,50 @@
+ ⚠ 1 need you · ⓘ 0 for your awareness · newest: cat-lead in ‘Sh…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                         ⚠1 │ M1  First shop pages · Catalogue Lead                     open task (enter) ▶ 
+   Catalogue Lead                       │ goal A reader can find a book, see its page and save it.                      
+   ▾ M1 First shop pages  ██░░░░░░  33% │ [in progress] ███████░░░░░░░░░░░░░░░░░ 33% 1/3 tasks done                     
+     ✓ Bookmarks page         no ticket │ ┌────────────────────────┬────────────────────────┬─────────────────────────┐ 
+     ● New book shelf              #113 │ │ WAITING 1              │ IN PROGRESS 1          │ DONE 1                  │ 
+     ○ Show each book's       no ticket │ ├────────────────────────┼────────────────────────┼─────────────────────────┤ 
+       reviews under its cover, newest …│ │ unassigned             │ #113 unassigned        │ unassigned              │ 
+────────────────────────────────────────│ └────────────────────────┴────────────────────────┴─────────────────────────┘ 
+                                        │                                                                               
+ ▾ checkout                             │ MESSAGE BOARD · #13 Catalogue Lead                      open full board (b) ▶ 
+   Checkout Lead with a name long enoug…│ nothing on this board needs you                                               
+   ▾ M2 Checkout with a   ████████ 100% │ ┌───────────────────────────────────────────────────────────────────────────┐ 
+     title long enough to be cut in a n…│ │ [open] New book shelf                             T3 · 7 messages ·   8m  │ 
+     ✓ Shelf layout           no ticket │ │ in progress · unassigned · started by cat-lead                            │ 
+     ✓ 日本語のタスク名と絵文 no ticket │ │ where it stands qa: copy, testing: phone and tablet pass, desktop shows … │ 
+       字です                           │ │                            3 earlier messages                             │ 
+────────────────────────────────────────│ │                                                                           │ 
+                                        │ │   qa · tester · 52m                                                       │ 
+ ▾ search                               │ │  ▌ copy, preparing the shelf at three sizes: phone, tablet,               │ 
+   no lead yet: n starts one            │ │  ▌ desktop                                                                │ 
+   ▾ M3 Search by author  ░░░░░░░░   0% │ │                                                                           │ 
+     no tasks yet                       │ │   dev-2 · developer · 12m                                                 │ 
+                                        │ │  ▌ I have done the shelf grid. Please test while I do the                 │ 
+                                        │ │  ▌ ribbon.                                                                │ 
+                                        │ │    ↳ senior: copy, reviewing the layout · 10m                             │ 
+                                        │ │                                                                           │ 
+                                        │ │   qa · tester · 8m                                                        │ 
+                                        │ │  ▌ copy, testing: phone and tablet pass, desktop shows 13                 │ 
+                                        │ │  ▌ books, not 12                                                          │ 
+                                        │ │                                                               open chat ▶ │ 
+                                        │ └───────────────────────────────────────────────────────────────────────────┘ 
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · enter open · o open ticket · b board · i inbox · n new lead · q quit                

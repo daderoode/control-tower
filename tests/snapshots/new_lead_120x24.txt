@@ -1,0 +1,24 @@
+ ⚠ 2 need you · ⓘ 2 for your awareness · newest: cat-lead in ‘Sh…’ · catalogue · 15m new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                      ⚠1 ⓘ1 │ search · no lead yet: n starts one                        open repo (enter) ▶ 
+   Catalogue Lead                       │ checkout /src/search                                                          
+   ▾ M1 First shop pages  ██░░░░░░  33% │  ○ M3 Search by author                                        ░░░░░░░░░░   0% 
+     ✓ Bookmarks page         no ticket │  standalone 0 · Done 0 milestones                                             
+     ● New book shelf              #113 │                                                                               
+     ○ Show each book's       no ticket │ MESSAGE BOARD · whole repo                                                    
+       reviews under its cover, newest …│ no lead yet, so no message board                                              
+────────────────────────────────────────│                                                                               
+                                        │                                                                               
+ ▾ checkout                       ⚠1 ⓘ1 │                                                                               
+   Checkout Lead with a name long enoug…│                                                                               
+   ▾ M2 Checkout with a   ████████ 100% │                                                                               
+     title long enough to be cut in a n…│                                                                               
+     ✓ Shelf layout           no ticket │                                                                               
+     ✓ 日本語のタスク名と絵文 no ticket │                                                                               
+       字です                           │                                                                               
+────────────────────────────────────────│                                                                               
+                                        │                                                                               
+ ▾ search                               │                                                                               
+   no lead yet: n starts one            │                                                                               
+   ▾ M3 Search by author  ░░░░░░░░   0% │                                                                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ new lead on search, its goal: Bookmarks sync on every device▏                                 enter start · esc cancel 

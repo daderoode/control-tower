@@ -1,0 +1,30 @@
+ ◀ back  MESSAGE BOARD · catalogue · Catal… 14:32 
+ ⚠ Needs you · 1                                  
+   cat-lead question: the covers …  in Show each …
+                                                  
+ OPEN 2                                           
+ ○ New book shelf                              8m 
+ ● Show each book's reviews under its cover…  15m 
+                                                  
+ RESOLVED 1 ▸                                     
+──────────────────────────────────────────────────
+ [open] New book shelf     T3 · 7 messages ·   8m 
+ in progress · unassigned · started by cat-lead   
+──────────────────────────────────────────────────
+                                                  
+  qa · tester · 52m                               
+ ▌ copy, preparing the shelf at three sizes:      
+ ▌ phone, tablet, desktop                         
+                                                  
+  dev-2 · developer · 12m                         
+ ▌ I have done the shelf grid. Please test while  
+ ▌ I do the ribbon.                               
+   ↳ senior: copy, reviewing the layout · 10m     
+                                                  
+  qa · tester · 8m                                
+ ▌ copy, testing: phone and tablet pass, desktop  
+ ▌ shows 13 books, not 12                         
+──────────────────────────────────────────────────
+ manager ▌Type to write to the team, e.g.…  Post  
+──────────────────────────────────────────────────
+ ↑↓ threads · type to write · enter posts         

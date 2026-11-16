@@ -1,0 +1,70 @@
+ nothing needs you                                                                   new lead (n) ▶  inbox (i) ▶  14:32 
+ ▾ catalogue                            │ task #13 New book shelf [in progress]                           ◀ close (esc) 
+   Catalogue Lead                       │ milestone  M1 First shop pages · Catalogue Lead                               
+   ▾ M1 First shop pages  ██░░░░░░  33% │ assigned   dev-2 · team dev-1, dev-2, senior, qa                              
+     ✓ Bookmarks page         no ticket │ doing      nothing posted yet                                                 
+     ● New book shelf               #13 │ blocked by ○ #14 Show each book's reviews under its cover, newest first, with…
+     ○ Show each book's       no ticket │            #99                                                                
+       reviews under its cover, newest …│ MR         !44 draft into feat/bookmarks · pipeline running                   
+────────────────────────────────────────│ context    Test with the sample catalogue.                                    
+                                        │ ticket     #13                                                                
+ ▾ checkout                             │ tracker    https://github.com/example/bookshop/issues/13                      
+   Checkout Lead with a name long enoug…│                                                                               
+   ▾ M2 Checkout with a   ████████ 100% │ DESCRIPTION                                                                   
+     title long enough to be cut in a n…│ The shelf shows the twelve newest books with their covers, newest first.      
+     ✓ Shelf layout           no ticket │ A ribbon marks the books that came in this week.                              
+     ✓ 日本語のタスク名と絵文 no ticket │                                                                               
+       字です                           │ ACCEPTANCE CRITERIA 1/2                                                       
+────────────────────────────────────────│ [x] Shows the 12 newest books, newest first                                   
+                                        │ [ ] Checked on phone, tablet and desktop                                      
+ ▾ search                               │                                                                               
+   no lead yet: n starts one            │ SUBTASKS 1/2                                                                  
+   ▾ M3 Search by author  ░░░░░░░░   0% │ [x] #31 Shelf grid                                                            
+     no tasks yet                       │ [ ] #32 New-book ribbon · in progress                                         
+                                        │                                                                               
+                                        │ THREAD                                                                        
+                                        │ nothing on this board needs you                                               
+                                        │ ┌───────────────────────────────────────────────────────────────────────────┐ 
+                                        │ │ [open] New book shelf                             T3 · 7 messages ·   8m  │ 
+                                        │ │ in progress · dev-2 · started by cat-lead                                 │ 
+                                        │ │ where it stands qa: copy, testing: phone and tablet pass, desktop shows … │ 
+                                        │ │                            3 earlier messages                             │ 
+                                        │ │                                                                           │ 
+                                        │ │   qa · tester · 52m                                                       │ 
+                                        │ │  ▌ copy, preparing the shelf at three sizes: phone, tablet,               │ 
+                                        │ │  ▌ desktop                                                                │ 
+                                        │ │                                                                           │ 
+                                        │ │   dev-2 · developer · 12m                                                 │ 
+                                        │ │  ▌ I have done the shelf grid. Please test while I do the                 │ 
+                                        │ │  ▌ ribbon.                                                                │ 
+                                        │ │    ↳ senior: copy, reviewing the layout · 10m                             │ 
+                                        │ │                                                                           │ 
+                                        │ │   qa · tester · 8m                                                        │ 
+                                        │ │  ▌ copy, testing: phone and tablet pass, desktop shows 13                 │ 
+                                        │ │  ▌ books, not 12                                                          │ 
+                                        │ │                                                               open chat ▶ │ 
+                                        │ └───────────────────────────────────────────────────────────────────────────┘ 
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+                                        │                                                                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ select · ←→ fold · z fold all · esc back · o open ticket · b board · i inbox · n new lead · q quit                  

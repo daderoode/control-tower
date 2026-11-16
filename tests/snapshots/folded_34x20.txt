@@ -1,0 +1,20 @@
+ ⚠ 1 need you · ⓘ 0 for your awar…
+ ▾ catalogue         ⚠1 1 blocked 
+   Catalogue Lead                 
+   ▸ M1 First shop  ██░░░░░░  33% 
+     pages                        
+     3 tasks ✓1 ●1 ○1 !1          
+──────────────────────────────────
+                                  
+ ▾ checkout                       
+   Checkout Lead with a name long…
+   ▾ M2 Checkout    ████████ 100% 
+     with a title long enough to …
+     ✓ Shelf layout     no ticket 
+     ✓ 日本語のタスク名 no ticket 
+       と絵文字です               
+──────────────────────────────────
+                                  
+ ▾ search                         
+──────────────────────────────────
+ ↑↓ select · enter open · q quit  

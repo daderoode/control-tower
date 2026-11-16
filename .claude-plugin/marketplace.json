@@ -1,0 +1,14 @@
+{
+  "name": "control-tower",
+  "description": "control-tower's Claude Code plugin: the lead skill.",
+  "owner": {
+    "name": "daderoode"
+  },
+  "plugins": [
+    {
+      "name": "control-tower",
+      "source": "./claude-plugin",
+      "description": "The Claude Code side of control-tower: the lead skill, which runs a repo's dev team through the tower board."
+    }
+  ]
+}

@@ -1,0 +1,1492 @@
+//! The message board summary under an overview, as UI v0.1.7 draws it: a box per open
+//! thread, each a compact chat preview (`chat`): its last bubbles, each with its last two
+//! messages folded to two lines, after a line counting the messages before them. In its own
+//! space an open thread shows three bubbles; in herdr's popup two and three open threads at
+//! most, then "… N more open threads, open the full board ▶" (`Limits`). Resolved threads
+//! fold into one row, "RESOLVED 3 ▸", as on the full board (UI v0.1.13): a click
+//! unfolds it to one line per thread (✓, name, age), and a click on a line opens that thread
+//! on the full board. With a task selected it shows only that task's threads.
+//!
+//! `plan` says what each line is without styling it, so the overview's height (for
+//! scrolling) and the lines drawn come from the same rows; `lines` styles them. The plan
+//! never depends on the time, so the height does not change as ages grow.
+
+use std::collections::{BTreeSet, HashMap};
+use std::ops::Range;
+
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+use super::Mode;
+use super::chat;
+use super::control::{Control, ControlAt, with_control};
+use super::full_board;
+use super::theme::{Depth, accent, bad, bold, dim, fit, info, ok, warn};
+use super::threads;
+use crate::board::{
+    Lead, Message, Role, Talk, TaskId, Thread, ThreadId, ThreadStatus, owner_mentions,
+};
+use crate::inbox::Alert;
+
+/// How much of the board the summary shows: how many open threads (all with `None`) and
+/// how many of each one's latest bubbles. The board loads the latest messages they come from
+/// (`ThreadStatus::shown`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits<'a> {
+    pub threads: Option<usize>,
+    pub open: usize,
+    pub shown: Shown<'a>,
+}
+
+/// How the owner left a summary: the messages opened in full ("read more"), by id, and
+/// whether its RESOLVED row is unfolded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shown<'a> {
+    pub opened: &'a BTreeSet<i64>,
+    pub unfolded: bool,
+}
+
+impl<'a> Limits<'a> {
+    /// Its own space: every open thread with its last three bubbles. The popup: three open
+    /// threads, their last two bubbles and the evidence.
+    pub fn of(mode: Mode, shown: Shown<'a>) -> Limits<'a> {
+        match mode {
+            Mode::Space => Limits {
+                threads: None,
+                open: 3,
+                shown,
+            },
+            Mode::Popup => Limits {
+                threads: Some(3),
+                open: 2,
+                shown,
+            },
+        }
+    }
+}
+
+/// One line of the summary, unstyled.
+enum Row<'a> {
+    Blank,
+    Title,
+    /// A dim line saying why there is nothing to show.
+    Empty(&'static str),
+    Top(ThreadStatus),
+    Bottom(ThreadStatus),
+    /// A line of the "Needs you" strip pinned under the title.
+    Strip(usize),
+    /// A line of a thread's header in words (`threads::head`).
+    Head(&'a Thread, usize),
+    /// A line of the thread's chat preview.
+    Chat(&'a Thread, chat::Row),
+    /// "open chat ▶" at the right, under a thread's preview.
+    OpenChat(ThreadStatus),
+    /// "… N more open threads, open the full board ▶", for the open threads past
+    /// `Limits::threads`.
+    More(usize),
+    /// "RESOLVED 3 ▸", unfolded ("▾") or not.
+    Resolved(usize),
+    /// A resolved thread's line under the unfolded RESOLVED row: ✓, its name, its age.
+    Line(&'a Thread),
+}
+
+/// The summary's rows.
+struct Plan<'a> {
+    rows: Vec<Row<'a>>,
+}
+
+/// How many messages of a preview's bubble it shows, its latest.
+const PREVIEW_SEGS: usize = 2;
+/// How many lines of a message a preview shows before "read more".
+const PREVIEW_CLIP: usize = 2;
+
+pub(crate) fn pill(t: &Thread) -> String {
+    format!("[{}]", t.status().name())
+}
+
+/// The summary's rows for a pane `w` wide. Each box sits one column in from each side, its
+/// contents one column in from its borders: `w - 6` columns of content.
+fn plan<'a>(talk: &Talk<'a>, task: Option<TaskId>, w: usize, limits: Limits) -> Plan<'a> {
+    let empty = |why| Plan {
+        rows: vec![Row::Blank, Row::Title, Row::Empty(why)],
+    };
+    if talk.lead.is_none() {
+        return empty(" no lead yet, so no message board");
+    }
+    let (mut shown, resolved): (Vec<&Thread>, Vec<&Thread>) =
+        (talk.ordered(task).into_iter()).partition(|t| t.status() == ThreadStatus::Open);
+    let more = limits.threads.map_or(0, |n| shown.len().saturating_sub(n));
+    shown.truncate(shown.len() - more);
+    // Every board with a lead has its "Needs you" strip, even with no thread yet; the pane
+    // scrolls, so it lists every question.
+    let mut rows = vec![Row::Blank, Row::Title];
+    let strip = threads::strip_height(needs_of(talk, task).len(), usize::MAX);
+    rows.extend((0..strip).map(Row::Strip));
+    if shown.is_empty() && resolved.is_empty() {
+        let why = match task {
+            Some(_) => " no thread for this task yet",
+            None => " no threads yet",
+        };
+        rows.push(Row::Empty(why));
+        return Plan { rows };
+    }
+    let content = w.saturating_sub(6);
+    for t in shown {
+        let status = t.status();
+        rows.push(Row::Top(status));
+        let head = threads::head(talk, t, content + 1, None, true, Depth::Ansi256).len();
+        rows.extend((0..head).map(|k| Row::Head(t, k)));
+        let shape = chat::Shape {
+            clip: PREVIEW_CLIP,
+            open: limits.shown.opened,
+            now: None,
+            preview: Some((limits.open, PREVIEW_SEGS)),
+            people: talk.people(),
+            full: false,
+        };
+        // The board loads only the latest messages: the rest are counted from the total.
+        let missing = talk.missing(t);
+        for r in chat::plan(&talk.conversation(t), missing, content, shape) {
+            rows.push(Row::Chat(t, r));
+        }
+        rows.push(Row::OpenChat(status));
+        rows.push(Row::Bottom(status));
+    }
+    if more > 0 {
+        rows.push(Row::More(more));
+    }
+    if !resolved.is_empty() {
+        rows.push(Row::Resolved(resolved.len()));
+        if limits.shown.unfolded {
+            rows.extend(resolved.into_iter().map(Row::Line));
+        }
+    }
+    Plan { rows }
+}
+
+/// The open questions for the owner the summary's strip lists: all of the board's, or
+/// with a task selected, those in its threads' conversations.
+fn needs_of<'a>(talk: &Talk<'a>, task: Option<TaskId>) -> Vec<&'a Alert> {
+    let in_task = |a: &&Alert| {
+        let home = talk.home_of(a.thread);
+        task.is_none() || talk.threads.iter().any(|t| t.id == home && t.task == task)
+    };
+    talk.needs.iter().copied().filter(in_task).collect()
+}
+
+/// `line`'s spans less its first column, a space.
+fn without_lead_space(line: &Line<'static>) -> Vec<Span<'static>> {
+    let mut spans = line.spans.clone();
+    if let Some(first) = spans.first_mut()
+        && let Some(rest) = first.content.strip_prefix(' ')
+    {
+        first.content = rest.to_string().into();
+    }
+    spans
+}
+
+/// The thread boxes alone (or the line saying why there are none), without the summary's
+/// blank line and title: for a detail view, under its own heading.
+pub fn boxes(
+    talk: &Talk,
+    task: Option<TaskId>,
+    w: usize,
+    limits: Limits,
+    now: i64,
+    depth: Depth,
+) -> Vec<Line<'static>> {
+    let mut all = lines(talk, task, w, limits, now, depth);
+    // Every plan starts with the blank line and the title.
+    all.drain(..2);
+    all
+}
+
+/// Where a thread's box is in the summary: `height` lines from `line`, counted from the
+/// summary's blank first line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThreadRow {
+    pub thread: ThreadId,
+    pub line: usize,
+    pub height: usize,
+    /// On a "read more" or "show less" line, the message a click there opens or folds in
+    /// place, rather than opening the thread.
+    pub toggle: Option<i64>,
+    /// On a line of the "Needs you" strip, the question it is: a click opens the full
+    /// board on it, replying.
+    pub message: Option<i64>,
+}
+
+/// Where each thread's box is in the summary in a pane `w` wide, for clicks: a click
+/// anywhere in a box, its "… N earlier" line included, opens that thread.
+pub fn thread_rows(talk: &Talk, task: Option<TaskId>, w: usize, limits: Limits) -> Vec<ThreadRow> {
+    let mut out: Vec<ThreadRow> = Vec::new();
+    let mut start = None;
+    // The box being laid out, by its index in `out`; its toggles follow it.
+    let mut open_box = None;
+    let needs = needs_of(talk, task);
+    for (i, row) in plan(talk, task, w, limits).rows.iter().enumerate() {
+        match row {
+            // The strip's heading is line 0; every question follows.
+            Row::Strip(k) if *k >= 1 => {
+                if let Some(a) = needs.get(k - 1) {
+                    out.push(ThreadRow {
+                        thread: talk.home_of(a.thread),
+                        line: i,
+                        height: 1,
+                        toggle: None,
+                        message: Some(a.message.id),
+                    });
+                }
+            }
+            Row::Top(_) => start = Some(i),
+            Row::Head(t, _) => {
+                if let Some(line) = start.take() {
+                    open_box = Some(out.len());
+                    out.push(ThreadRow {
+                        thread: t.id,
+                        line,
+                        height: 0,
+                        toggle: None,
+                        message: None,
+                    });
+                }
+            }
+            Row::Chat(t, r) => {
+                if let Some(msg) = r.toggles() {
+                    // A preview's rows index its conversation, folded threads and all.
+                    out.push(ThreadRow {
+                        thread: t.id,
+                        line: i,
+                        height: 1,
+                        toggle: Some(talk.conversation(t)[msg].id),
+                        message: None,
+                    });
+                }
+            }
+            Row::Bottom(_) => {
+                if let Some(r) = open_box.take().and_then(|b| out.get_mut(b)) {
+                    r.height = i + 1 - r.line;
+                }
+            }
+            // A resolved thread's line opens it on the full board, as a box does.
+            Row::Line(t) => out.push(ThreadRow {
+                thread: t.id,
+                line: i,
+                height: 1,
+                toggle: None,
+                message: None,
+            }),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Where the RESOLVED row is, counted from the summary's blank first line, while the board
+/// has resolved threads: a click there folds or unfolds them.
+pub fn resolved_row(talk: &Talk, task: Option<TaskId>, w: usize, limits: Limits) -> Option<usize> {
+    (plan(talk, task, w, limits).rows.iter()).position(|r| matches!(r, Row::Resolved(_)))
+}
+
+/// How many lines the summary takes in a pane `w` wide, its blank first line included.
+pub fn height(talk: &Talk, task: Option<TaskId>, w: usize, limits: Limits) -> usize {
+    plan(talk, task, w, limits).rows.len()
+}
+
+/// The URL each line `lines` draws for the same arguments shows a piece of, if any.
+pub fn links(talk: &Talk, task: Option<TaskId>, w: usize, limits: Limits) -> Vec<Option<String>> {
+    let Plan { rows } = plan(talk, task, w, limits);
+    (rows.iter())
+        .map(|r| match r {
+            Row::Chat(_, r) => chat::row_link(r),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The summary's lines in a pane `w` wide, each exactly `w` columns, with ages as of `now`
+/// (seconds since the Unix epoch).
+pub fn lines(
+    talk: &Talk,
+    task: Option<TaskId>,
+    w: usize,
+    limits: Limits,
+    now: i64,
+    depth: Depth,
+) -> Vec<Line<'static>> {
+    let Plan { rows } = plan(talk, task, w, limits);
+    let content = w.saturating_sub(6);
+    let needs = needs_of(talk, task);
+    let strip = threads::strip(talk, &needs, w, usize::MAX, now, depth);
+    let mut convs: HashMap<i64, std::borrow::Cow<[Message]>> = HashMap::new();
+    rows.iter()
+        .map(|row| match row {
+            Row::Blank => fit(Vec::new(), w),
+            Row::Title => title(talk, task, w, depth).0,
+            Row::Empty(text) => fit(vec![Span::styled(*text, dim(depth))], w),
+            Row::Top(st) => edge(*st, "┌", "┐", w, depth),
+            Row::Bottom(st) => edge(*st, "└", "┘", w, depth),
+            Row::Strip(k) => strip[*k].clone(),
+            Row::Head(t, k) => {
+                // The box's own margin stands in for the header's leading space.
+                let head = threads::head(talk, t, content + 1, Some(now), true, depth);
+                boxed(t.status(), without_lead_space(&head[*k]), content, w, depth)
+            }
+            Row::OpenChat(st) => {
+                let text = "open chat ▶";
+                let pad = content.saturating_sub(text.width());
+                let spans = vec![
+                    Span::raw(" ".repeat(pad)),
+                    Span::styled(text, Style::new().fg(accent(depth))),
+                ];
+                boxed(*st, spans, content, w, depth)
+            }
+            Row::Chat(t, r) => {
+                let msgs = convs.entry(t.id.0).or_insert_with(|| talk.conversation(t));
+                let ctx = chat::Ctx {
+                    msgs,
+                    people: talk.people(),
+                    now,
+                    depth,
+                    selected: None,
+                };
+                boxed(
+                    t.status(),
+                    chat::line(r, content, &ctx).spans,
+                    content,
+                    w,
+                    depth,
+                )
+            }
+            Row::More(n) => fit(
+                vec![Span::styled(more_text(*n), Style::new().fg(accent(depth)))],
+                w,
+            ),
+            Row::Resolved(n) => {
+                let mark = if limits.shown.unfolded { "▾" } else { "▸" };
+                let spans = vec![
+                    Span::styled(format!(" RESOLVED {n} "), bold()),
+                    Span::styled(mark, dim(depth)),
+                ];
+                fit(spans, w)
+            }
+            Row::Line(t) => full_board::title_line(talk, t, w, now, depth),
+        })
+        .collect()
+}
+
+/// " … 2 more open threads, open the full board ▶".
+fn more_text(n: usize) -> String {
+    let threads = if n == 1 { "thread" } else { "threads" };
+    format!(" … {n} more open {threads}, open the full board ▶")
+}
+
+/// Where "… N more open threads, open the full board ▶" is, counted from the summary's
+/// blank first line, while open threads are left out: it opens the full board, as `b` does.
+pub fn more_control(
+    talk: &Talk,
+    task: Option<TaskId>,
+    w: usize,
+    limits: Limits,
+) -> Option<ControlAt> {
+    let rows = plan(talk, task, w, limits).rows;
+    let (line, n) = (rows.iter().enumerate()).find_map(|(i, r)| match r {
+        Row::More(n) => Some((i, *n)),
+        _ => None,
+    })?;
+    Some(ControlAt {
+        control: Control::FullBoard,
+        line,
+        from: 1,
+        to: more_text(n).width().min(w),
+    })
+}
+
+/// " MESSAGE BOARD · whole repo Catalogue Lead": the board's scope (`Talk::scope`, or
+/// "#13" with a task selected) and its lead in the accent colour, as UI v0.1.7 heads it.
+/// With a lead, "open full board ▶" at the right, which `b` does too; returns where it is.
+fn title(
+    talk: &Talk,
+    task: Option<TaskId>,
+    w: usize,
+    depth: Depth,
+) -> (Line<'static>, Option<(usize, usize)>) {
+    let scope = match task {
+        Some(t) => t.to_string(),
+        None => talk.scope.clone(),
+    };
+    let mut spans = vec![
+        Span::styled(" MESSAGE BOARD", bold().patch(dim(depth))),
+        Span::styled(format!(" · {scope}"), dim(depth)),
+    ];
+    let Some(l) = talk.lead else {
+        return (fit(spans, w), None);
+    };
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(l.name.clone(), Style::new().fg(accent(depth))));
+    let control = Style::new().fg(accent(depth));
+    with_control(
+        spans,
+        " MESSAGE BOARD".len(),
+        Control::FullBoard,
+        control,
+        w,
+    )
+}
+
+/// Where the summary's "open full board ▶" is, counted from its blank first line, in a pane
+/// `w` wide: on its title, while the milestone has a lead and there is room.
+pub fn board_control(talk: &Talk, task: Option<TaskId>, w: usize) -> Option<ControlAt> {
+    // Colours never move the control, so any depth will do.
+    let (_, at) = title(talk, task, w, Depth::Ansi256);
+    at.map(|(from, to)| ControlAt {
+        control: Control::FullBoard,
+        line: 1,
+        from,
+        to,
+    })
+}
+
+/// A box border: solid for an open thread, dashed for a resolved one.
+fn edge(status: ThreadStatus, l: &str, r: &str, w: usize, depth: Depth) -> Line<'static> {
+    let (h, _) = strokes(status);
+    let s = format!("{l}{}{r}", h.repeat(w.saturating_sub(4)));
+    fit(vec![Span::raw(" "), Span::styled(s, dim(depth))], w)
+}
+
+fn strokes(status: ThreadStatus) -> (&'static str, &'static str) {
+    match status {
+        ThreadStatus::Open => ("─", "│"),
+        ThreadStatus::Resolved => ("╌", "╎"),
+    }
+}
+
+/// A row of contents between the box's borders, cut or padded to `content` columns.
+fn boxed(
+    status: ThreadStatus,
+    spans: Vec<Span<'static>>,
+    content: usize,
+    w: usize,
+    depth: Depth,
+) -> Line<'static> {
+    let (_, v) = strokes(status);
+    let mut row = vec![Span::raw(" "), Span::styled(v, dim(depth)), Span::raw(" ")];
+    row.extend(fit(spans, content).spans);
+    row.push(Span::raw(" "));
+    row.push(Span::styled(v, dim(depth)));
+    fit(row, w)
+}
+
+/// `text` with the golden UI's highlights: when `start` (the text starts a message or a
+/// doing line), a leading `blocked:` in bold amber, or `decision:` in bold cyan when the
+/// message is for the owner's awareness (`Tone::Awareness`; a delivery failure never starts
+/// with `decision:`); and every mention of the owner in bold red, as `board::mentioned`
+/// reads one: in any case, and never one a post quotes.
+pub(crate) fn highlight(
+    text: &str,
+    start: bool,
+    awareness: bool,
+    depth: Depth,
+) -> Vec<Span<'static>> {
+    highlight_marked(text, &owner_mentions(text), start, awareness, depth)
+}
+
+/// `highlight` with the owner's mentions already found: `marks`, byte ranges of `text`,
+/// in order. A piece of a wrapped message is marked from the whole message, where a quote
+/// or code fence that began on an earlier line is known.
+pub(crate) fn highlight_marked(
+    text: &str,
+    marks: &[Range<usize>],
+    start: bool,
+    awareness: bool,
+    depth: Depth,
+) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut at = 0;
+    if start {
+        let decision = awareness.then_some(("decision:", info(depth)));
+        for (prefix, colour) in [("blocked:", warn(depth))].into_iter().chain(decision) {
+            if text.starts_with(prefix) {
+                spans.push(Span::styled(prefix, bold().fg(colour)));
+                at = prefix.len();
+                break;
+            }
+        }
+    }
+    for r in marks {
+        if r.start < at || r.end > text.len() {
+            continue;
+        }
+        if r.start > at {
+            spans.push(Span::raw(text[at..r.start].to_string()));
+        }
+        spans.push(Span::styled(
+            text[r.clone()].to_string(),
+            bold().fg(bad(depth)),
+        ));
+        at = r.end;
+    }
+    if at < text.len() || spans.is_empty() {
+        spans.push(Span::raw(text[at..].to_string()));
+    }
+    spans
+}
+
+/// The status pill's colour, as in the golden UI: open in its warn amber, resolved green.
+pub(crate) fn status_style(status: ThreadStatus, depth: Depth) -> Style {
+    match status {
+        ThreadStatus::Open => Style::new().fg(warn(depth)),
+        ThreadStatus::Resolved => Style::new().fg(ok(depth)),
+    }
+}
+
+/// An author's colour by role (see `Role::of`), as UI v0.1.7 colours names: the lead in the
+/// accent (no colour per lead), devs teal (#8fd6c4), seniors lilac (#c3a6ff), qa pink (#f2a7c3), anyone else the
+/// default. Tower's own `system` messages (the stuck-worker watch) have a slate grey
+/// (#9aa4b2) of their own, unlike any role's or lead's colour.
+pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
+    let rgb = |r, g, b, index| match depth {
+        Depth::TrueColor => Color::Rgb(r, g, b),
+        Depth::Ansi256 => Color::Indexed(index),
+    };
+    match Role::of(author, lead) {
+        Role::System => rgb(0x9a, 0xa4, 0xb2, 248),
+        Role::Lead => accent(depth),
+        Role::Dev => rgb(0x8f, 0xd6, 0xc4, 116),
+        Role::Senior => rgb(0xc3, 0xa6, 0xff, 147),
+        Role::Qa => rgb(0xf2, 0xa7, 0xc3, 218),
+        Role::Other => Color::Reset,
+    }
+}
+
+/// `text` in pieces at most `w` columns wide: a piece per line of it (a blank line stays
+/// blank), each broken at spaces where it can and inside a word only when the word alone
+/// is too wide.
+pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
+    text.split('\n')
+        .flat_map(|line| wrap_line(line, w))
+        .collect()
+}
+
+/// `text` wrapped to `w` columns on at most `max` lines: past that, the last line carries
+/// the rest, for `fit` to cut with "…". The rest is the text as written from where the lines
+/// before it end, so a word broken across lines stays whole.
+pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
+    let max = max.max(1);
+    let mut pieces = wrap_line(text, w);
+    if pieces.len() > max {
+        pieces.truncate(max - 1);
+        // The lines kept are the text's first words, spaces aside: skip as many characters.
+        let mut left: usize = (pieces.iter())
+            .map(|p| p.chars().filter(|c| *c != ' ').count())
+            .sum();
+        let at = (text.char_indices())
+            .find(|(_, c)| {
+                let past = left == 0;
+                if *c != ' ' {
+                    left = left.saturating_sub(1);
+                }
+                past
+            })
+            .map_or(text.len(), |(i, _)| i);
+        pieces.push(text[at..].trim_start().to_string());
+    }
+    pieces
+}
+
+pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
+    wrap_line_by(text, w, |_| None)
+}
+
+/// `wrap_line`, with a path (`is_path`) kept in its line and broken only after a `/`, as
+/// the copy breaks one.
+pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
+    wrap_line_by(
+        text,
+        w,
+        |word| if is_path(word) { Some(&['/']) } else { None },
+    )
+}
+
+/// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
+/// digits and `_ . @ + - ~` with at least two `/` among them, and no URL scheme (a URL is
+/// laid out on its own, `chat::wrap_message_line`).
+fn is_path(word: &str) -> bool {
+    let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || "_.@+-~/".contains(c)));
+    core.chars().count() >= 16 && core.matches('/').count() >= 2 && !word.contains("://")
+}
+
+/// `word` in the pieces it may break between: after each of `after`'s characters, or after
+/// any character when `after` is empty.
+pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    for (i, c) in word.char_indices() {
+        if after.is_empty() || after.contains(&c) {
+            let end = i + c.len_utf8();
+            out.push(&word[start..end]);
+            start = end;
+        }
+    }
+    if start < word.len() {
+        out.push(&word[start..]);
+    }
+    out
+}
+
+/// Words of `text` on lines at most `w` wide. A word too wide for any line starts where the
+/// line is, rather than leaving it short, and breaks where a line ends. A word `breaks`
+/// gives break characters for starts where the line is too, and breaks only after one of
+/// them (`units`), or inside a piece between them too wide for a line of its own.
+fn wrap_line_by(
+    text: &str,
+    w: usize,
+    breaks: impl Fn(&str) -> Option<&'static [char]>,
+) -> Vec<String> {
+    let w = w.max(1);
+    let mut out = Vec::new();
+    let mut line = String::new();
+    for word in text.split(' ').filter(|s| !s.is_empty()) {
+        let need = if line.is_empty() { 0 } else { 1 } + word.width();
+        if line.width() + need <= w {
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+            continue;
+        }
+        // A word too wide for any line, or one with its own breaks, starts where the line
+        // is, rather than leaving it short; any other goes on the next.
+        let after = breaks(word);
+        if (word.width() > w || after.is_some()) && !line.is_empty() && line.width() + 1 < w {
+            line.push(' ');
+        } else if !line.is_empty() {
+            out.push(std::mem::take(&mut line));
+        }
+        for unit in units(word, after.unwrap_or(&[])) {
+            if !line.is_empty() && line.width() + unit.width() > w {
+                // The space before a word that then did not start here goes with the line.
+                let done = std::mem::take(&mut line);
+                let done = done.trim_end();
+                if !done.is_empty() {
+                    out.push(done.to_string());
+                }
+            }
+            for c in unit.chars() {
+                if !line.is_empty() && line.width() + c.width().unwrap_or(0) > w {
+                    out.push(std::mem::take(&mut line));
+                }
+                line.push(c);
+            }
+        }
+    }
+    if !line.is_empty() || out.is_empty() {
+        out.push(line);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::{Colour, Message, Milestone, MilestoneId, Resolution, ThreadId};
+    use crate::ui::theme::lead_colour;
+    use ratatui::style::Modifier;
+
+    const NOW: i64 = 1_800_000_000;
+    static NONE: BTreeSet<i64> = BTreeSet::new();
+    const FOLDED: Shown = Shown {
+        opened: &NONE,
+        unfolded: false,
+    };
+    const SPACE: Limits = Limits {
+        threads: None,
+        open: 3,
+        shown: FOLDED,
+    };
+    const MIN: i64 = 60;
+
+    /// A thread whose messages are (author, text, minutes ago), in the order posted.
+    fn thread(
+        id: i64,
+        status: ThreadStatus,
+        task: Option<i64>,
+        msgs: &[(&str, &str, i64)],
+    ) -> Thread {
+        let messages: Vec<Message> = (msgs.iter().enumerate())
+            .map(|(i, (author, text, ago))| Message {
+                id: id * 100 + i as i64,
+                author: (*author).into(),
+                text: (*text).into(),
+                at: NOW - ago * MIN,
+            })
+            .collect();
+        let resolved = (status == ThreadStatus::Resolved).then(|| Resolution {
+            by: messages
+                .last()
+                .map(|m| m.author.clone())
+                .unwrap_or_default(),
+            at: messages.last().map_or(NOW, |m| m.at),
+        });
+        Thread::whole(
+            ThreadId(id),
+            format!("thread {id}"),
+            task.map(TaskId),
+            resolved,
+            messages,
+        )
+    }
+
+    /// The whole board a milestone carries, unnarrowed, as the summary takes it.
+    fn talk_of(m: &Milestone) -> Talk<'_> {
+        Talk {
+            lead: m.lead.as_ref(),
+            threads: m.threads.iter().collect(),
+            scope: format!("{} and its tasks", m.id),
+            others: Vec::new(),
+            tasks: Vec::new(),
+            needs: Vec::new(),
+            folded: Vec::new(),
+            homes: Vec::new(),
+        }
+    }
+
+    fn milestone(threads: Vec<Thread>) -> Milestone {
+        Milestone {
+            id: MilestoneId(1),
+            title: "First shop pages".into(),
+            goal: "g".into(),
+            repo: None,
+            lead: Some(Lead {
+                name: "Catalogue Lead".into(),
+                session: "cat-lead".into(),
+                colour: Some(Colour::Blue),
+            }),
+            tasks: Vec::new(),
+            marked_done: false,
+            done_at: None,
+            folded: false,
+            threads,
+            details: Default::default(),
+        }
+    }
+
+    fn golden() -> Milestone {
+        use ThreadStatus::*;
+        milestone(vec![
+            thread(
+                2,
+                Resolved,
+                None,
+                &[("senior", "resolved: the ribbon sits under the cover", 120)],
+            ),
+            thread(
+                3,
+                Open,
+                Some(13),
+                &[
+                    ("cat-lead", "Picked up #13. Opening this thread.", 58),
+                    ("dev-2", "copy, reading the spec", 55),
+                    ("senior", "copy, I'll review", 54),
+                    ("qa", "copy, preparing the shelf at three sizes", 52),
+                    ("dev-2", "I have done the shelf grid.", 12),
+                    ("senior", "copy, reviewing the layout", 10),
+                    ("qa", "copy, trying the shelf on a phone", 8),
+                ],
+            ),
+            thread(
+                4,
+                Open,
+                Some(14),
+                &[
+                    ("dev-1", "Starting the reading reminders.", 45),
+                    ("lead", "copy, called the printer again.", 15),
+                ],
+            ),
+            thread(
+                5,
+                Resolved,
+                Some(13),
+                &[("qa", "cases pass", 30), ("qa", "4 of 4 pass", 5)],
+            ),
+        ])
+    }
+
+    fn text(m: &Milestone, task: Option<TaskId>, w: usize) -> Vec<String> {
+        lines(&talk_of(m), task, w, SPACE, NOW, Depth::TrueColor)
+            .iter()
+            .map(|l| l.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn open_threads_come_first_newest_activity_first_then_resolved() {
+        let m = golden();
+        let ids: Vec<i64> = m.ordered_threads(None).iter().map(|t| t.id.0).collect();
+        // T3's latest is 8m ago, T4's 15m; resolved T5 (5m) and T2 (2h) after them.
+        assert_eq!(ids, vec![3, 4, 5, 2]);
+    }
+
+    #[test]
+    fn threads_with_the_same_latest_message_time_go_newer_id_first() {
+        use ThreadStatus::{Open, Resolved};
+        let m = milestone(vec![
+            thread(6, Open, Some(13), &[("dev-2", "a", 5)]),
+            thread(7, Open, Some(13), &[("dev-2", "b", 5)]),
+            thread(8, Resolved, Some(13), &[("qa", "c", 5)]),
+            thread(9, Resolved, Some(13), &[("qa", "d", 5)]),
+        ]);
+        let ids: Vec<i64> = (m.ordered_threads(Some(TaskId(13))).iter())
+            .map(|t| t.id.0)
+            .collect();
+        assert_eq!(ids, vec![7, 6, 9, 8]);
+    }
+
+    #[test]
+    fn a_task_narrows_the_board_to_its_linked_threads() {
+        let m = golden();
+        let ids = |task| -> Vec<i64> {
+            m.ordered_threads(Some(TaskId(task)))
+                .iter()
+                .map(|t| t.id.0)
+                .collect()
+        };
+        assert_eq!(ids(13), vec![3, 5]);
+        assert_eq!(ids(14), vec![4]);
+        assert!(ids(12).is_empty());
+        let rows = text(&m, Some(TaskId(12)), 80);
+        assert_eq!(
+            rows[1],
+            format!(
+                "{:<58}{}",
+                " MESSAGE BOARD · #12 Catalogue Lead", "open full board (b) ▶ "
+            )
+        );
+        // Its strip, then why there is no thread.
+        assert_eq!(rows[2].trim_end(), " nothing on this board needs you");
+        assert_eq!(rows[3].trim_end(), " no thread for this task yet");
+        assert_eq!(rows.len(), 4);
+        // #13's: T3 in its box, resolved T5 in the folded RESOLVED row.
+        let rows = text(&m, Some(TaskId(13)), 80).join("\n");
+        assert!(
+            rows.contains("T3") && rows.contains(" RESOLVED 1 ▸"),
+            "{rows}"
+        );
+        assert!(!rows.contains("T4") && !rows.contains("T2"), "{rows}");
+    }
+
+    #[test]
+    fn in_its_space_an_open_thread_previews_its_last_three_bubbles_and_resolved_ones_fold() {
+        let rows = text(&golden(), None, 80);
+        let at = |needle: &str| {
+            rows.iter()
+                .position(|r| r.contains(needle))
+                .unwrap_or_else(|| panic!("{needle:?} missing:\n{}", rows.join("\n")))
+        };
+        // T3: the lead's opening with three acks under it, then dev-2's with two: every
+        // message shows, in two bubbles, so nothing is counted as earlier.
+        // Each header: status, name, ids and size at the right; what it is on and who
+        // started it; where it stands. `head` is its last line.
+        let name = at("[open] thread 3");
+        assert!(
+            rows[name].contains("  T3 · 7 messages ·   8m"),
+            "{}",
+            rows[name]
+        );
+        assert!(
+            rows[name].starts_with(" │ [open] thread 3"),
+            "{}",
+            rows[name]
+        );
+        assert!(
+            rows[name + 1].contains("on #13 · started by cat-lead"),
+            "{}",
+            rows[name + 1]
+        );
+        assert!(
+            rows[name + 2].contains("where it stands dev-2: I have done the shelf grid."),
+            "{}",
+            rows[name + 2]
+        );
+        let head = name + 2;
+        assert!(!rows.iter().any(|r| r.contains("earlier")));
+        // Each message's age is on its name line, not in its text.
+        assert!(
+            rows[head + 2].contains("│   cat-lead · lead · 58m "),
+            "{}",
+            rows[head + 2]
+        );
+        assert!(rows[head + 3].contains("│  ▌ Picked up #13. Opening this thread."));
+        assert!(!rows[head + 3].contains("58m"), "{}", rows[head + 3]);
+        assert!(rows[head + 4].contains("│    ↳ dev-2: copy, reading the spec · 55m"));
+        assert!(rows[head + 6].contains("↳ qa: copy, preparing the shelf at three sizes · 52m"));
+        assert!(rows[head + 8].contains("│   dev-2 · developer"));
+        assert!(rows[head + 9].contains("│  ▌ I have done the shelf grid."));
+        assert!(rows[head + 11].contains("↳ qa: copy, trying the shelf on a phone · 8m"));
+        assert!(rows[head + 12].trim_end().ends_with("open chat ▶ │"));
+        assert!(rows[head + 13].starts_with(" └─"));
+        // T4: the lead's ack answers dev-1's bubble.
+        let head = at("[open] thread 4") + 2;
+        assert!(
+            rows[head - 2].contains("  T4 · 2 messages ·  15m"),
+            "{}",
+            rows[head - 2]
+        );
+        assert!(rows[head + 3].contains("▌ Starting the reading reminders."));
+        assert!(rows[head + 4].contains("↳ lead: copy, called the printer again. · 15m"));
+        // T5 and T2 resolved: no box of their own, one folded row under the open ones
+        //; every open thread shows, so nothing more is linked.
+        let row = at(" RESOLVED");
+        assert_eq!(rows[row].trim_end(), " RESOLVED 2 ▸");
+        assert!(rows[row - 1].starts_with(" └─"), "{}", rows[row - 1]);
+        assert_eq!(row, rows.len() - 1);
+        assert!(
+            !rows
+                .iter()
+                .any(|r| r.contains('╌') || r.contains("thread 5"))
+        );
+        assert!(!rows.iter().any(|r| r.contains("more open")));
+        assert_eq!(more_control(&talk_of(&golden()), None, 80, SPACE), None);
+    }
+
+    #[test]
+    fn the_popup_previews_three_open_threads_with_their_last_two_bubbles_and_links_the_rest() {
+        let popup = Limits::of(Mode::Popup, FOLDED);
+        let m = golden();
+        let rows: Vec<String> = (lines(&talk_of(&m), None, 80, popup, NOW, Depth::TrueColor)
+            .iter())
+        .map(|l| l.to_string())
+        .collect();
+        let at = |needle: &str| rows.iter().position(|r| r.contains(needle));
+        // T3 has two bubbles, both shown, so nothing is counted as earlier.
+        let head = at("[open] thread 3").unwrap() + 2;
+        assert!(rows[head + 2].contains("cat-lead · lead"), "{rows:#?}");
+        assert!(!rows.iter().any(|r| r.contains("earlier")), "{rows:#?}");
+        // Resolved threads fold into the RESOLVED row in the popup too, and do not count
+        // against its three: both open threads show, and nothing more is linked.
+        assert_eq!(rows.last().unwrap().trim_end(), " RESOLVED 2 ▸");
+        assert!(!rows.iter().any(|r| r.contains("more open")), "{rows:#?}");
+        assert_eq!(more_control(&talk_of(&m), None, 80, popup), None);
+        assert_eq!(rows.len(), height(&talk_of(&m), None, 80, popup));
+        // Five open threads: two are left out, and the line linking to the full board
+        // comes before the RESOLVED row.
+        let mut five = milestone(
+            (1..=5)
+                .map(|i| thread(i, ThreadStatus::Open, None, &[("dev-1", "hi", i)]))
+                .collect(),
+        );
+        (five.threads).push(thread(6, ThreadStatus::Resolved, None, &[("qa", "ok", 9)]));
+        let rows: Vec<String> = (lines(&talk_of(&five), None, 80, popup, NOW, Depth::Ansi256)
+            .iter())
+        .map(|l| l.to_string())
+        .collect();
+        let n = rows.len();
+        assert_eq!(
+            rows[n - 2].trim_end(),
+            " … 2 more open threads, open the full board ▶"
+        );
+        assert_eq!(rows[n - 1].trim_end(), " RESOLVED 1 ▸");
+        let c = more_control(&talk_of(&five), None, 80, popup).unwrap();
+        assert_eq!((c.control, c.line), (Control::FullBoard, n - 2));
+        // Its own space has no such line.
+        assert_eq!(more_control(&talk_of(&five), None, 80, SPACE), None);
+        assert_eq!(thread_rows(&talk_of(&five), None, 80, popup).len(), 3);
+        assert_eq!(thread_rows(&talk_of(&five), None, 80, SPACE).len(), 5);
+    }
+
+    /// Unfolded, the RESOLVED row has one line per resolved thread, newest first: its
+    /// ✓, its name and its age, each opening that thread (on the full board) when clicked.
+    #[test]
+    fn unfolded_resolved_threads_are_a_line_each_that_opens_the_thread() {
+        let m = golden();
+        let talk = talk_of(&m);
+        let unfolded = Limits {
+            shown: Shown {
+                opened: &NONE,
+                unfolded: true,
+            },
+            ..SPACE
+        };
+        let all = lines(&talk, None, 80, unfolded, NOW, Depth::TrueColor);
+        let rows: Vec<String> = all.iter().map(|l| l.to_string()).collect();
+        let row = rows
+            .iter()
+            .position(|r| r.starts_with(" RESOLVED"))
+            .unwrap();
+        assert_eq!(rows[row].trim_end(), " RESOLVED 2 ▾");
+        assert!(
+            rows[row + 1].starts_with(" ✓ thread 5"),
+            "{}",
+            rows[row + 1]
+        );
+        assert!(
+            rows[row + 1].trim_end().ends_with(" 5m"),
+            "{}",
+            rows[row + 1]
+        );
+        assert!(
+            rows[row + 2].starts_with(" ✓ thread 2"),
+            "{}",
+            rows[row + 2]
+        );
+        assert!(
+            rows[row + 2].trim_end().ends_with(" 2h"),
+            "{}",
+            rows[row + 2]
+        );
+        assert_eq!(rows.len(), row + 3);
+        assert!(rows.iter().all(|r| r.width() == 80));
+        assert_eq!(all[row + 1].spans[1].style.fg, Some(ok(Depth::TrueColor)));
+        assert_eq!(height(&talk, None, 80, unfolded), rows.len());
+        // The row stays where it is, folded or not; a click there folds or unfolds it.
+        assert_eq!(resolved_row(&talk, None, 80, unfolded), Some(row));
+        assert_eq!(resolved_row(&talk, None, 80, SPACE), Some(row));
+        let lines_at = |limits| -> Vec<(i64, usize, usize)> {
+            (thread_rows(&talk, None, 80, limits).iter())
+                .filter(|r| r.line > row)
+                .map(|r| (r.thread.0, r.line, r.height))
+                .collect()
+        };
+        assert_eq!(lines_at(unfolded), vec![(5, row + 1, 1), (2, row + 2, 1)]);
+        assert!(lines_at(SPACE).is_empty());
+        // No resolved thread, no row; only resolved threads, only the row.
+        use ThreadStatus::{Open, Resolved};
+        let open = milestone(vec![thread(1, Open, None, &[("dev-1", "hi", 1)])]);
+        assert_eq!(resolved_row(&talk_of(&open), None, 80, SPACE), None);
+        let done = milestone(vec![thread(1, Resolved, None, &[("dev-1", "hi", 1)])]);
+        let rows = text(&done, None, 80);
+        assert_eq!(rows.last().unwrap().trim_end(), " RESOLVED 1 ▸");
+        assert!(
+            !rows.iter().any(|r| r.contains("no threads yet")),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_loaded_summary_draws_the_same_as_the_whole_threads() {
+        // The board loads only the shown messages and the total; the summary is the same.
+        let mut whole = golden();
+        let long: Vec<(String, String, i64)> = (0..30)
+            .map(|i| {
+                let who = ["dev-2", "qa", "senior", "cat-lead"][i % 4];
+                (
+                    who.to_string(),
+                    format!("message {i}, with some words"),
+                    90 - i as i64,
+                )
+            })
+            .collect();
+        let long: Vec<(&str, &str, i64)> = (long.iter())
+            .map(|(a, t, m)| (a.as_str(), t.as_str(), *m))
+            .collect();
+        whole
+            .threads
+            .push(thread(6, ThreadStatus::Open, None, &long));
+        let mut loaded = whole.clone();
+        for t in &mut loaded.threads {
+            let keep = t.status().shown();
+            t.messages.drain(..t.messages.len().saturating_sub(keep));
+        }
+        assert_eq!(loaded.threads[4].messages.len(), 12);
+        assert_eq!(text(&loaded, None, 80), text(&whole, None, 80));
+        let popup = Limits::of(Mode::Popup, FOLDED);
+        assert_eq!(
+            lines(&talk_of(&loaded), None, 80, popup, NOW, Depth::Ansi256),
+            lines(&talk_of(&whole), None, 80, popup, NOW, Depth::Ansi256)
+        );
+    }
+
+    #[test]
+    fn each_author_shows_in_their_role_colour_and_the_pill_in_its_status_colour() {
+        // The summary draws only open threads' bubbles: senior's (T2) and qa's (T5)
+        // are open here; in T3 they only ack.
+        let mut m = golden();
+        m.threads[0] = thread(
+            2,
+            ThreadStatus::Open,
+            None,
+            &[("senior", "resolved: the ribbon sits under the cover", 120)],
+        );
+        m.threads[3] = thread(
+            5,
+            ThreadStatus::Open,
+            Some(13),
+            &[("qa", "cases pass", 30), ("qa", "4 of 4 pass", 5)],
+        );
+        let all = lines(&talk_of(&m), None, 80, SPACE, NOW, Depth::TrueColor);
+        let colour_of = |name: &str| {
+            all.iter()
+                .flat_map(|l| &l.spans)
+                .find(|s| s.content == name)
+                .and_then(|s| s.style.fg)
+                .unwrap_or_else(|| panic!("no span {name:?}"))
+        };
+        assert_eq!(colour_of("dev-2"), Color::Rgb(0x8f, 0xd6, 0xc4));
+        assert_eq!(colour_of("senior"), Color::Rgb(0xc3, 0xa6, 0xff));
+        assert_eq!(colour_of("qa"), Color::Rgb(0xf2, 0xa7, 0xc3));
+        assert_eq!(colour_of("[open]"), warn(Depth::TrueColor));
+        let lead_msg = milestone(vec![thread(
+            1,
+            ThreadStatus::Open,
+            None,
+            &[("cat-lead", "go", 1)],
+        )]);
+        let all = lines(&talk_of(&lead_msg), None, 80, SPACE, NOW, Depth::TrueColor);
+        let lead = all
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content == "cat-lead")
+            .unwrap();
+        assert_eq!(
+            lead.style.fg,
+            Some(lead_colour(Colour::Blue, Depth::TrueColor))
+        );
+        for other in ["manager", "devon", "qatar", "device-x"] {
+            assert_eq!(
+                role_colour(other, lead_msg.lead.as_ref(), Depth::Ansi256),
+                Color::Reset,
+                "{other}"
+            );
+        }
+        assert_eq!(
+            role_colour("senior-1", None, Depth::Ansi256),
+            Color::Indexed(147)
+        );
+    }
+
+    #[test]
+    fn tower_messages_are_quiet_centred_lines_with_no_bubble_and_keep_a_needs_you_tag() {
+        let m = milestone(vec![thread(
+            1,
+            ThreadStatus::Open,
+            Some(13),
+            &[
+                ("cat-lead", "go", 9),
+                ("system", "nudged dev-1: no post for 20 min", 3),
+                ("system", "nudged dev-1: no post for 20 min", 2),
+                (
+                    "system",
+                    "question: @manager dev-1 is waiting on a prompt",
+                    1,
+                ),
+            ],
+        )]);
+        let talk = talk_of(&m);
+        let t = talk.threads[0];
+        let none = BTreeSet::new();
+        let shape = chat::Shape {
+            clip: 4,
+            open: &none,
+            now: Some(NOW),
+            preview: None,
+            people: talk.people(),
+            full: false,
+        };
+        let rows = chat::plan(&t.messages, 0, 60, shape);
+        let ctx = chat::Ctx {
+            msgs: &t.messages,
+            people: talk.people(),
+            now: NOW,
+            depth: Depth::TrueColor,
+            selected: None,
+        };
+        let drawn: Vec<Line> = chat::lines(&rows, 60, &ctx);
+        let text: Vec<String> = drawn.iter().map(|l| l.to_string()).collect();
+        // Two nudges of one worker are one line; neither has a name or a bubble.
+        let nudged = text
+            .iter()
+            .position(|r| r.contains("dev-1 was nudged 2 times"))
+            .unwrap();
+        let line = &text[nudged];
+        let left = line.len() - line.trim_start().len();
+        let right = line.len() - line.trim_end().len();
+        assert!(left.abs_diff(right) <= 1, "{line:?}");
+        assert!(!text.iter().any(|r| r.contains("system")), "{text:#?}");
+        // Tower's question to the owner keeps its red tag on its quiet line.
+        let q = text
+            .iter()
+            .position(|r| r.contains("needs you @manager dev-1 is waiting"))
+            .unwrap();
+        let tag = drawn[q]
+            .spans
+            .iter()
+            .find(|s| s.content == "needs you")
+            .unwrap();
+        assert_eq!(tag.style.fg, Some(bad(Depth::TrueColor)));
+        let rest = drawn[q]
+            .spans
+            .iter()
+            .find(|s| s.content.contains("waiting"))
+            .unwrap();
+        assert_eq!(rest.style.fg, dim(Depth::TrueColor).fg);
+    }
+
+    #[test]
+    fn needs_you_decision_and_blocked_messages_are_tagged_and_only_a_question_is_red() {
+        use ThreadStatus::Open;
+        let d = Depth::TrueColor;
+        for (text, tag, colour) in [
+            (
+                "blocked: the printer has not sent the covers",
+                Some("blocked"),
+                warn(d),
+            ),
+            (
+                "question: @manager can you ring the printer this week?",
+                Some("needs you"),
+                bad(d),
+            ),
+            (
+                "decision: the shelf shows 12 books, not 10. @manager for your awareness",
+                Some("decision"),
+                info(d),
+            ),
+            ("copy, still blocked: no", None, warn(d)),
+            ("decision: x @Manager approve?", Some("decision"), info(d)),
+        ] {
+            let one = milestone(vec![thread(1, Open, None, &[("dev-1", text, 1)])]);
+            for w in [80, 30] {
+                let all = lines(&talk_of(&one), None, w, SPACE, NOW, d);
+                let tags: Vec<&Span> = (all.iter().flat_map(|l| &l.spans))
+                    .filter(|s| ["needs you", "decision", "blocked"].contains(&&*s.content))
+                    .collect();
+                match tag {
+                    Some(tag) => {
+                        assert_eq!(tags.len(), 1, "{text} w={w}");
+                        assert_eq!(tags[0].content, tag, "{text}");
+                        assert_eq!(tags[0].style.fg, Some(colour), "{text}");
+                        assert!(tags[0].style.add_modifier.contains(Modifier::BOLD));
+                    }
+                    None => assert!(tags.is_empty(), "{text} w={w}"),
+                }
+                // Only a question to the owner has the red edge and tint.
+                let edges: Vec<&Span> = (all.iter().flat_map(|l| &l.spans))
+                    .filter(|s| s.content == "▌")
+                    .collect();
+                assert!(!edges.is_empty(), "{text} w={w}");
+                let question = tag == Some("needs you");
+                for e in edges {
+                    assert_eq!(e.style.fg == Some(bad(d)), question, "{text}");
+                    let tint = Some(Color::Rgb(0x2a, 0x19, 0x1d));
+                    assert_eq!(e.style.bg == tint, question, "{text}");
+                }
+                for l in &all {
+                    assert_eq!(l.width(), w);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_owner_is_highlighted_as_board_mentioned_reads_a_mention() {
+        // Any case is a mention; a quoted or code one is not.
+        let d = Depth::TrueColor;
+        let red = |text: &str| -> Vec<String> {
+            let one = milestone(vec![thread(
+                1,
+                ThreadStatus::Open,
+                None,
+                &[("dev-1", text, 1)],
+            )]);
+            // In the bubble only: the header's where-it-stands line repeats the text.
+            (lines(&talk_of(&one), None, 80, SPACE, NOW, d).iter())
+                .filter(|l| l.to_string().contains('▌'))
+                .flat_map(|l| l.spans.clone())
+                .filter(|s| s.style.fg == Some(bad(d)) && s.content.starts_with('@'))
+                .map(|s| s.content.to_string())
+                .collect()
+        };
+        assert_eq!(
+            red("ping @manager and @Manager, @MANAGER"),
+            ["@manager", "@Manager", "@MANAGER"]
+        );
+        assert!(red("> @manager said so").is_empty());
+        assert!(red("see `@manager` in the docs").is_empty());
+        assert!(red("```\n@manager\n```").is_empty());
+        assert!(red("mail me at x@manager.example").is_empty());
+        // A mention past the clip is marked from the whole text, on its own line.
+        assert_eq!(red("a\n> b\n@manager"), ["@manager"]);
+        // Across a wrapped line, the mention stays whole and the quote's continuation stays
+        // unmarked.
+        let long = format!("> {} @manager", "word ".repeat(30));
+        assert!(red(&long).is_empty());
+    }
+
+    #[test]
+    fn says_why_the_board_is_empty() {
+        let mut m = milestone(Vec::new());
+        let rows = text(&m, None, 40);
+        assert_eq!(rows[2].trim_end(), " nothing on this board needs you");
+        assert_eq!(rows[3].trim_end(), " no threads yet");
+        m.lead = None;
+        let rows = text(&m, None, 40);
+        // The heading still names the part of the board it would be.
+        assert_eq!(rows[1].trim_end(), " MESSAGE BOARD · M1 and its tasks");
+        assert_eq!(rows[2].trim_end(), " no lead yet, so no message board");
+    }
+
+    #[test]
+    fn a_path_stays_in_its_line_and_breaks_only_after_a_slash() {
+        let text =
+            "Icons live in assets/icons/bookmarks/outline/bookmark-ribbon.svg, one file an icon.";
+        assert_eq!(
+            wrap_line_paths(text, 40),
+            [
+                "Icons live in assets/icons/bookmarks/",
+                "outline/bookmark-ribbon.svg, one file an",
+                "icon."
+            ]
+        );
+        // Where plain wrapping breaks it anywhere, a path breaks after a `/`.
+        assert_eq!(wrap_line(text, 30)[0], "Icons live in assets/icons/boo");
+        assert_eq!(wrap_line_paths(text, 30)[0], "Icons live in assets/icons/");
+        // Under 16 characters it is a word like any other.
+        assert_eq!(
+            wrap_line_paths("see a/b/c.rs and more", 10),
+            ["see", "a/b/c.rs", "and more"]
+        );
+        // Any other word too wide for a line still breaks where the line ends.
+        assert_eq!(wrap_line_paths("abcdefghijkl", 5), ["abcde", "fghij", "kl"]);
+    }
+
+    #[test]
+    fn a_bubble_takes_at_most_85_percent_and_a_long_message_folds_to_two_lines() {
+        let long = "Plan: the shelf grid, then the ribbon, then the phone layout. \
+                    Tests for each, then docs, then the release notes and a demo for \
+                    the owner in a throwaway herdr, then the tag.";
+        let m = milestone(vec![thread(
+            1,
+            ThreadStatus::Open,
+            None,
+            &[("dev-2", long, 30)],
+        )]);
+        // In a 200-column board its chat is 194 wide: 85% would be 164, but a bubble holds
+        // at most 100 columns of text, so it is 103 with its edge and spaces.
+        let rows = text(&m, None, 200);
+        let edge = rows.iter().filter(|r| r.contains('▌'));
+        for r in edge {
+            let from = r.find('▌').unwrap();
+            let bubble = r[from..].trim_end_matches([' ', '│']);
+            assert!(bubble.chars().count() <= 103, "{r:?}");
+        }
+        // At 60 its chat is 54 wide, and a bubble 85% of it, 45 columns: 42 of text.
+        let rows = text(&m, None, 60);
+        // The age is on the name line, so the first line is as wide as the rest.
+        assert_eq!(
+            rows[8],
+            " │   dev-2 · developer · 30m                              │ "
+        );
+        assert_eq!(
+            rows[9],
+            " │  ▌ Plan: the shelf grid, then the ribbon,              │ "
+        );
+        assert_eq!(
+            rows[10],
+            " │  ▌ then the phone layout. Tests for each,              │ "
+        );
+        assert_eq!(
+            rows[11],
+            " │  ▌ read more                                           │ "
+        );
+        // One line past the clip shows in full: no "read more" to hide a single line.
+        let three = "one two three four five six seven eight nine ten eleven twelve thirteen";
+        let m = milestone(vec![thread(
+            1,
+            ThreadStatus::Open,
+            None,
+            &[("dev-2", three, 30)],
+        )]);
+        let rows = text(&m, None, 40);
+        assert!(!rows.iter().any(|r| r.contains("read more")), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_message_with_line_breaks_keeps_them_in_its_bubble() {
+        let plan = "Plan:\n1. shelf grid";
+        let m = milestone(vec![thread(
+            1,
+            ThreadStatus::Open,
+            None,
+            &[("qa-2", plan, 3)],
+        )]);
+        let rows = text(&m, None, 60);
+        // Under the strip and the thread's three-line header.
+        assert!(rows[9].contains("▌ Plan:"), "{}", rows[9]);
+        assert!(rows[10].contains("▌ 1. shelf grid"), "{}", rows[10]);
+        let drawn = lines(&talk_of(&m), None, 60, SPACE, NOW, Depth::TrueColor);
+        let author = (drawn[8].spans.iter())
+            .find(|s| s.content == "qa-2")
+            .unwrap();
+        assert_eq!(author.style.fg, Some(Color::Rgb(0xf2, 0xa7, 0xc3)));
+    }
+
+    #[test]
+    fn every_line_is_exactly_the_pane_width_and_the_height_matches() {
+        let mut long = golden();
+        long.threads[0].title = "日本語のスレッド名と長い題名".repeat(4);
+        long.threads[1].messages[0].author = "a-very-long-author-name".into();
+        long.threads[1].messages[0].text =
+            format!("{} 日本語\n\n{}", "x".repeat(150), "word ".repeat(700));
+        for m in [golden(), long, milestone(Vec::new())] {
+            for task in [None, Some(TaskId(13)), Some(TaskId(99))] {
+                for w in 0..=130 {
+                    let drawn = lines(&talk_of(&m), task, w, SPACE, NOW, Depth::Ansi256);
+                    assert_eq!(drawn.len(), height(&talk_of(&m), task, w, SPACE), "w={w}");
+                    for line in drawn {
+                        assert_eq!(line.width(), w, "w={w} {line:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_height_does_not_change_as_ages_grow() {
+        let m = golden();
+        for later in [0, 59, 3600 * 30, 86_400 * 500] {
+            assert_eq!(
+                lines(&talk_of(&m), None, 60, SPACE, NOW + later, Depth::Ansi256).len(),
+                height(&talk_of(&m), None, 60, SPACE)
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_breaks_at_spaces_and_splits_only_words_too_wide() {
+        assert_eq!(wrap("copy, go", 20), vec!["copy, go"]);
+        assert_eq!(wrap("one two three", 7), vec!["one two", "three"]);
+        assert_eq!(wrap("abcdefghij", 4), vec!["abcd", "efgh", "ij"]);
+        assert_eq!(wrap("日本語です", 4), vec!["日本", "語で", "す"]);
+        assert_eq!(wrap("", 4), vec![""]);
+        assert_eq!(
+            wrap("Plan:\n1. layout and colours\n\n2. tests", 12),
+            vec!["Plan:", "1. layout", "and colours", "", "2. tests"]
+        );
+        for w in 1..12 {
+            for piece in wrap("Plan: the shelf grid, then the ribbon 日本", w) {
+                assert!(piece.width() <= w.max(2), "w={w} {piece:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn wrap_at_most_carries_the_rest_as_written_on_its_last_line() {
+        assert_eq!(
+            wrap_at_most("one two three", 7, 2),
+            vec!["one two", "three"]
+        );
+        assert_eq!(
+            wrap_at_most("one two three four", 7, 2),
+            vec!["one two", "three four"]
+        );
+        // A word broken across the lines past the last stays whole, its spacing as written.
+        assert_eq!(
+            wrap_at_most("ab bookshelf  now", 4, 2),
+            vec!["ab b", "ookshelf  now"]
+        );
+        assert_eq!(wrap_at_most("abcdefghij", 4, 2), vec!["abcd", "efghij"]);
+        assert_eq!(wrap_at_most("abcdefghij", 4, 1), vec!["abcdefghij"]);
+        assert_eq!(wrap_at_most("日本語です", 4, 2), vec!["日本", "語です"]);
+    }
+}

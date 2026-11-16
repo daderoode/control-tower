@@ -1,0 +1,65 @@
+name: macOS
+
+# The hand-off binary and the macOS-only tests (SDLC.md, Build once). On a pull
+# request that changes what the binary or its tests are made of, it builds `tower` from the
+# PR's head commit (the hand-off commit, not GitHub's merge of it) and uploads it as the
+# artifact `tower-<first 12 characters of the commit>`, for QA to download; nothing builds
+# it on a developer's machine. A macOS minute costs ten of Linux's, so this is the one macOS
+# job: not on master, not for a change to docs, skills or plugin files alone, and a newer
+# push to the PR cancels a run still going. The quality gate itself runs on Linux (ci.yml).
+#
+# The macOS-only tests (#[cfg(target_os = "macos")]) are in tests/cli.rs, so it runs that
+# file's tests, in release so they share the build with the binary. The binary is packed in
+# a tar, as an artifact's zip does not keep the executable bit.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/macos.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  binary:
+    name: macOS tests and binary
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # the stable branch on 2026-10-16
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: macOS-only tests (tests/cli.rs, in release)
+        run: cargo test --release --test cli
+      - name: cargo build --release
+        run: cargo build --release
+      - name: Pack tower
+        id: pack
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "sha12=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          tar -czf tower.tar.gz -C target/release tower
+          echo "tower for ${SHA:0:12}: sha256 $(shasum -a 256 target/release/tower | cut -d' ' -f1)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tower-${{ steps.pack.outputs.sha12 }}
+          path: tower.tar.gz
+          if-no-files-found: error
+          retention-days: 7
