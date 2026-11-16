@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-16
+
 ### Added
 
 - **Developed in the open.** control-tower's repository is public, and its CI (the quality
@@ -23,3 +25,14 @@ tag's date, and a new empty Unreleased goes above it.
   quiet workers and flags stuck ones, the `tower` CLI is how leads and workers update the
   board, and a Claude Code plugin's lead skill runs a repo's lead from it. Installs with
   Homebrew on Apple silicon.
+
+### Notes
+
+- **Upgrading an existing board:** after `brew upgrade control-tower`, the watch restarts on
+  the new version and upgrades its board to the new schema by itself on its next look;
+  nothing to run.
+- **Links:** URLs in messages are terminal hyperlinks (OSC 8). herdr 0.9.5 does not pass
+  them through, so inside herdr a URL shows whole but is not clickable.
+- **Alt+Enter:** it breaks a line in the composer. Some macOS terminals send it only with
+  "Option as Meta" set.
+- **Platform:** Apple silicon only.
