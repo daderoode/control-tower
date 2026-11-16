@@ -1,12 +1,12 @@
 name: CI
 
 # The quality gate (SDLC.md) on every pull request and on master, one step per check so a
-# failure names which one. It runs here, not on a developer's machine, and on Linux,
-# which costs a tenth of a macOS minute. The product ships only for macOS: the few tests
-# that depend on how macOS behaves are #[cfg(target_os = "macos")] and run in macos.yml,
-# which also builds the hand-off binary. The job keeps the name "Quality gate", the check
-# master's branch protection requires. The toolchain is stable, so a red master after a new
-# Rust release is a lint-drift fix, not a regression.
+# failure names which one. It runs here, not on a developer's machine, and on Linux, whose
+# runners start sooner and run the gate faster than macOS ones. The product ships only for
+# macOS: the few tests that depend on how macOS behaves are #[cfg(target_os = "macos")] and
+# run in macos.yml, which also builds the hand-off binary. The job keeps the name "Quality
+# gate", the check master's branch protection requires. The toolchain is stable, so a red
+# master after a new Rust release is a lint-drift fix, not a regression.
 #
 # `cargo test` needs no herdr, claude or network: the tests use fake herdr and claude
 # scripts and temp boards. The one test against a real herdr is #[ignore]d. It runs twice:

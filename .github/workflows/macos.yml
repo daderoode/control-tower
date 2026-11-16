@@ -1,12 +1,13 @@
 name: macOS
 
-# The hand-off binary and the macOS-only tests (SDLC.md, Build once). On a pull
-# request that changes what the binary or its tests are made of, it builds `tower` from the
-# PR's head commit (the hand-off commit, not GitHub's merge of it) and uploads it as the
-# artifact `tower-<first 12 characters of the commit>`, for QA to download; nothing builds
-# it on a developer's machine. A macOS minute costs ten of Linux's, so this is the one macOS
-# job: not on master, not for a change to docs, skills or plugin files alone, and a newer
-# push to the PR cancels a run still going. The quality gate itself runs on Linux (ci.yml).
+# The hand-off binary and the macOS-only tests (SDLC.md, Build once). On a pull request that
+# changes what the binary or its tests are made of, it builds `tower` from the PR's head
+# commit (the hand-off commit, not GitHub's merge of it) and uploads it as the artifact
+# `tower-<first 12 characters of the commit>`, for QA to download; nothing builds it on a
+# developer's machine. macOS runners are fewer and slower to start than Linux ones, so this
+# is the one macOS job: not on master, not for a change to docs, skills or plugin files
+# alone, and a newer push to the PR cancels a run still going. The quality gate itself runs
+# on Linux (ci.yml).
 #
 # The macOS-only tests (#[cfg(target_os = "macos")]) are in tests/cli.rs, so it runs that
 # file's tests, in release so they share the build with the binary. The binary is packed in

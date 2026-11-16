@@ -2,8 +2,8 @@ name: Release
 
 # On a version tag this workflow builds the macOS binary, publishes it as a release on the
 # public daderoode/homebrew-tap repo, and commits the rendered formula there. See README.md,
-# Releasing. Apple silicon only: macOS minutes cost ten times Linux ones; v0.3.1 is the
-# last release with an Intel build.
+# Releasing. Apple silicon only, one build on one macOS runner, as macOS runners are fewer
+# and slower to start than Linux ones.
 
 on:
   push:
