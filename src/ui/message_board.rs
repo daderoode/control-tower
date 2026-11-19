@@ -1734,6 +1734,61 @@ mod tests {
     }
 
     #[test]
+    fn paths_are_what_the_copys_path_pattern_finds_in_a_word() {
+        // Each as the copy's PATH_RE finds it with `matchAll`, keeping matches of 16 or more.
+        let found = |word: &str| -> Vec<String> {
+            (paths(word).into_iter())
+                .map(|r| word[r].to_string())
+                .collect()
+        };
+        // A `~` starts one, after text too; a letter before the `~` is not part of it.
+        let home = "~/projects/bakery/rye/notes.md";
+        assert_eq!(found(home), [home]);
+        assert_eq!(found(&format!("x{home}")), [home]);
+        assert_eq!(
+            found("x~y/var/log/tower/output.log"),
+            ["y/var/log/tower/output.log"]
+        );
+        // A trailing `/` is the path's, and CJK text either side is not.
+        assert_eq!(
+            found("設定は~/.config/tower/plugins/。確認"),
+            ["~/.config/tower/plugins/"]
+        );
+        assert_eq!(
+            found("ログは/var/log/tower/output.logに書いて"),
+            ["/var/log/tower/output.log"]
+        );
+        // A match under 16 characters is skipped and the search goes on after it.
+        assert_eq!(found("src/ui/chat.rs"), Vec::<String>::new());
+        assert_eq!(
+            found("a/b/c:/var/log/tower/output.log"),
+            ["/var/log/tower/output.log"]
+        );
+        assert_eq!(
+            found("ab/cd/ef//var/log/tower/output.log"),
+            ["/var/log/tower/output.log"]
+        );
+        // Two in one word.
+        assert_eq!(
+            found("assets/icons/bookmarks,docs/notes/plans/q4.md"),
+            ["assets/icons/bookmarks", "docs/notes/plans/q4.md"]
+        );
+        // After a scheme other than http, the path starts at the host's `/`.
+        assert_eq!(
+            found("ftp://host.example/a/b/c/d"),
+            ["/host.example/a/b/c/d"]
+        );
+        // The prefix takes letters, digits, `_`, `.` and `-` from a word's edge; not `@`,
+        // and not `.-` with no word character before it.
+        assert_eq!(found("a.b-c/dddd/eeee/ffff"), ["a.b-c/dddd/eeee/ffff"]);
+        assert_eq!(
+            found("@dev/assets/icons/bookmarks"),
+            ["dev/assets/icons/bookmarks"]
+        );
+        assert_eq!(found(".-/var/log/tower/x.log"), ["/var/log/tower/x.log"]);
+    }
+
+    #[test]
     fn wrap_at_most_carries_the_rest_as_written_on_its_last_line() {
         assert_eq!(
             wrap_at_most("one two three", 7, 2),
