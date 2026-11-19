@@ -1435,8 +1435,10 @@ pub fn refuse_owner(author: &str) -> Result<()> {
 /// quotes is no mention: a fenced block (between lines starting with three backticks), a
 /// code span (between backticks on one line; an unmatched one ends with its line) and a
 /// line starting with `>`. Nor is code written without backticks: a name followed straight
-/// by `(`, or by `.` and a letter, digit or `_`, as in `@cart.isEmpty()`; a sentence that
-/// ends on a name, `@qa.`, still mentions it.
+/// by `(` and an ASCII character or nothing, as in `@cart(x)`, or by `.` and an ASCII
+/// letter, digit or `_`, as in `@cart.isEmpty()`. A sentence that ends on a name, `@qa.`,
+/// still mentions it, and so does a name before `.` or `(` and a character that is not
+/// ASCII, as Chinese or Japanese is written: `请@dev-2.谢谢`, `请@dev-2(明天)看一下`.
 pub fn mentioned(text: &str) -> Vec<&str> {
     mentions(text).into_iter().map(|(_, name)| name).collect()
 }
@@ -1471,11 +1473,11 @@ pub fn mentions(text: &str) -> Vec<(usize, &str)> {
                     .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')))
                 .unwrap_or(rest.len());
                 let name = rest[..end].trim_end_matches(['-', '_']);
-                // Code, not a mention: `@cart.isEmpty()`, `@cart(x)`.
+                // Code, not a mention: `@cart.isEmpty()`, `@cart(x)`. Not `@qa.谢谢`.
                 let mut after = rest[end..].chars();
                 let code_like = match (after.next(), after.next()) {
-                    (Some('('), _) => true,
-                    (Some('.'), Some(n)) => n.is_alphanumeric() || n == '_',
+                    (Some('('), n) => n.is_none_or(|n| n.is_ascii()),
+                    (Some('.'), Some(n)) => n.is_ascii_alphanumeric() || n == '_',
                     _ => false,
                 };
                 if !name.is_empty() && !code_like {
@@ -2410,8 +2412,10 @@ mod tests {
         }
     }
 
-    /// Code written without backticks names no one. A name followed straight by `.`
-    /// and a word character, or by `(`, is code; a sentence ending on a name still counts.
+    /// Code written without backticks names no one. A name followed straight by `(` and an
+    /// ASCII character or nothing, or by `.` and an ASCII letter, digit or `_`, is code; a
+    /// sentence ending on a name still counts, and so does a name before `.` or `(` and a
+    /// character that is not ASCII.
     #[test]
     fn a_name_followed_by_a_member_or_a_call_is_code_not_a_mention() {
         let none: Vec<&str> = Vec::new();
@@ -2432,6 +2436,13 @@ mod tests {
             ),
             ("ask @qa... or @dev-2.)", vec!["qa", "dev-2"]),
             ("@qa (see above)", vec!["qa"]),
+            // Only ASCII after the `.` or `(` is code: Chinese and Japanese go straight on
+            // after a name, as the signed copy marks every `@manager`.
+            ("请@dev-zh.谢谢", vec!["dev-zh"]),
+            ("確認後@dev-ja.よろしく", vec!["dev-ja"]),
+            ("请@dev-zh(明天)看一下", vec!["dev-zh"]),
+            // A call with no argument, or one cut at the end of its line, is still code.
+            ("@cart() then @cart(\n  x)", none.clone()),
         ] {
             assert_eq!(mentioned(text), want, "{text}");
         }
@@ -2441,6 +2452,7 @@ mod tests {
             Tone::Plain
         );
         assert_eq!(Tone::of("question: is @manager(1) right?"), Tone::Plain);
+        assert_eq!(Tone::of("question: 请@manager(明天)回复"), Tone::NeedsYou);
         assert_eq!(
             Tone::of("question: @manager. Is this right?"),
             Tone::NeedsYou
