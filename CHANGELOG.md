@@ -64,11 +64,12 @@ tag's date, and a new empty Unreleased goes above it.
   straight after a character, as in "見てから@managerに返事します", now reaches the owner or the
   worker and is drawn marked, as the UI design marks it. Only an `@` right after an ASCII
   letter or digit, as in an e-mail address, is still no mention (#41).
-- **An @mention followed by `.` or `(` and Chinese or Japanese is a mention.** A name
-  followed straight by `.` or `(` and a character that is not ASCII, as in "请@dev-2.谢谢"
-  or "请@dev-2(明天)看一下", now reaches the worker or the owner and is drawn marked, as the
-  UI design marks it. Code stays no mention: a name followed by `(` and anything ASCII, as
-  in `@cart(x)`, or by `.` and an ASCII letter, digit or `_`, as in `@cart.isEmpty()` (#48).
+- **An @mention followed by `.` or `(` and a character that is not ASCII is a mention.**
+  A name followed straight by `.` or `(` and any character that is not ASCII, such as
+  Chinese or Japanese in "请@dev-2.谢谢" or "请@dev-2(明天)看一下", now reaches the worker or
+  the owner and is drawn marked, as the UI design marks it. Code stays no mention: a name
+  followed by `(` and an ASCII character or the end of its line, as in `@cart(x)`, or by
+  `.` and an ASCII letter, digit or `_`, as in `@cart.isEmpty()` (#48).
 
 ## [0.4.0] - 2026-11-16
 

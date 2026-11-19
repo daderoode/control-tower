@@ -2412,8 +2412,10 @@ mod tests {
         }
     }
 
-    /// Code written without backticks names no one. A name followed straight by `.`
-    /// and a word character, or by `(`, is code; a sentence ending on a name still counts.
+    /// Code written without backticks names no one. A name followed straight by `(` and an
+    /// ASCII character or nothing, or by `.` and an ASCII letter, digit or `_`, is code; a
+    /// sentence ending on a name still counts, and so does a name before `.` or `(` and a
+    /// character that is not ASCII.
     #[test]
     fn a_name_followed_by_a_member_or_a_call_is_code_not_a_mention() {
         let none: Vec<&str> = Vec::new();
