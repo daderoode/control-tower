@@ -599,19 +599,18 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
 /// dropped and each run between words one.
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
     let words: Vec<&str> = text.split(' ').filter(|s| !s.is_empty()).collect();
-    wrap_line_by(&words.join(" "), w, |_| None)
+    wrap_line_by(&words.join(" "), w, false, |_| None)
 }
 
 /// `wrap_line`, with a path (`is_path`) kept in its line and broken only after a `/`, as
-/// the copy breaks one, and the line's spaces kept as the copy's message body
+/// the copy breaks one, the line's spaces kept as the copy's message body
 /// (`white-space: pre-wrap`) keeps them: its leading ones on its first line and each run
-/// between words as written.
+/// between words as written, and any other word too wide for a line started on a line of
+/// its own, as the body's `overflow-wrap: anywhere` breaks at the space before it first.
 pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(
-        text,
-        w,
-        |word| if is_path(word) { Some(&['/']) } else { None },
-    )
+    wrap_line_by(text, w, true, |word| {
+        if is_path(word) { Some(&['/']) } else { None }
+    })
 }
 
 /// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
@@ -641,9 +640,10 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 }
 
 /// Words of `text` on lines at most `w` wide. A word too wide for any line starts where the
-/// line is, rather than leaving it short, and breaks where a line ends. A word `breaks`
-/// gives break characters for starts where the line is too, and breaks only after one of
-/// them (`units`), or inside a piece between them too wide for a line of its own. The
+/// line is, rather than leaving it short, or on a line of its own when `wide_alone`, and
+/// breaks where a line ends. A word `breaks` gives break characters for starts where the
+/// line is either way, and breaks only after one of them (`units`), or inside a piece
+/// between them too wide for a line of its own. The
 /// text's leading spaces, when narrower than a line, start its first line, as the copy's
 /// `pre-wrap` body keeps them: a first word that does not fit after them goes to the next
 /// line as any other word does, leaving them alone on the first. Each run of spaces between
@@ -652,6 +652,7 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 fn wrap_line_by(
     text: &str,
     w: usize,
+    wide_alone: bool,
     breaks: impl Fn(&str) -> Option<&'static [char]>,
 ) -> Vec<String> {
     let w = w.max(1);
@@ -683,10 +684,12 @@ fn wrap_line_by(
             line.push_str(word);
             continue;
         }
-        // A word too wide for any line, or one with its own breaks, starts where the line
-        // is, rather than leaving it short; any other goes on the next.
+        // A word with its own breaks, or one too wide for any line unless `wide_alone`,
+        // starts where the line is, rather than leaving it short; any other goes on the
+        // next, the space before it hanging at the end of this one.
         let after = breaks(word);
-        if (word.width() > w || after.is_some()) && !line.is_empty() && line.width() + gap < w {
+        let here = after.is_some() || (word.width() > w && !wide_alone);
+        if here && !line.is_empty() && line.width() + gap < w {
             line.push_str(&" ".repeat(gap));
         } else if !line.is_empty() {
             out.push(std::mem::take(&mut line));
