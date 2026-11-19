@@ -2169,7 +2169,8 @@ fn space_never_takes_a_labelled_workspace_or_pane_and_a_second_press_focuses_its
         [
             "pane list",
             "plugin pane focus w4:p2",
-            "plugin pane focus w9:p2"
+            "plugin pane focus w9:p2",
+            "workspace focus w9",
         ]
     );
     assert_eq!(
@@ -2263,7 +2264,8 @@ fn space_passes_over_a_candidate_that_closed_since_pane_list_to_the_dashboard() 
         [
             "pane list",
             "plugin pane focus w4:p2",
-            "plugin pane focus w9:p2"
+            "plugin pane focus w9:p2",
+            "workspace focus w9",
         ]
     );
 }

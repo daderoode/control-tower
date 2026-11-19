@@ -9,6 +9,13 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **prefix+a brings an open dashboard into view.** With the dashboard already open in its
+  own workspace, prefix+a left you where you were: herdr 0.9.5's `plugin pane focus` moves
+  only the herdr server's focus, not what your terminal shows. `tower space` now also
+  focuses the dashboard's workspace, as it already did when it opened one (#3).
+
 ## [0.4.0] - 2026-11-16
 
 ### Added

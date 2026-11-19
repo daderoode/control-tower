@@ -221,6 +221,14 @@ fn isolate<'a>(cmd: &'a mut Command, dir: &Path, herdr: &Path) -> &'a mut Comman
         .env_remove("TOWER_UI_MODE")
 }
 
+/// What this cannot see: an attached client's view. `focused()` reads the server's flag from
+/// `workspace list`, and this herdr has no client attached. In herdr 0.9.5 the two can
+/// disagree: `plugin pane focus` moves the server's focused workspace but not a client's view,
+/// so this passed while prefix+a left the open dashboard out of view (issue #3). No herdr
+/// 0.9.5 call reports what a client shows (`api snapshot` has only the server's focus, and
+/// `status client` describes the client binary), so the view is not asserted here. What keeps
+/// the fix, `workspace focus` after the confirming `plugin pane focus`, is the herdr calls
+/// `tests/cli.rs` asserts for a press that finds the dashboard.
 #[test]
 #[ignore = "needs herdr: cargo test --test herdr -- --ignored"]
 fn space_leaves_labelled_panes_alone_and_q_returns_with_the_dashboard_running() {
