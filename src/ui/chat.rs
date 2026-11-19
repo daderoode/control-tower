@@ -873,11 +873,12 @@ fn failure_line(m: &Message, lead: Option<&Lead>, open: bool) -> (String, &'stat
 }
 
 /// The width of the copy's event box (`.evt`) around a failure's line `line_w` wide and
-/// its open `text`: it fits the widest of them (its details keep each line's leading spaces
-/// and runs), at most `ew`, the events' width, past which the text wraps.
+/// its open `text`: it fits the widest of them, each line of the text with all its spaces,
+/// as the copy's `pre-wrap` details size the box (trailing ones too, though a drawn line
+/// drops them), at most `ew`, the events' width, past which the text wraps.
 fn detail_box(text: &str, line_w: usize, ew: usize) -> usize {
     (text.split('\n'))
-        .map(|l| l.trim_end_matches(' ').width())
+        .map(UnicodeWidthStr::width)
         .fold(line_w, usize::max)
         .min(ew)
 }
@@ -2079,6 +2080,24 @@ mod tests {
         assert_eq!((start(&line), details.len()), (33, 1));
         assert_eq!(start(&details[0]), 33);
         assert_eq!(details[0].trim(), "@manager could not deliver to qa-1: x");
+        // A line's trailing spaces widen the box, as the copy's pre-wrap shrink-to-fit counts
+        // them: 41 columns and 20 spaces make it 61 wide (22.0 in headless Chrome), though the
+        // drawn line drops them.
+        let text = format!(
+            "@manager could not deliver to qa-1: gone.{}\n- exit 1",
+            " ".repeat(20)
+        );
+        let (_, details) = opened(&text, 105);
+        assert_eq!(
+            details,
+            [
+                format!(
+                    "{}@manager could not deliver to qa-1: gone.",
+                    " ".repeat(22)
+                ),
+                format!("{}- exit 1", " ".repeat(22))
+            ]
+        );
         // A wider line of the text sets the box: 73 columns, centred, every line from its
         // left edge, an indented one keeping its indent there.
         let text = "@manager could not deliver to 1 recipient; their posts stay on the board:\n\
