@@ -2004,6 +2004,54 @@ mod tests {
     }
 
     #[test]
+    fn a_path_joined_to_cjk_text_breaks_after_a_slash_and_the_text_around_it_as_any_other() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // The copy marks only the path inside the word, so the text before and after it
+        // breaks between its characters, and never before a closing mark.
+        assert_eq!(
+            wrapped(
+                "ログは/var/log/tower/output.logに書いてあるので原因を調べます。明日また報告します。",
+                40
+            ),
+            [
+                "ログは/var/log/tower/output.logに書いて",
+                "あるので原因を調べます。明日また報告しま",
+                "す。"
+            ]
+        );
+        assert_eq!(
+            wrapped(
+                "日志在/opt/tower/var/log/tower.log里面，请看第三行和第四行，然后告诉我结果。",
+                25
+            ),
+            [
+                "日志在/opt/tower/var/log/",
+                "tower.log里面，请看第三行",
+                "和第四行，然后告诉我结",
+                "果。"
+            ]
+        );
+        // A path under 16 characters is no path to the copy: it does not break after a `/`.
+        assert_eq!(
+            wrapped(
+                "テストはsrc/ui/chat.rsに追加しました。レビューをお願いします。",
+                40
+            ),
+            [
+                "テストはsrc/ui/chat.rsに追加しました。レ",
+                "ビューをお願いします。"
+            ]
+        );
+    }
+
+    #[test]
     fn the_tags_and_age_columns_are_what_the_name_line_draws() {
         for text in ["plain", "blocked: x", "decision: y"] {
             let m = &msgs(&[("dev-1", text, 0)])[0];

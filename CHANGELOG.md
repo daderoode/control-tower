@@ -52,7 +52,8 @@ tag's date, and a new empty Unreleased goes above it.
   whole, or broke only where a line ended. It now breaks between two characters, and
   between one and a word, where the UI design does, never before a closing mark such as
   `。` or after an opening one such as `「`; a run too wide for a line fills the line it
-  starts on. A word also breaks after a `…` as the design does (#20).
+  starts on, and a path written inside it with no spaces still breaks only after a `/`.
+  A word also breaks after a `…` as the design does (#20).
 
 ## [0.4.0] - 2026-11-16
 

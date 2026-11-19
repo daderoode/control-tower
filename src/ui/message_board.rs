@@ -629,25 +629,28 @@ enum Wrap {
     /// breaks inside where Chrome does (`break_units`), such as after a `-` or between two
     /// ideographs. The details mark no paths, so a path is a word like any other.
     Details,
-    /// A message body (`.seg .body`): as `Details`, and a path (`is_path`) breaks only after
-    /// each `/`, as the copy's `<wbr>` breaks one.
+    /// A message body (`.seg .body`): as `Details`, and a path the copy marks (`paths`),
+    /// alone or joined to other text, breaks only after each `/`, as the copy's `<wbr>`
+    /// breaks one; the text joined to it breaks as any other.
     Body,
 }
 
 /// `word` in the pieces `how` may break it between, short of breaking it anywhere, or
-/// `None` when it has no such break: a path in a `Body` after each `/`, and any other word
-/// where Chrome does (`break_units`).
+/// `None` when it has no such break: where Chrome does (`break_units`), a path in a `Body`
+/// only after each `/`.
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
         Wrap::Folded => return None,
-        Wrap::Body if is_path(word) => units(word, &['/']),
-        Wrap::Details | Wrap::Body => break_units(word),
+        Wrap::Details => break_units(word, &[]),
+        Wrap::Body => break_units(word, &paths(word)),
     };
     (pieces.len() > 1).then_some(pieces)
 }
 
-/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`).
-fn break_units(word: &str) -> Vec<&str> {
+/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`):
+/// inside one of `paths`, byte ranges of `word`, only after each `/`, where the copy puts a
+/// `<wbr>`, and the last `/` of a path breaks from what follows it too.
+fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     static SEGMENTER: LineSegmenterBorrowed<'static> = {
         let mut options = LineBreakOptions::default();
         options.strictness = Some(LineBreakStrictness::Normal);
@@ -665,8 +668,18 @@ fn break_units(word: &str) -> Vec<&str> {
         let (at, next) = chars[i];
         let before = i.checked_sub(2).map(|j| chars[j].1);
         let after = chars.get(i + 1).map(|&(_, c)| c);
+        let c = chars[i - 1].1;
+        let after_path = paths.iter().any(|r| r.start < at && at <= r.end);
+        let in_path = paths.iter().any(|r| r.start < at && at < r.end);
         let icu = found.binary_search(&at).is_ok();
-        if breaks_between(before, chars[i - 1].1, next, after, icu) {
+        let breaks = if after_path && c == '/' {
+            true
+        } else if in_path {
+            false
+        } else {
+            breaks_between(before, c, next, after, icu)
+        };
+        if breaks {
             out.push(&word[start..at]);
             start = at;
         }
@@ -753,12 +766,58 @@ fn breaks_between(
     icu
 }
 
-/// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
-/// digits and `_ . @ + - ~` with at least two `/` among them, and no URL scheme (a URL is
-/// laid out on its own, `chat::wrap_message_line`).
-fn is_path(word: &str) -> bool {
-    let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || "_.@+-~/".contains(c)));
-    core.chars().count() >= 16 && core.matches('/').count() >= 2 && !word.contains("://")
+/// The byte ranges of the paths in `word` as the copy marks them in a message: the matches
+/// of its `PATH_RE`, `(?:~|\b[\w.-]+)?\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?` (`\w` and `\b` are
+/// ASCII), found from the left, each search going on after the last match; a match shorter
+/// than 16 characters is not marked. So a path joined to other text, as CJK text often is,
+/// is found inside it. A URL is laid out before this (`chat::wrap_message_line`).
+fn paths(word: &str) -> Vec<Range<usize>> {
+    let b = word.as_bytes();
+    let w = |i: usize| {
+        b.get(i)
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+    };
+    // The end of the run from `i` of `\w` and the bytes of `more`.
+    let run = |i: usize, more: &[u8]| {
+        (i..b.len())
+            .find(|&j| !(w(j) || more.contains(&b[j])))
+            .unwrap_or(b.len())
+    };
+    // The end of `\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?` matched from `i`. A run stops only at
+    // what it cannot take, so taking each whole is how the pattern matches.
+    let rest = |i: usize| {
+        let (mut at, mut runs) = (i, 0);
+        while b.get(at) == Some(&b'/') {
+            let end = run(at + 1, b".@+-");
+            if end == at + 1 {
+                break;
+            }
+            (at, runs) = (end, runs + 1);
+        }
+        let slash = usize::from(b.get(at) == Some(&b'/'));
+        (runs >= 2).then_some(at + slash)
+    };
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let edge = w(i) != (i > 0 && w(i - 1));
+        let prefix = run(i, b".-");
+        let found = (b[i] == b'~')
+            .then(|| rest(i + 1))
+            .flatten()
+            .or_else(|| (edge && prefix > i).then(|| rest(prefix)).flatten())
+            .or_else(|| rest(i));
+        match found {
+            Some(end) => {
+                if end - i >= 16 {
+                    out.push(i..end);
+                }
+                i = end;
+            }
+            None => i += 1,
+        }
+    }
+    out
 }
 
 /// `word` in the pieces it may break between: after each of `after`'s characters, or after
