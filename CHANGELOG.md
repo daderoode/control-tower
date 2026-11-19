@@ -42,6 +42,11 @@ tag's date, and a new empty Unreleased goes above it.
 - **The replying-to line, where a thread stands and an inbox row fold their spaces.** Each
   draws a message's line with each run of spaces between words as one, as the UI design
   does, where it had kept them as written; the message's bubble still keeps them (#27).
+- **An inbox row shows its message across its lines.** An item drew only its message's
+  first line, cut to one row. It now draws the whole message as the UI design does: its
+  lines join with a space, each run of spaces is one, and it wraps at its words onto a
+  second line under the first, ending in "…" when the message goes on. Selecting an item
+  brings both its lines into view (#33).
 
 ## [0.4.0] - 2026-11-16
 
