@@ -90,6 +90,13 @@ tag's date, and a new empty Unreleased goes above it.
   is tower's, such as a delivery failure with herdr's error text, its line on the thread's
   header and in the thread list draws each run of spaces as one, as the UI design does,
   where it had kept them as written (#35).
+- **An ideographic space at a line's end no longer breaks the word before it.** In a
+  message, a delivery failure's opened details, and a title, goal, event, ack or inbox row,
+  a full-width space (U+3000) that ended a line counted toward its width, so the word before
+  it broke early, and a run of them could start the next line. It now hangs past the line's
+  end as in the UI design, so the word before it fits and the next line starts with the
+  word after it (a run after an ordinary space aside, #57); within a line it keeps its
+  width (#40).
 
 ## [0.4.0] - 2026-11-16
 
