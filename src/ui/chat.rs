@@ -35,7 +35,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    highlight_marked, role_colour, units, wrap, wrap_line, wrap_line_paths,
+    fold_spaces, highlight_marked, role_colour, units, wrap, wrap_line, wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -144,8 +144,8 @@ pub enum Item {
     Bubble { segs: Vec<usize>, acks: Vec<usize> },
     /// Consecutive nudges of one worker.
     Nudged { who: String, times: usize },
-    /// A delivery failure, or the watch's flag that a worker left herdr: one line whose
-    /// details open its full text.
+    /// A delivery failure, or the watch's flag that a worker left herdr: a line, wrapped
+    /// onto more in a chat narrower than it, whose details open its full text.
     Failure(usize),
     /// Any other message of tower's.
     Event(usize),
@@ -305,7 +305,7 @@ pub enum Row {
 
 impl Row {
     /// The message whose rows this starts in the full board's keys: a bubble's name or a
-    /// later message's tags line, or a delivery failure.
+    /// later message's tags line, or a delivery failure's first line.
     pub fn starts(&self) -> Option<usize> {
         match self {
             Row::Name { msg, .. } | Row::Meta { msg, .. } => Some(*msg),
@@ -642,7 +642,9 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                 }
                 if open {
                     let text = &msgs[msg].text;
-                    let bw = detail_box(text, said.width() + link.width(), ew);
+                    // The line as drawn, its spaces folded: what it says, a space, its link.
+                    let line_w = fold_spaces(&said).width() + 1 + link.width();
+                    let bw = detail_box(text, line_w, ew);
                     let left = w.saturating_sub(bw) / 2;
                     (wrap(text, ew).into_iter())
                         .for_each(|piece| rows.push(Row::Detail { piece, left }));
