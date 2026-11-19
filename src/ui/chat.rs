@@ -1609,6 +1609,40 @@ mod tests {
     }
 
     #[test]
+    fn a_lines_indent_stays_on_its_first_line_but_not_on_a_url() {
+        let url = "https://example.com/a/b";
+        let pair = |t: &str, l: Option<&str>| (t.to_string(), l.map(str::to_string));
+        assert_eq!(
+            wrap_message_line("  - see https://example.com/a/b", 40),
+            [pair("  - see", None), pair(url, Some(url))]
+        );
+        assert_eq!(
+            wrap_message_line("  - plain", 40),
+            [pair("  - plain", None)]
+        );
+        // A line that starts with a URL: the URL's line is at the text's column.
+        assert_eq!(
+            wrap_message_line("  https://example.com/a/b then", 40),
+            [pair(url, Some(url)), pair("then", None)]
+        );
+        // The indent counts toward the first line's width; the lines after it start at the
+        // text's column.
+        assert_eq!(
+            wrap_message_line("    one two three", 12),
+            [pair("    one two", None), pair("three", None)]
+        );
+        // A line of spaces alone is a blank line, as before.
+        assert_eq!(wrap_message_line("   ", 40), [pair("", None)]);
+        // The owner's mentions stay marked after an indent.
+        let p = message_pieces("  - ask @manager", 40);
+        let marks: Vec<(usize, usize)> = p[0].marks.iter().map(|r| (r.start, r.end)).collect();
+        assert_eq!(
+            (p[0].text.as_str(), marks),
+            ("  - ask @manager", vec![(8, 16)])
+        );
+    }
+
+    #[test]
     fn the_tags_and_age_columns_are_what_the_name_line_draws() {
         for text in ["plain", "blocked: x", "decision: y"] {
             let m = &msgs(&[("dev-1", text, 0)])[0];
