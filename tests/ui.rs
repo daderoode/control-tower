@@ -9212,7 +9212,8 @@ fn a_needs_you_strip_row_folds_its_questions_runs_of_spaces() {
     sync(&mut board);
     let view: View = Ok(board);
     let a = area(160, 50);
-    let folded = "cat-lead question: the covers are late again. @manager can you call the printer?";
+    // The overview's strip is in its right column, where the row is cut in "call".
+    let folded = "cat-lead question: the covers are late again. @manager";
     let mut on_board = select(Item::Task(TaskId(14)));
     on_board.handle(&view, a, Input::Char('b'));
     let overview = screen(&view, &select(Item::Milestone(MilestoneId(1))), a);
