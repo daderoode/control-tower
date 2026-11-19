@@ -800,12 +800,13 @@ fn paths(word: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < b.len() {
+        // `\b[\w.-]+`: a run from a word's edge, else none.
         let edge = w(i) != (i > 0 && w(i - 1));
-        let prefix = run(i, b".-");
+        let prefix = if edge { run(i, b".-") } else { i };
         let found = (b[i] == b'~')
             .then(|| rest(i + 1))
             .flatten()
-            .or_else(|| (edge && prefix > i).then(|| rest(prefix)).flatten())
+            .or_else(|| (prefix > i).then(|| rest(prefix)).flatten())
             .or_else(|| rest(i));
         match found {
             Some(end) => {
@@ -814,7 +815,10 @@ fn paths(word: &str) -> Vec<Range<usize>> {
                 }
                 i = end;
             }
-            None => i += 1,
+            // No match starts inside a run the prefix took: from any byte of it, the run ends
+            // where it does here, and no `~` or `/` is in it. So the search goes on after it,
+            // and each byte is looked at a bounded number of times.
+            None => i = prefix.max(i + 1),
         }
     }
     out
@@ -1786,6 +1790,28 @@ mod tests {
             ["dev/assets/icons/bookmarks"]
         );
         assert_eq!(found(".-/var/log/tower/x.log"), ["/var/log/tower/x.log"]);
+    }
+
+    #[test]
+    fn a_2000_character_word_is_searched_for_paths_as_any_other() {
+        let a = "a".repeat(2000);
+        let dots = ".".repeat(2000);
+        // No path in a run of word characters, of dots, or the two together.
+        for word in [a.clone(), dots.clone(), format!("{dots}{a}")] {
+            assert!(paths(&word).is_empty(), "{}", word.len());
+        }
+        // A path after such a run is found where the copy's pattern starts it.
+        let word = format!("{}@{}/cc/dd/ee", "a".repeat(1000), "b".repeat(980));
+        assert_eq!(paths(&word), [1001..word.len()]);
+        let word = format!("{dots}/var/log/tower/output.log");
+        assert_eq!(paths(&word), [2000..word.len()]);
+        let word = format!("{}a/bb/ccc/dddd/eeeee", ".-".repeat(1000));
+        assert_eq!(paths(&word), [2000..word.len()]);
+        // A bubble draws such a word on lines of its own, broken where each line ends.
+        let word = format!("{dots}{a}");
+        let mut want = vec!["ab".to_string()];
+        want.extend((0..100).map(|k| word[k * 40..(k + 1) * 40].to_string()));
+        assert_eq!(wrap_line_paths(&format!("ab {word}"), 40), want);
     }
 
     #[test]
