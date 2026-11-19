@@ -1775,6 +1775,20 @@ mod tests {
     }
 
     #[test]
+    fn folded_text_breaks_after_a_question_mark_where_the_copy_does() {
+        // As headless Chrome draws the copy's `.evt` and `.clamp2`: the `?` rule a message's
+        // word breaks by (`breaks_between`) holds for events, acks and titles too.
+        assert_eq!(
+            wrap_event_line("sent what?why to qa", 10),
+            ["sent what?", "why to qa"]
+        );
+        assert_eq!(
+            wrap_line("sent what?why to qa", 10),
+            ["sent what?", "why to qa"]
+        );
+    }
+
+    #[test]
     fn wrap_breaks_at_spaces_and_splits_only_words_too_wide() {
         assert_eq!(wrap("copy, go", 20), vec!["copy, go"]);
         assert_eq!(wrap("one two three", 7), vec!["one two", "three"]);
