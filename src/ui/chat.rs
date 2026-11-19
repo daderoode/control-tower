@@ -1961,12 +1961,12 @@ mod tests {
                 "now"
             ]
         );
-        // Before a digit, a `(`, and a `$`, which a `-` does not break before; beside a `-`;
+        // Before a digit, a `(`, and a `$` (which a `-` does not break before); beside a `-`;
         // and at a word's start.
         assert_eq!(wrapped("ab x?5000000", 8), ["ab x?", "5000000"]);
         assert_eq!(wrapped("ab abc?$500", 8), ["ab abc?", "$500"]);
         assert_eq!(wrapped("ab abc?(defg)", 8), ["ab abc?", "(defg)"]);
-        assert_eq!(wrapped("ab abc?-defg", 8), ["ab abc?-", "defg"]);
+        assert_eq!(wrapped("ab abc?-defg", 7), ["ab abc?", "-defg"]);
         assert_eq!(wrapped("ab abc-?defg", 8), ["ab abc-?", "defg"]);
         assert_eq!(wrapped("ab ?defg", 4), ["ab ?", "defg"]);
         // A run of `?` keeps together and breaks after its last.
