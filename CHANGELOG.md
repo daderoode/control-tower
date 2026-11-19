@@ -59,6 +59,11 @@ tag's date, and a new empty Unreleased goes above it.
   `。` or after an opening one such as `「`; a run too wide for a line fills the line it
   starts on, and a path written inside it with no spaces still breaks only after a `/`.
   A word also breaks after a `…` as the design does (#20).
+- **An @mention right after a letter that is not ASCII is a mention.** In Japanese or
+  Chinese, where words have no spaces between them, an `@manager` or `@dev-2` written
+  straight after a character, as in "見てから@managerに返事します", now reaches the owner or the
+  worker and is drawn marked, as the UI design marks it. Only an `@` right after an ASCII
+  letter or digit, as in an e-mail address, is still no mention (#41).
 - **Titles, goals, events and inbox rows break a long or hyphenated word as the design
   does.** A word too wide for its line, such as a link or a hash, broke right after the
   text before it; it now starts on a line of its own and breaks where each line ends, and
