@@ -98,7 +98,8 @@ pub fn stands(
             at: 0,
         };
         let said = event_text(&m, talk.lead);
-        let first = said.lines().next().unwrap_or_default().to_string();
+        // Its spaces folded, as the copy's `nowrap` line draws its event text.
+        let first = fold_spaces(said.lines().next().unwrap_or_default());
         s.push(Span::styled(first, dim(depth)));
         return Some(fit(s, w));
     }

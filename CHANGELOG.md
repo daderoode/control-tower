@@ -86,6 +86,10 @@ tag's date, and a new empty Unreleased goes above it.
   `search?q=rye`, moved to the next line whole, or broke only where a line ended. It now
   breaks after the `?` where the UI design does, not before a mark a line cannot start
   with, such as `!` or `)`, and after the last `?` of a run (#37).
+- **Where a thread stands folds the spaces in tower's word.** When the thread's newest word
+  is tower's, such as a delivery failure with herdr's error text, its line on the thread's
+  header and in the thread list draws each run of spaces as one, as the UI design does,
+  where it had kept them as written (#35).
 
 ## [0.4.0] - 2026-11-16
 
