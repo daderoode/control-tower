@@ -81,6 +81,10 @@ tag's date, and a new empty Unreleased goes above it.
   thread list, a line that starts with `decision:`, from a message for your awareness (its
   mention of you on any of its lines), draws it bold in the info colour, as its bubble
   does, where it had drawn plain (#34).
+- **Where a thread stands folds the spaces in tower's word.** When the thread's newest word
+  is tower's, such as a delivery failure with herdr's error text, its line on the thread's
+  header and in the thread list draws each run of spaces as one, as the UI design does,
+  where it had kept them as written (#35).
 
 ## [0.4.0] - 2026-11-16
 
