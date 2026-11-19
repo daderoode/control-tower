@@ -2390,6 +2390,7 @@ mod tests {
             // letter, such as kana, an ideograph or hangul, where words have no spaces
             // between them, it is a mention, as the signed copy marks every `@manager`.
             ("2@x or Z@x but (@y", vec!["y"]),
+            ("a@x", vec![]),
             ("notes.mdを見てから@managerに返事します。", vec!["manager"]),
             ("请@dev-2看一下，然后@qa。", vec!["dev-2", "qa"]),
             ("검토@senior 부탁", vec!["senior"]),
