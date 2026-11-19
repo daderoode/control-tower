@@ -8466,6 +8466,42 @@ fn where_it_stands_reads_tower_s_word_as_the_chat_s_line_with_no_label() {
 }
 
 #[test]
+fn where_it_stands_folds_the_runs_of_spaces_in_tower_s_word() {
+    let mut board = board_fixture();
+    // T4 (task #14, no progress post) holds only a delivery failure whose herdr error has
+    // runs of spaces, so where it stands is tower's word.
+    let t = &mut board.milestones[0].threads[2];
+    let failure = Message {
+        id: 498,
+        author: "system".into(),
+        text: "@manager could not deliver to dev-1:  herdr has   no agent named dev-1.  ".into(),
+        at: NOW - 30,
+    };
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, vec![failure]);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let mut dash = select(Item::Task(TaskId(14)));
+    dash.handle(&view, a, Input::Char('b'));
+    let all = screen(&view, &dash, a);
+    // As the copy's nowrap line: each run is one space, on the header and in the list.
+    let folded = "@manager could not deliver to dev-1: herdr has no agent named dev-1.";
+    let head = find_row_containing(&all, "where it stands");
+    assert!(
+        all[head].contains(&format!("where it stands {folded}")),
+        "{all:#?}"
+    );
+    assert!(
+        (all.iter()).any(|r| r
+            .split('│')
+            .next()
+            .unwrap()
+            .contains("   @manager could not deliver to dev-1: herdr")),
+        "{all:#?}"
+    );
+}
+
+#[test]
 fn opening_a_folded_conversation_leaves_its_question_waiting() {
     let mut board = folded_fixture();
     // T9 (tower's, about #13) also asks the owner something.
