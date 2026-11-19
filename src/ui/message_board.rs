@@ -599,18 +599,52 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
 /// dropped and each run between words one.
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
     let words: Vec<&str> = text.split(' ').filter(|s| !s.is_empty()).collect();
-    wrap_line_by(&words.join(" "), w, false, |_| None)
+    wrap_line_by(&words.join(" "), w, false)
 }
 
-/// `wrap_line`, with a path (`is_path`) kept in its line and broken only after a `/`, as
-/// the copy breaks one, the line's spaces kept as the copy's message body
-/// (`white-space: pre-wrap`) keeps them: its leading ones on its first line and each run
-/// between words as written, and any other word too wide for a line started on a line of
-/// its own, as the body's `overflow-wrap: anywhere` breaks at the space before it first.
+/// `text` on lines at most `w` wide as the copy's message body (`.seg .body`) breaks it
+/// (`wrap_line_by`): its spaces kept as `white-space: pre-wrap` keeps them, its leading ones
+/// on its first line and each run between words as written; a word with breaks of its own
+/// (`body_units`) started where the line is; and a word with no break of its own, such as a
+/// long hash, too wide for a line started on a line of its own, as `overflow-wrap: anywhere`
+/// breaks at the space before it first.
 pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(text, w, true, |word| {
-        if is_path(word) { Some(&['/']) } else { None }
-    })
+    wrap_line_by(text, w, true)
+}
+
+/// `word` in the pieces the copy's message body may break it between, short of breaking
+/// it anywhere, or `None` when it has no such break: a path (`is_path`) after each `/`, as
+/// the copy's `<wbr>` breaks one, and any other word after a `-` (`hyphen_units`).
+fn body_units(word: &str) -> Option<Vec<&str>> {
+    let pieces = if is_path(word) {
+        units(word, &['/'])
+    } else {
+        hyphen_units(word)
+    };
+    (pieces.len() > 1).then_some(pieces)
+}
+
+/// `word` in the pieces Chrome breaks it between after a `-`, as the copy's body does: not
+/// after a `-` that ends the word, nor one before a character a line cannot start with
+/// (`- . , ; : ! ? ) ] } / $ ’ » …`), nor a minus sign (a `-` with no letter or digit
+/// before it and a digit after it).
+fn hyphen_units(word: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut prev: Option<char> = None;
+    let mut chars = word.char_indices().peekable();
+    while let Some((_, c)) = chars.next() {
+        if let (Some(&(next_at, next)), '-') = (chars.peek(), c) {
+            let minus = next.is_numeric() && !prev.is_some_and(char::is_alphanumeric);
+            if !minus && !"-.,;:!?)]}/$’»…".contains(next) {
+                out.push(&word[start..next_at]);
+                start = next_at;
+            }
+        }
+        prev = Some(c);
+    }
+    out.push(&word[start..]);
+    out
 }
 
 /// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
@@ -640,21 +674,16 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 }
 
 /// Words of `text` on lines at most `w` wide. A word too wide for any line starts where the
-/// line is, rather than leaving it short, or on a line of its own when `wide_alone`, and
-/// breaks where a line ends. A word `breaks` gives break characters for starts where the
-/// line is either way, and breaks only after one of them (`units`), or inside a piece
-/// between them too wide for a line of its own. The
-/// text's leading spaces, when narrower than a line, start its first line, as the copy's
-/// `pre-wrap` body keeps them: a first word that does not fit after them goes to the next
-/// line as any other word does, leaving them alone on the first. Each run of spaces between
-/// words stays as written, and counts toward the line's width; a line that breaks at a run
-/// drops it, as `pre-wrap` hangs it, so the next line starts with the word.
-fn wrap_line_by(
-    text: &str,
-    w: usize,
-    wide_alone: bool,
-    breaks: impl Fn(&str) -> Option<&'static [char]>,
-) -> Vec<String> {
+/// line is, rather than leaving it short, and breaks where a line ends; in a `message`, as
+/// the copy's body breaks one, it starts on a line of its own instead, unless it has breaks
+/// of its own (`body_units`): such a word starts where the line is, and breaks only between
+/// its pieces, or inside a piece too wide for a line of its own. The text's leading spaces,
+/// when narrower than a line, start its first line, as the copy's `pre-wrap` body keeps
+/// them: a first word that does not fit after them goes to the next line as any other word
+/// does, leaving them alone on the first. Each run of spaces between words stays as
+/// written, and counts toward the line's width; a line that breaks at a run drops it, as
+/// `pre-wrap` hangs it, so the next line starts with the word.
+fn wrap_line_by(text: &str, w: usize, message: bool) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
     let body = text.trim_start_matches(' ');
@@ -684,17 +713,17 @@ fn wrap_line_by(
             line.push_str(word);
             continue;
         }
-        // A word with its own breaks, or one too wide for any line unless `wide_alone`,
+        // A word with breaks of its own, or one too wide for any line outside a `message`,
         // starts where the line is, rather than leaving it short; any other goes on the
         // next, the space before it hanging at the end of this one.
-        let after = breaks(word);
-        let here = after.is_some() || (word.width() > w && !wide_alone);
+        let pieces = if message { body_units(word) } else { None };
+        let here = pieces.is_some() || (word.width() > w && !message);
         if here && !line.is_empty() && line.width() + gap < w {
             line.push_str(&" ".repeat(gap));
         } else if !line.is_empty() {
             out.push(std::mem::take(&mut line));
         }
-        for unit in units(word, after.unwrap_or(&[])) {
+        for unit in pieces.unwrap_or_else(|| units(word, &[])) {
             if !line.is_empty() && line.width() + unit.width() > w {
                 // The space before a word that then did not start here goes with the line.
                 let done = std::mem::take(&mut line);

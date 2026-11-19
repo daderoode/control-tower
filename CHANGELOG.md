@@ -23,10 +23,11 @@ tag's date, and a new empty Unreleased goes above it.
   several spaces between words keeps them, as the UI design does, where they had drawn as
   one. A line that wraps at a run of spaces drops it, so the next line starts with its word,
   and the spaces next to a URL still go (#15).
-- **A word too wide for its bubble starts on a line of its own.** A word wider than any line
-  of a message, such as a long hash, broke right after the text before it, so the two shared
-  a line. It now starts on the next line and breaks where each line ends, as the UI design
-  does; a path still starts where the line is and breaks after a `/` (#18).
+- **A word too wide for its bubble starts on a line of its own.** A word with no break of its
+  own, such as a long hash, wider than any line of a message broke right after the text
+  before it, so the two shared a line. It now starts on the next line and breaks where each
+  line ends, as the UI design does. A word with a `-` now breaks after it where the design
+  does, so it starts where the line is; a path still breaks after a `/` (#18).
 
 ## [0.4.0] - 2026-11-16
 

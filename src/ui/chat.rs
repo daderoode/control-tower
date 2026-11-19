@@ -383,13 +383,15 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
     out
 }
 
-/// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a
-/// line of its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
+/// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a line of
+/// its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
-/// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). The line's
-/// leading spaces stay on its first line of text and its runs of spaces between words stay
-/// as written; a URL's line starts at the text's column, as the copy's block URL does. Spaces are all that is added or dropped, so `marked` can
-/// find the owner's mentions in the pieces.
+/// own too; a path in the text breaks only after a `/`, another word after a `-` where the
+/// copy breaks one, and a word with no break of its own too wide for a line starts on a
+/// line of its own (`wrap_line_paths`). The line's leading spaces stay on its first line of
+/// text and its runs of spaces between words stay as written; a URL's line starts at the
+/// text's column, as the copy's block URL does. Spaces are all that is added or dropped, so
+/// `marked` can find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -1744,6 +1746,69 @@ mod tests {
                 pair("icons/"),
                 pair("bookmarks/"),
                 pair("outline")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_word_breaks_after_a_hyphen_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // A word with a `-` starts where the line is and breaks after it, as Chrome breaks
+        // the copy's body; a piece that then does not fit goes to the next line.
+        assert_eq!(wrapped("ab abc-def", 8), ["ab abc-", "def"]);
+        assert_eq!(wrapped("ab abc-def", 6), ["ab", "abc-", "def"]);
+        assert_eq!(
+            wrapped(
+                "ab a-word-too-wide-for-any-line-starts-on-a-line-of-its-own",
+                40
+            ),
+            [
+                "ab a-word-too-wide-for-any-line-starts-",
+                "on-a-line-of-its-own"
+            ]
+        );
+        assert_eq!(wrapped("ab 2026-11-19", 8), ["ab 2026-", "11-19"]);
+        assert_eq!(wrapped("ab 2026-11-19", 6), ["ab", "2026-", "11-19"]);
+        assert_eq!(wrapped("ab @dev-8 ok", 8), ["ab @dev-", "8 ok"]);
+        assert_eq!(wrapped("ab @dev-8 ok", 6), ["ab", "@dev-8", "ok"]);
+        // After the last of several `-` in a row, and not after one that ends the word.
+        assert_eq!(wrapped("ab --verbose", 8), ["ab --", "verbose"]);
+        assert_eq!(wrapped("ab a--bcdefg", 6), ["ab a--", "bcdefg"]);
+        assert_eq!(wrapped("ab abcdef-", 8), ["ab", "abcdef-"]);
+        // A piece too wide for a line breaks where the line ends.
+        assert_eq!(
+            wrapped("ab x-yzzzzzzzzzzz", 8),
+            ["ab x-", "yzzzzzzz", "zzzz"]
+        );
+        // Not after a minus sign: a `-` with no letter or digit before it and a digit after.
+        assert_eq!(wrapped("ab -5000000", 8), ["ab", "-5000000"]);
+        assert_eq!(wrapped("ab -5000000", 6), ["ab", "-50000", "00"]);
+        assert_eq!(wrapped("ab (-5000000", 10), ["ab", "(-5000000"]);
+        assert_eq!(wrapped("ab x-5000000", 8), ["ab x-", "5000000"]);
+        // Not before a character a line cannot start with.
+        assert_eq!(wrapped("ab abc-,defg", 8), ["ab", "abc-,def", "g"]);
+        assert_eq!(wrapped("ab abc-)defg", 8), ["ab", "abc-)def", "g"]);
+        // The owner's mention after a `-` stays marked on its own line.
+        let p = message_pieces("ab x-@manager ok", 8);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("ab x-", vec![]),
+                ("@manager", vec![(0, 8)]),
+                ("ok", vec![])
             ]
         );
     }
