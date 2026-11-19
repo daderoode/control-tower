@@ -1984,4 +1984,35 @@ mod tests {
         assert!(all.contains("hide details"), "{all}");
         assert!(all.contains("tower task unassign 1"), "{all}");
     }
+
+    #[test]
+    fn an_open_failures_details_keep_a_lines_indent_and_runs_of_spaces() {
+        let text = "@manager could not deliver to 2 recipients; their posts stay on the \
+                    board:\n- qa-1:  pane   closed\n    exit  1, see the watch's log\n- dev-4: \
+                    herdr has no agent named dev-4     twice";
+        let m = msgs(&[("system", text, 0)]);
+        let open = BTreeSet::from([1]);
+        // 46 wide: the details take 40 columns.
+        let rows = plan(&m, 0, 46, shape(&open, 30, People::default()));
+        let got: Vec<&str> = (rows.iter())
+            .filter_map(|r| match r {
+                Row::Detail(p) => Some(p.as_str()),
+                _ => None,
+            })
+            .collect();
+        // As the copy's pre-wrap details: each line's indent and runs stay, and a line that
+        // breaks at a run drops it, so the next line starts with its word.
+        assert_eq!(
+            got,
+            [
+                "@manager could not deliver to 2",
+                "recipients; their posts stay on the",
+                "board:",
+                "- qa-1:  pane   closed",
+                "    exit  1, see the watch's log",
+                "- dev-4: herdr has no agent named dev-4",
+                "twice",
+            ]
+        );
+    }
 }
