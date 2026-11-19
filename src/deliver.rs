@@ -811,12 +811,22 @@ mod tests {
             post(6, None, "dev-3", "@--help x @-x @_y"),
             // Names in any case are one worker, by its lower-case herdr name.
             post(7, None, "dev-3", "@Qa-One and @Dev-One again"),
+            // Right after kana, with no space, as Japanese is written; an e-mail address
+            // names no one.
+            post(
+                8,
+                None,
+                "dev-3",
+                "確認後@qa-oneに渡します (x@dev-one.example)",
+            ),
+            // A name before `.` and kana is a mention; before `.` and ASCII it is code.
+            post(9, None, "dev-3", "確認後@qa-one.よろしく @dev-one.run()"),
         ]);
         p.open = vec![(TaskId(1), Some(RepoId(1)), "dev-one".to_string())];
         assert_eq!(
             plan(&p),
             [
-                batch(worker("qa-one"), &[0, 1, 6]),
+                batch(worker("qa-one"), &[0, 1, 6, 7, 8]),
                 batch(worker("dev-one"), &[0, 6]),
             ]
         );
