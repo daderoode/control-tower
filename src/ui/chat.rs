@@ -35,7 +35,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    highlight_marked, role_colour, units, wrap, wrap_line, wrap_line_paths,
+    fold_spaces, highlight_marked, role_colour, units, wrap, wrap_line, wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -144,8 +144,8 @@ pub enum Item {
     Bubble { segs: Vec<usize>, acks: Vec<usize> },
     /// Consecutive nudges of one worker.
     Nudged { who: String, times: usize },
-    /// A delivery failure, or the watch's flag that a worker left herdr: one line whose
-    /// details open its full text.
+    /// A delivery failure, or the watch's flag that a worker left herdr: a line, wrapped
+    /// onto more in a chat narrower than it, whose details open its full text.
     Failure(usize),
     /// Any other message of tower's.
     Event(usize),
@@ -285,11 +285,15 @@ pub enum Row {
         marks: Vec<Range<usize>>,
         first: bool,
     },
-    /// "delivery failed to X · details" or "dev-1 left herdr while on #1 · details",
-    /// `open` when its full text shows under it.
+    /// A line of "delivery failed to X · details" or "dev-1 left herdr while on #1 ·
+    /// details", its link "hide details" while its full text shows under it, wrapped as the
+    /// copy's centred event box wraps it (`failure_pieces`): `said`, the piece of what it
+    /// says on this line, and `link`, the piece of its link; `first` on its first line.
     Failure {
         msg: usize,
-        open: bool,
+        said: String,
+        link: String,
+        first: bool,
     },
     /// A line of an open `Failure`'s full text, from column `left`: the left edge of the
     /// copy's centred event box, which fits the failure's line and its text (`detail_box`).
@@ -301,16 +305,19 @@ pub enum Row {
 
 impl Row {
     /// The message whose rows this starts in the full board's keys: a bubble's name or a
-    /// later message's tags line, or a delivery failure.
+    /// later message's tags line, or a delivery failure's first line.
     pub fn starts(&self) -> Option<usize> {
         match self {
-            Row::Name { msg, .. } | Row::Meta { msg, .. } | Row::Failure { msg, .. } => Some(*msg),
+            Row::Name { msg, .. } | Row::Meta { msg, .. } => Some(*msg),
+            Row::Failure {
+                msg, first: true, ..
+            } => Some(*msg),
             _ => None,
         }
     }
 
     /// The message a click on this line opens or folds: "read more", "show less" and a
-    /// delivery failure's "details".
+    /// delivery failure's "details", on any line of the failure's.
     pub fn toggles(&self) -> Option<usize> {
         match self {
             Row::More { msg, .. } | Row::Failure { msg, .. } => Some(*msg),
@@ -624,11 +631,20 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
             }
             Item::Failure(msg) => {
                 let open = shape.open.contains(&msgs[msg].id);
-                rows.push(Row::Failure { msg, open });
+                let (said, link) = failure_line(&msgs[msg], people.lead, open);
+                for (j, (said, link)) in failure_pieces(&said, link, ew).into_iter().enumerate() {
+                    rows.push(Row::Failure {
+                        msg,
+                        said,
+                        link,
+                        first: j == 0,
+                    });
+                }
                 if open {
                     let text = &msgs[msg].text;
-                    let (said, link) = failure_line(&msgs[msg], people.lead, true);
-                    let bw = detail_box(text, said.width() + link.width(), ew);
+                    // The line as drawn, its spaces folded: what it says, a space, its link.
+                    let line_w = fold_spaces(&said).width() + 1 + link.width();
+                    let bw = detail_box(text, line_w, ew);
                     let left = w.saturating_sub(bw) / 2;
                     (wrap(text, ew).into_iter())
                         .for_each(|piece| rows.push(Row::Detail { piece, left }));
@@ -872,6 +888,22 @@ fn failure_line(m: &Message, lead: Option<&Lead>, open: bool) -> (String, &'stat
     };
     let link = if open { "hide details" } else { "details" };
     (format!("{said} · "), link)
+}
+
+/// A failure's line (`failure_line`) in pieces at most `w` wide, as the copy's centred event
+/// box wraps it: each a piece of what it `said` and a piece of its `link`, either empty. Its
+/// words break as an event's do (`wrap_line`); the link, an `inline-block` there, ends the
+/// last of them when it fits and otherwise starts a line of its own, breaking inside only
+/// when wider than a line.
+fn failure_pieces(said: &str, link: &str, w: usize) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = (wrap_line(said, w).into_iter())
+        .map(|p| (p, String::new()))
+        .collect();
+    match out.last_mut() {
+        Some((last, room)) if last.width() + 1 + link.width() <= w => *room = link.to_string(),
+        _ => out.extend(wrap_line(link, w).into_iter().map(|p| (String::new(), p))),
+    }
+    out
 }
 
 /// The width of the copy's event box (`.evt`) around a failure's line `line_w` wide and
@@ -1128,11 +1160,15 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             );
             centred(spans, w)
         }
-        Row::Failure { msg, open } => {
-            let (said, link) = failure_line(&msgs[*msg], people.lead, *open);
+        Row::Failure { said, link, .. } => {
+            let gap = if said.is_empty() || link.is_empty() {
+                ""
+            } else {
+                " "
+            };
             let spans = vec![
-                Span::styled(said, dim(depth)),
-                Span::styled(link, Style::new().fg(accent(depth))),
+                Span::styled(format!("{said}{gap}"), dim(depth)),
+                Span::styled(link.clone(), Style::new().fg(accent(depth))),
             ];
             let mut line = centred(spans, w);
             if selected_here {
@@ -2149,7 +2185,7 @@ mod tests {
         let rows = plan(&m, 0, 100, shape(&open, 30, people));
         assert!(
             rows.iter()
-                .any(|r| matches!(r, Row::Failure { open: true, .. }))
+                .any(|r| matches!(r, Row::Failure { link, .. } if link == "hide details"))
         );
         assert!(rows.iter().any(|r| r.toggles() == Some(0)));
         let ctx = Ctx {
@@ -2288,5 +2324,125 @@ mod tests {
         assert_eq!(line.trim(), "dev-1 left herdr while on #1 · hide details");
         assert!(details.len() > 1, "{details:#?}");
         assert!(details.iter().all(|d| start(d) == 20), "{details:#?}");
+    }
+
+    /// The failure `text`'s line drawn, `open` or shut, in a chat `ew + 4` wide, whose
+    /// events take `ew` columns: each of its lines with the column it starts at.
+    fn failure_lines(text: &str, open: bool, ew: usize) -> Vec<(usize, String)> {
+        let w = ew + 4;
+        let m = msgs(&[("system", text, 0)]);
+        let shown = if open {
+            BTreeSet::from([1])
+        } else {
+            BTreeSet::new()
+        };
+        let rows = plan(&m, 0, w, shape(&shown, 30, People::default()));
+        let ctx = Ctx {
+            msgs: &m,
+            people: People::default(),
+            now: 30,
+            depth: Depth::Ansi256,
+            selected: None,
+        };
+        (rows.iter())
+            .filter(|r| matches!(r, Row::Failure { .. }))
+            .map(|r| line(r, w, &ctx).to_string())
+            .map(|l| (start(&l), l.trim().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_failures_line_wraps_where_the_copys_event_box_does() {
+        let failed = "@manager could not deliver to 3 recipients; their posts stay on the \
+                      board:\n- qa-1: gone\n- dev-2: gone\n- dev-3: gone";
+        let left = "@kids-lead #1 is in progress but its worker dev-1 is gone from herdr (no \
+                    live agent by that name); if it was closed: tower task unassign 1, or set \
+                    the next worker.";
+        // Where headless Chrome breaks the copy's `.evt` line in a box `ew` ch wide: its words
+        // as an event's, and its link whole, ending the last line when it fits there.
+        let cases: [(&str, bool, usize, &[&str]); 9] = [
+            (
+                failed,
+                false,
+                26,
+                &["delivery failed to 3", "recipients · details"],
+            ),
+            (
+                failed,
+                false,
+                36,
+                &["delivery failed to 3 recipients ·", "details"],
+            ),
+            (
+                failed,
+                true,
+                24,
+                &["delivery failed to 3", "recipients ·", "hide details"],
+            ),
+            (
+                failed,
+                true,
+                25,
+                &["delivery failed to 3", "recipients · hide details"],
+            ),
+            (
+                failed,
+                true,
+                31,
+                &["delivery failed to 3 recipients", "· hide details"],
+            ),
+            (
+                failed,
+                true,
+                47,
+                &["delivery failed to 3 recipients · hide details"],
+            ),
+            (
+                left,
+                false,
+                14,
+                &["dev-1 left", "herdr while on", "#1 · details"],
+            ),
+            (
+                left,
+                false,
+                28,
+                &["dev-1 left herdr while on #1", "· details"],
+            ),
+            // A link wider than a line breaks inside too.
+            (
+                failed,
+                true,
+                11,
+                &[
+                    "delivery",
+                    "failed to 3",
+                    "recipients",
+                    "·",
+                    "hide",
+                    "details",
+                ],
+            ),
+        ];
+        for (text, open, ew, want) in cases {
+            let got = failure_lines(text, open, ew);
+            let said: Vec<&str> = got.iter().map(|(_, l)| l.as_str()).collect();
+            assert_eq!(said, want, "{ew} wide, open {open}");
+            // Each line centred in the chat, as the copy's `text-align: center` puts it.
+            for (at, l) in &got {
+                assert_eq!(*at, (ew + 4 - l.width()) / 2, "{l:?}, {ew} wide");
+            }
+        }
+        // Every line of it opens and folds it; only its first starts it, for the keys.
+        let m = msgs(&[("system", failed, 0)]);
+        let none = BTreeSet::new();
+        let rows = plan(&m, 0, 30, shape(&none, 30, People::default()));
+        let failure: Vec<&Row> = (rows.iter())
+            .filter(|r| matches!(r, Row::Failure { .. }))
+            .collect();
+        assert_eq!(failure.len(), 2, "{rows:#?}");
+        assert!(failure.iter().all(|r| r.toggles() == Some(0)), "{rows:#?}");
+        let starts: Vec<Option<usize>> = failure.iter().map(|r| r.starts()).collect();
+        assert_eq!(starts, [Some(0), None]);
     }
 }
