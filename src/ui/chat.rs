@@ -492,7 +492,7 @@ pub(crate) fn message_pieces(text: &str, w: usize) -> Vec<Piece> {
 /// The owner's mentions `marks` (byte ranges of the whole text, its line `raw` starting at
 /// `base`) in each of `lines`, `raw` wrapped: wrapping adds or drops spaces only, so the
 /// lines' other characters are `raw`'s, in order.
-fn marked<'a>(
+pub(crate) fn marked<'a>(
     raw: &str,
     base: usize,
     marks: &[Range<usize>],

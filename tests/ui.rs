@@ -5355,7 +5355,10 @@ fn at_volume_the_inbox_lists_no_read_items() {
     let all = rows(&buf);
     assert!(!all.iter().any(|r| r.contains("READ")), "{all:#?}");
     let ib = layout(&view, &dash, a).inbox.unwrap();
-    assert_eq!(ib.rows.iter().flatten().count(), 2 + 12);
+    // An item on each of its lines: a message that wraps takes two.
+    let mut listed: Vec<i64> = ib.rows.iter().flatten().copied().collect();
+    listed.dedup();
+    assert_eq!(listed.len(), 2 + 12);
 }
 
 /// The full board of the volume fixture's M1 in `a`.
@@ -5500,11 +5503,13 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
         .map(|r| r.trim_end().to_string())
         .collect();
     // Each item: its author (the column as wide as the longest), the message, and at the
-    // right its repo, its thread in words (cut so the repo and age stay) and its age.
+    // right its repo, its thread in words (cut so the repo and age stay) and its age. A
+    // message too long for its line goes on in a second one, under its first.
     let item = |author: &str, text: &str, meta: &str| {
         let left = format!("   {author:<13}  {text}");
         format!("{left:<w$}{meta}", w = 120 - meta.chars().count() - 1)
     };
+    let more = |text: &str| format!("{:18}{text}", "");
     assert_eq!(
         body,
         [
@@ -5512,9 +5517,10 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
             " ⚠ 2 NEED YOU".into(),
             item(
                 "cat-lead",
-                "question: the covers are late again. @manager can you call th…",
+                "question: the covers are late again. @manager can you call the",
                 " catalogue · Show each book's re… · 15m"
             ),
+            more("printer?"),
             item(
                 "dev-1",
                 "question: @manager which book goes first?",
@@ -5529,11 +5535,10 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
             ),
             item(
                 "cat-lead",
-                "decision: books out of print also leave the shelf. @manager for your…",
+                "decision: books out of print also leave the shelf. @manager for",
                 " catalogue · New book shelf · 7m"
             ),
-            String::new(),
-            String::new(),
+            more("your awareness"),
             String::new(),
             String::new(),
             String::new(),
@@ -5550,7 +5555,7 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
     let buf = render_dash(&view, &dash, 120, 30, Depth::TrueColor);
     assert_eq!(buf[(3, 2)].fg, accent(Depth::TrueColor));
     assert_eq!(
-        buf[(3, 3)].fg,
+        buf[(3, 4)].fg,
         control_tower::ui::role_colour("dev-1", None, Depth::TrueColor)
     );
     // The first item is selected, and the keys line says what works here: r clears a
@@ -5614,8 +5619,8 @@ fn clicks_open_the_inbox_from_the_alert_line_and_a_thread_from_an_item() {
     let mut dash = clocked();
     dash.handle(&view, a, Input::Click { x: 30, y: 0 });
     assert_eq!(dash.view(), ViewKind::Inbox);
-    // Row 3 is the second need-you item (M2's T5).
-    dash.handle(&view, a, Input::Click { x: 40, y: 3 });
+    // Row 4 is the second need-you item (M2's T5), under the first's two lines.
+    dash.handle(&view, a, Input::Click { x: 40, y: 4 });
     assert_eq!(dash.view(), ViewKind::Board);
     assert_eq!(dash.board_thread(&view), Some(ThreadId(5)));
     dash.handle(&view, a, Input::Esc);
@@ -5636,8 +5641,9 @@ fn opening_a_thread_reads_its_awareness_items_once_and_leaves_its_need_you_items
     dash.handle(&view, a, Input::Click { x: 30, y: 0 });
     // The inbox lists T5's items, but listing them is not opening their thread.
     assert!(dash.opened(&view).is_empty());
-    // Row 3 is T5's need-you item (501); T5 also has unread 502 and read 500.
-    dash.handle(&view, a, Input::Click { x: 40, y: 3 });
+    // Row 4 is T5's need-you item (501), under 402's two lines; T5 also has unread 502
+    // and read 500.
+    dash.handle(&view, a, Input::Click { x: 40, y: 4 });
     assert_eq!(dash.board_thread(&view), Some(ThreadId(5)));
     assert_eq!(dash.opened(&view), [502]);
     // Once, as it opens: the next look reads nothing, even before the write lands.
@@ -5664,7 +5670,7 @@ fn opening_a_thread_reads_its_awareness_items_once_and_leaves_its_need_you_items
     // Opened again (back to the inbox, then the thread), it is read.
     dash.handle(&later, a, Input::Esc);
     assert!(dash.opened(&later).is_empty());
-    dash.handle(&later, a, Input::Click { x: 40, y: 3 });
+    dash.handle(&later, a, Input::Click { x: 40, y: 4 });
     assert_eq!(dash.board_thread(&later), Some(ThreadId(5)));
     assert_eq!(dash.opened(&later), [503]);
 }
@@ -9418,6 +9424,120 @@ fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spac
         all[row].contains("question: the covers are late again. @manager can you call"),
         "{all:#?}"
     );
+}
+
+#[test]
+fn an_inbox_row_shows_its_message_across_its_lines_folded_and_clamped_to_two() {
+    // T4's question (402) on three lines, with runs of spaces between its words.
+    let mut board = board_fixture();
+    let t = (board.milestones[0].threads.iter_mut())
+        .find(|t| t.id == ThreadId(4))
+        .unwrap();
+    let mut messages = t.messages.clone();
+    let q = messages.iter_mut().find(|m| m.id == 402).unwrap();
+    q.text = "question: the covers are late again.\n@manager can you call the printer?\n\
+              The  shop says Friday,   then Monday."
+        .into();
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    with_alerts(&mut board, &[]);
+    let view: View = Ok(board);
+    // As the copy's row (`.txt clamp2`, `white-space: normal`): its lines join with a
+    // space, each run of spaces is one, and it wraps at its words, the second line under
+    // the first's text, on two lines at most: the second ends in "…" right after its last
+    // word when the message goes on.
+    for (w, first, second) in [
+        (
+            160,
+            "question: the covers are late again. @manager can you call the printer? The shop \
+             says Friday,",
+            "then Monday.",
+        ),
+        (
+            110,
+            "question: the covers are late again. @manager can you call",
+            "the printer? The shop says Friday, then Monday.",
+        ),
+        (
+            80,
+            "question: the covers are late again.",
+            "@manager can you call the printer? The…",
+        ),
+    ] {
+        let a = area(w, 24);
+        let buf = render_dash(&view, &inbox_dash(&view, a), w, 24, Depth::TrueColor);
+        assert_exact_width(&buf);
+        let all = rows(&buf);
+        let row = find_row_containing(&all, "question:");
+        // Its author, then the message's first line, with its repo, thread and age at the
+        // right.
+        assert!(
+            all[row].starts_with(&format!("   cat-lead  {first} ")),
+            "w={w} {all:#?}"
+        );
+        assert!(all[row].trim_end().ends_with(" · 15m"), "w={w} {all:#?}");
+        assert_eq!(
+            all[row + 1].trim_end(),
+            format!("{:13}{second}", ""),
+            "w={w} {all:#?}"
+        );
+        assert_eq!(all[row + 2].trim_end(), "", "w={w} {all:#?}");
+        // The mention on the second line is marked, and the item, selected, is selected
+        // on both its lines.
+        let y = row as u16 + 1;
+        if w == 80 {
+            assert_eq!(buf[(13, y)].fg, bad(Depth::TrueColor));
+        }
+        assert_eq!(buf[(1, y)].bg, selected_bg(Depth::TrueColor));
+    }
+}
+
+#[test]
+fn an_inbox_rows_clamp_ellipsis_is_plain_text_when_it_cuts_a_mention() {
+    // At 40 columns 502's second line is full and ends inside "@manager": as the copy's
+    // clamp draws it, the mention's piece is red and bold and the "…" after it is the
+    // row's plain text.
+    let view: View = Ok(alerts_fixture());
+    let a = area(40, 24);
+    let buf = render_dash(&view, &inbox_dash(&view, a), 40, 24, Depth::TrueColor);
+    let all = rows(&buf);
+    let y = find_row_containing(&all, "book per row. @manage…") as u16;
+    let x = all[usize::from(y)]
+        .find('…')
+        .map(|b| all[usize::from(y)][..b].width())
+        .unwrap() as u16;
+    assert_eq!(x, 39, "{all:#?}");
+    let e = &buf[(x - 1, y)];
+    assert_eq!((e.symbol(), e.fg), ("e", bad(Depth::TrueColor)));
+    assert!(e.modifier.contains(Modifier::BOLD));
+    let dots = &buf[(x, y)];
+    assert_eq!((dots.symbol(), dots.fg), ("…", Color::Reset));
+    assert!(!dots.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn a_two_line_inbox_item_comes_whole_into_view_when_selected() {
+    let view: View = Ok(alerts_fixture());
+    // Eight list lines: the last item (310) takes the eighth and the ninth.
+    let a = area(120, 11);
+    let mut dash = inbox_dash(&view, a);
+    for _ in 0..3 {
+        dash.handle(&view, a, Input::Down);
+    }
+    assert_eq!(dash.inbox_selected(view.as_ref().unwrap()), Some(310));
+    assert_eq!(dash.inbox_scroll(), 1);
+    let all = screen(&view, &dash, a);
+    assert!(all[7].contains("@manager for"), "{all:#?}");
+    assert_eq!(all[8].trim_end(), format!("{:18}your awareness", ""));
+    assert!(all[10].contains(" · r mark read · "), "{all:#?}");
+    // Back up to the first item, two lines too, both still in view: the list stays.
+    for _ in 0..3 {
+        dash.handle(&view, a, Input::Up);
+    }
+    assert_eq!(dash.inbox_selected(view.as_ref().unwrap()), Some(402));
+    assert_eq!(dash.inbox_scroll(), 1);
+    let all = screen(&view, &dash, a);
+    assert!(all[1].contains("@manager can you call the"), "{all:#?}");
+    assert_eq!(all[2].trim_end(), format!("{:18}printer?", ""));
 }
 
 #[test]

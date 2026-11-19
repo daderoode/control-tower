@@ -47,6 +47,11 @@ tag's date, and a new empty Unreleased goes above it.
   its box, as the UI design does, its "details" or "hide details" kept whole and moved to a
   line of its own when it does not fit; a click on any of its lines still opens or folds
   it. It had been cut at the chat's edge (#30).
+- **An inbox row shows its message across its lines.** An item drew only its message's
+  first line, cut to one row. It now draws the whole message as the UI design does: its
+  lines join with a space, each run of spaces is one, and it wraps at its words onto a
+  second line under the first, ending in "…" when the message goes on. Selecting an item
+  brings both its lines into view (#33).
 - **CJK text breaks between its characters.** In a message, and in a delivery failure's
   opened details, Chinese, Japanese and Korean text with no spaces moved to the next line
   whole, or broke only where a line ended. It now breaks between two characters, and
