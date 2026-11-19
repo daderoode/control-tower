@@ -14,7 +14,7 @@ use std::ops::Range;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::chat::{failed_to, marked};
 use super::control::Control;
@@ -152,14 +152,26 @@ impl Said {
         let n = lines.len();
         (lines.iter().enumerate())
             .map(|(k, (piece, marks))| {
-                let mut spans = highlight_marked(piece, marks, k == 0, awareness, depth);
-                if more && k + 1 == n {
-                    let used: usize = spans.iter().map(Span::width).sum();
-                    spans.push(Span::raw("…"));
-                    if used + 1 > room {
-                        spans = fit(spans, room).spans;
-                    }
+                if !(more && k + 1 == n) {
+                    return highlight_marked(piece, marks, k == 0, awareness, depth);
                 }
+                // The "…" in the row's text style, never a mention's: the piece is cut
+                // first, to leave it a column, and then styled.
+                let mut end = 0;
+                let mut used = 0;
+                for (at, c) in piece.char_indices() {
+                    used += c.width().unwrap_or(0);
+                    if used + 1 > room {
+                        break;
+                    }
+                    end = at + c.len_utf8();
+                }
+                let marks: Vec<Range<usize>> = (marks.iter())
+                    .filter(|r| r.start < end)
+                    .map(|r| r.start..r.end.min(end))
+                    .collect();
+                let mut spans = highlight_marked(&piece[..end], &marks, k == 0, awareness, depth);
+                spans.push(Span::raw("…"));
                 spans
             })
             .collect()

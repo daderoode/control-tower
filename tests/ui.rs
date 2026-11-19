@@ -9492,6 +9492,29 @@ fn an_inbox_row_shows_its_message_across_its_lines_folded_and_clamped_to_two() {
 }
 
 #[test]
+fn an_inbox_rows_clamp_ellipsis_is_plain_text_when_it_cuts_a_mention() {
+    // At 40 columns 502's second line is full and ends inside "@manager": as the copy's
+    // clamp draws it, the mention's piece is red and bold and the "…" after it is the
+    // row's plain text.
+    let view: View = Ok(alerts_fixture());
+    let a = area(40, 24);
+    let buf = render_dash(&view, &inbox_dash(&view, a), 40, 24, Depth::TrueColor);
+    let all = rows(&buf);
+    let y = find_row_containing(&all, "book per row. @manage…") as u16;
+    let x = all[usize::from(y)]
+        .find('…')
+        .map(|b| all[usize::from(y)][..b].width())
+        .unwrap() as u16;
+    assert_eq!(x, 39, "{all:#?}");
+    let e = &buf[(x - 1, y)];
+    assert_eq!((e.symbol(), e.fg), ("e", bad(Depth::TrueColor)));
+    assert!(e.modifier.contains(Modifier::BOLD));
+    let dots = &buf[(x, y)];
+    assert_eq!((dots.symbol(), dots.fg), ("…", Color::Reset));
+    assert!(!dots.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
 fn a_two_line_inbox_item_comes_whole_into_view_when_selected() {
     let view: View = Ok(alerts_fixture());
     // Eight list lines: the last item (310) takes the eighth and the ninth.
