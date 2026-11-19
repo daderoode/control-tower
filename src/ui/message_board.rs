@@ -694,10 +694,12 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 /// of its own and hands any other to ICU, the Unicode line-breaking rules (UAX #14), here
 /// `icu_segmenter` at CSS `line-break: auto`'s strictness (`Normal`, so a small kana or a
 /// `ー` may start a line). So:
-/// - between two ASCII characters, a break only after a `-`, unless before a character a
-///   line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after a minus sign
-///   (a `-` with no ASCII letter or digit before it), as Blink's table does; each `-` of a
-///   run breaks too;
+/// - between two ASCII characters, as Blink's table does, a break only after a `-` or a
+///   `?`: after a `-` unless before a character a line cannot start with
+///   (`. , ; : ! ? ) ] } / $`) or before a digit after a minus sign (a `-` with no ASCII
+///   letter or digit before it), each `-` of a run breaking too; after a `?` unless before
+///   one of `! " ' ) , . / : ; ? ] }`, so a run of `?` keeps together and breaks after its
+///   last;
 /// - between any other two, a break where `icu_segmenter` finds one: between two
 ///   ideographs, kana or hangul, between one and a letter or digit, but not before a
 ///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
@@ -714,7 +716,11 @@ fn breaks_between(
 ) -> bool {
     if c.is_ascii() && next.is_ascii() {
         let minus = next.is_ascii_digit() && !before.is_some_and(|c| c.is_ascii_alphanumeric());
-        return c == '-' && !minus && !".,;:!?)]}/$".contains(next);
+        return match c {
+            '-' => !minus && !".,;:!?)]}/$".contains(next),
+            '?' => !"!\"'),./:;?]}".contains(next),
+            _ => false,
+        };
     }
     let class = |c: char| CodePointMapData::<LineBreak>::new().get(c);
     let category = |c: char| CodePointMapData::<GeneralCategory>::new().get(c);
@@ -1735,6 +1741,15 @@ mod tests {
             ]
         );
         assert_eq!(wrap("中文。字字", 4), ["中", "文。", "字字"]);
+    }
+
+    #[test]
+    fn a_delivery_failures_details_break_after_a_question_mark_where_the_copy_does() {
+        // As Chrome breaks the copy's `.evtdetail`: after a `?`, after the last of a run, and
+        // not before a character a line cannot start with.
+        assert_eq!(wrap("ab abc?defg", 8), ["ab abc?", "defg"]);
+        assert_eq!(wrap("ab abc??defg", 8), ["ab abc??", "defg"]);
+        assert_eq!(wrap("ab abc?!defg", 8), ["ab", "abc?!def", "g"]);
     }
 
     #[test]

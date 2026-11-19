@@ -59,6 +59,11 @@ tag's date, and a new empty Unreleased goes above it.
   `。` or after an opening one such as `「`; a run too wide for a line fills the line it
   starts on, and a path written inside it with no spaces still breaks only after a `/`.
   A word also breaks after a `…` as the design does (#20).
+- **A word breaks after a `?`.** In a message, and in a delivery failure's opened details,
+  a word with a `?` inside, such as `what?why` or `search?q=rye`, moved to the next line
+  whole, or broke only where a line ended. It now breaks after the `?` where the UI design
+  does, not before a mark a line cannot start with, such as `!` or `)`, and after the last
+  `?` of a run (#37).
 
 ## [0.4.0] - 2026-11-16
 

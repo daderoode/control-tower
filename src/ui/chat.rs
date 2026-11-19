@@ -1926,6 +1926,97 @@ mod tests {
     }
 
     #[test]
+    fn a_word_breaks_after_a_question_mark_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // A word with a `?` starts where the line is and breaks after it, as Chrome breaks
+        // the copy's body; a piece that then does not fit goes to the next line.
+        assert_eq!(wrapped("ab abc?defg", 8), ["ab abc?", "defg"]);
+        assert_eq!(wrapped("ab abc?defg", 6), ["ab", "abc?", "defg"]);
+        assert_eq!(wrapped("ab what?why", 8), ["ab what?", "why"]);
+        assert_eq!(
+            wrapped("see search?q=rye&page=2 for the loaves", 16),
+            ["see search?", "q=rye&page=2 for", "the loaves"]
+        );
+        assert_eq!(
+            wrapped(
+                "did the proof rise?the dough doubled overnight?the oven is hot?bake it now",
+                24
+            ),
+            [
+                "did the proof rise?the",
+                "dough doubled overnight?",
+                "the oven is hot?bake it",
+                "now"
+            ]
+        );
+        // Before a digit, a `(`, and a `$`, which a `-` does not break before; beside a `-`;
+        // and at a word's start.
+        assert_eq!(wrapped("ab x?5000000", 8), ["ab x?", "5000000"]);
+        assert_eq!(wrapped("ab abc?$500", 8), ["ab abc?", "$500"]);
+        assert_eq!(wrapped("ab abc?(defg)", 8), ["ab abc?", "(defg)"]);
+        assert_eq!(wrapped("ab abc?-defg", 8), ["ab abc?-", "defg"]);
+        assert_eq!(wrapped("ab abc-?defg", 8), ["ab abc-?", "defg"]);
+        assert_eq!(wrapped("ab ?defg", 4), ["ab ?", "defg"]);
+        // A run of `?` keeps together and breaks after its last.
+        assert_eq!(wrapped("ab abc??defg", 8), ["ab abc??", "defg"]);
+        assert_eq!(wrapped("ab ???", 4), ["ab", "???"]);
+        // Not before a character a line cannot start with after a `?`, nor before a quote,
+        // nor after a `?` that ends the word.
+        for t in [
+            "ab abc?!defg",
+            "ab abc?)defg",
+            "ab abc?/defg",
+            "ab abc?\"defg\"",
+        ] {
+            let (head, tail) = t[3..].split_at(8);
+            assert_eq!(wrapped(t, 8), ["ab", head, tail], "{t}");
+        }
+        assert_eq!(wrapped("ab abc?'defg'", 8), ["ab", "abc?'def", "g'"]);
+        assert_eq!(wrapped("ab abc?“defg”", 8), ["ab", "abc?“def", "g”"]);
+        assert_eq!(wrapped("ab defg?", 6), ["ab", "defg?"]);
+        // Beside another script as before, where Chrome breaks through ICU; and after a `?`
+        // that follows an ideograph, before an ASCII letter.
+        assert_eq!(wrapped("ab abc?édefg", 8), ["ab abc?", "édefg"]);
+        assert_eq!(wrapped("ab abc?中文字", 8), ["ab abc?", "中文字"]);
+        assert_eq!(wrapped("ab 中?abcdefg", 8), ["ab 中?", "abcdefg"]);
+        // A path ends at a `?`, which breaks from what follows; an indent stays.
+        assert_eq!(
+            wrapped("ab assets/icons/bookmarks/outline.svg?v=2 ok", 12),
+            [
+                "ab assets/",
+                "icons/",
+                "bookmarks/",
+                "outline.svg?",
+                "v=2 ok"
+            ]
+        );
+        assert_eq!(wrapped("    abc?defghij", 8), ["    abc?", "defghij"]);
+        // The owner's mention after a `?` stays marked on its own line.
+        let p = message_pieces("ab x?@manager ok", 8);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("ab x?", vec![]),
+                ("@manager", vec![(0, 8)]),
+                ("ok", vec![])
+            ]
+        );
+    }
+
+    #[test]
     fn cjk_text_breaks_between_its_characters_where_the_copy_does() {
         let wrapped = |t: &str, w: usize| -> Vec<String> {
             (wrap_message_line(t, w).into_iter())
