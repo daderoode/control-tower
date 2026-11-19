@@ -95,7 +95,8 @@ tag's date, and a new empty Unreleased goes above it.
   a full-width space (U+3000) that ended a line counted toward its width, so the word before
   it broke early, and a run of them could start the next line. It now hangs past the line's
   end as in the UI design, so the word before it fits and the next line starts with the
-  word after it; within a line it keeps its width (#40).
+  word after it (a run after an ordinary space aside, #57); within a line it keeps its
+  width (#40).
 
 ## [0.4.0] - 2026-11-16
 
