@@ -26,6 +26,10 @@ tag's date, and a new empty Unreleased goes above it.
 - **A delivery failure's details keep their spaces.** Opened, a failure's details keep each
   line's indent and its runs of spaces between words, as the UI design does, where they had
   drawn folded, the indent gone and each run as one space (#19).
+- **A delivery failure's details sit in its centred box.** Opened, the details of a delivery
+  failure or of the watch's "left herdr" flag are drawn left-aligned in a box centred under
+  the failure's line, as wide as its widest line and at most 80 columns, as the UI design
+  does, where they had started at the chat's left edge at its full width (#26).
 
 ## [0.4.0] - 2026-11-16
 

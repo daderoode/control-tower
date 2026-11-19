@@ -9198,6 +9198,56 @@ fn a_delivery_failures_details_keep_their_indent_and_runs_of_spaces() {
     assert_snapshot(&format!("spaced_failure_detail_{w}x{h}"), &buf);
 }
 
+/// The full board `view` drawn `w` x `h` with the message `id`'s details open: its failure
+/// line's first column and the one past its end, and where each line of its details starts.
+fn open_details(view: &View, id: i64, w: u16, h: u16) -> ((usize, usize), Vec<usize>) {
+    let a = area(w, h);
+    let mut dash = on_t3(view, a);
+    // Into the chat at its newest, the failure, then open its details.
+    dash.handle(view, a, Input::Right);
+    assert_eq!(dash.board_message(), Some(id));
+    dash.handle(view, a, Input::Right);
+    assert!(dash.open_messages().contains(&id));
+    dash.fit(view, a);
+    let buf = render_dash(view, &dash, w, h, Depth::TrueColor);
+    let b = board_of(view, &dash, a);
+    let conv = columns(&buf, b.conv.x, b.conv.width);
+    let all = conv.join("\n");
+    let at = (conv.iter())
+        .position(|r| r.contains("· hide details"))
+        .unwrap_or_else(|| panic!("{all}"));
+    let start = |r: &str| r.chars().position(|c| c != ' ' && c != '│');
+    let end = conv[at].trim_end().chars().count();
+    let line = (start(&conv[at]).unwrap(), end);
+    let details: Vec<usize> = conv[at + 1..].iter().map_while(|r| start(r)).collect();
+    assert!(!details.is_empty(), "{all}");
+    (line, details)
+}
+
+#[test]
+fn an_open_failures_details_sit_left_aligned_in_its_centred_box() {
+    // The box is as wide as the widest of the failure's line and its details' lines (74
+    // columns here), at most EVENT_MAX, and centred as the failure's line is: twice its first
+    // column plus its width is the line's first column plus its end, give or take the
+    // column a centred line rounds down. Every line of the details starts at that column.
+    let centred = |(from, to): (usize, usize), left: usize, bw: usize| {
+        (2 * left + bw).abs_diff(from + to) <= 1
+    };
+    let (line, details) = open_details(&spaced_failure_view(), 9102, 160, 50);
+    assert_eq!(details.len(), 4, "{details:?}");
+    assert!(centred(line, details[0], 74), "{line:?} {details:?}");
+    assert_eq!(
+        details,
+        [details[0], details[0], details[0] + 4, details[0]]
+    );
+    // The left-herdr flag's one line (85 columns) is wider than EVENT_MAX: the box takes its
+    // 80 columns.
+    let (line, details) = open_details(&Ok(chat_fixture()), 512, 160, 70);
+    assert!(details.len() > 1, "{details:?}");
+    assert!(centred(line, details[0], 80), "{line:?} {details:?}");
+    assert!(details.iter().all(|&d| d == details[0]), "{details:?}");
+}
+
 #[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();

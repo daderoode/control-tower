@@ -13,7 +13,7 @@
 //! - Tower's own messages are quiet centred lines, wrapped at `EVENT_MAX`: consecutive
 //!   nudges of one worker as one ("dev-1 was nudged 3 times"), the watch's flags in a
 //!   chat's words, and a delivery failure as "delivery failed to X · details", which opens
-//!   its full text.
+//!   its full text under it, left-aligned in a centred box as wide as its widest line.
 //! - Separators where how long ago the messages were changes: "now", "within the hour",
 //!   "3h ago", "yesterday".
 //!
@@ -291,8 +291,12 @@ pub enum Row {
         msg: usize,
         open: bool,
     },
-    /// A line of an open `Failure`'s full text.
-    Detail(String),
+    /// A line of an open `Failure`'s full text, from column `left`: the left edge of the
+    /// copy's centred event box, which fits the failure's line and its text (`detail_box`).
+    Detail {
+        piece: String,
+        left: usize,
+    },
 }
 
 impl Row {
@@ -620,9 +624,12 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                 let open = shape.open.contains(&msgs[msg].id);
                 rows.push(Row::Failure { msg, open });
                 if open {
-                    let width = w.saturating_sub(6).max(1);
-                    (wrap(&msgs[msg].text, width).into_iter())
-                        .for_each(|p| rows.push(Row::Detail(p)));
+                    let text = &msgs[msg].text;
+                    let (said, link) = failure_line(&msgs[msg], people.lead, true);
+                    let bw = detail_box(text, said.width() + link.width(), ew);
+                    let left = w.saturating_sub(bw) / 2;
+                    (wrap(text, ew).into_iter())
+                        .for_each(|piece| rows.push(Row::Detail { piece, left }));
                 }
             }
             Item::Bubble { segs, acks } => {
@@ -849,6 +856,30 @@ pub fn event_text(m: &Message, lead: Option<&Lead>) -> String {
         }
     }
     text.to_string()
+}
+
+/// A delivery failure's or the left-herdr flag's line, in its two parts: what it says with
+/// " · " after it ("delivery failed to X · "), and its link, "details" or "hide details"
+/// when `open`.
+fn failure_line(m: &Message, lead: Option<&Lead>, open: bool) -> (String, &'static str) {
+    let said = if is_failure(m) {
+        format!("delivery failed to {}", failed_to(&m.text))
+    } else {
+        let text = event_text(m, lead);
+        text.lines().next().unwrap_or_default().to_string()
+    };
+    let link = if open { "hide details" } else { "details" };
+    (format!("{said} · "), link)
+}
+
+/// The width of the copy's event box (`.evt`) around a failure's line `line_w` wide and
+/// its open `text`: it fits the widest of them (its details keep each line's leading spaces
+/// and runs), at most `ew`, the events' width, past which the text wraps.
+fn detail_box(text: &str, line_w: usize, ew: usize) -> usize {
+    (text.split('\n'))
+        .map(|l| l.trim_end_matches(' ').width())
+        .fold(line_w, usize::max)
+        .min(ew)
 }
 
 /// Who a delivery failure is about: "Kids Lead", "dev-1" or "3 recipients".
@@ -1095,16 +1126,9 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             centred(spans, w)
         }
         Row::Failure { msg, open } => {
-            let m = &msgs[*msg];
-            let said = if is_failure(m) {
-                format!("delivery failed to {}", failed_to(&m.text))
-            } else {
-                let text = event_text(m, people.lead);
-                text.lines().next().unwrap_or_default().to_string()
-            };
-            let link = if *open { "hide details" } else { "details" };
+            let (said, link) = failure_line(&msgs[*msg], people.lead, *open);
             let spans = vec![
-                Span::styled(format!("{said} · "), dim(depth)),
+                Span::styled(said, dim(depth)),
                 Span::styled(link, Style::new().fg(accent(depth))),
             ];
             let mut line = centred(spans, w);
@@ -1116,8 +1140,11 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             }
             line
         }
-        Row::Detail(piece) => fit(
-            vec![Span::raw("   "), Span::styled(piece.clone(), dim(depth))],
+        Row::Detail { piece, left } => fit(
+            vec![
+                Span::raw(" ".repeat(*left)),
+                Span::styled(piece.clone(), dim(depth)),
+            ],
             w,
         ),
     }
@@ -1992,11 +2019,11 @@ mod tests {
                     herdr has no agent named dev-4     twice";
         let m = msgs(&[("system", text, 0)]);
         let open = BTreeSet::from([1]);
-        // 46 wide: the details take 40 columns.
-        let rows = plan(&m, 0, 46, shape(&open, 30, People::default()));
+        // 44 wide: the details take the events' 40 columns.
+        let rows = plan(&m, 0, 44, shape(&open, 30, People::default()));
         let got: Vec<&str> = (rows.iter())
             .filter_map(|r| match r {
-                Row::Detail(p) => Some(p.as_str()),
+                Row::Detail { piece, .. } => Some(piece.as_str()),
                 _ => None,
             })
             .collect();
@@ -2014,5 +2041,79 @@ mod tests {
                 "twice",
             ]
         );
+    }
+
+    /// An open failure drawn `w` wide: its line, then its details as drawn.
+    fn opened(text: &str, w: usize) -> (String, Vec<String>) {
+        let m = msgs(&[("system", text, 0)]);
+        let open = BTreeSet::from([1]);
+        let rows = plan(&m, 0, w, shape(&open, 30, People::default()));
+        let ctx = Ctx {
+            msgs: &m,
+            people: People::default(),
+            now: 30,
+            depth: Depth::Ansi256,
+            selected: None,
+        };
+        let drawn: Vec<String> = (lines(&rows, w, &ctx).iter())
+            .map(|l| l.to_string().trim_end().to_string())
+            .collect();
+        let at = (drawn.iter())
+            .position(|l| l.contains("· hide details"))
+            .unwrap_or_else(|| panic!("{drawn:#?}"));
+        let details = drawn[at + 1..].iter().take_while(|l| !l.is_empty());
+        (drawn[at].clone(), details.cloned().collect())
+    }
+
+    /// The column a drawn line's text starts at.
+    fn start(line: &str) -> usize {
+        line.chars().take_while(|&c| c == ' ').count()
+    }
+
+    #[test]
+    fn an_open_failures_details_sit_left_aligned_in_its_centred_event_box() {
+        // Narrower than the failure's line (38 wide): the box fits that line, so the details
+        // start where it does.
+        let (line, details) = opened("@manager could not deliver to qa-1: x", 105);
+        assert_eq!(line.trim(), "delivery failed to qa-1 · hide details");
+        assert_eq!((start(&line), details.len()), (33, 1));
+        assert_eq!(start(&details[0]), 33);
+        assert_eq!(details[0].trim(), "@manager could not deliver to qa-1: x");
+        // A wider line of the text sets the box: 73 columns, centred, every line from its
+        // left edge, an indented one keeping its indent there.
+        let text = "@manager could not deliver to 1 recipient; their posts stay on the board:\n\
+                    - qa-1: pane closed\n  exit 1";
+        let (_, details) = opened(text, 105);
+        let starts: Vec<usize> = details.iter().map(|d| start(d)).collect();
+        assert_eq!(starts, [16, 16, 18], "{details:#?}");
+        assert_eq!(details[0].chars().count(), 16 + 73);
+        // Wider than EVENT_MAX: the box takes its 80 columns, centred, and the text wraps there.
+        let long = format!("@manager could not deliver to qa-1: {}", "word ".repeat(30));
+        let (_, details) = opened(long.trim_end(), 160);
+        assert!(details.len() > 1, "{details:#?}");
+        for d in &details {
+            assert_eq!(start(d), 40, "{details:#?}");
+            assert!(d.chars().count() - 40 <= EVENT_MAX, "{details:#?}");
+        }
+        assert_eq!(details[0].chars().count(), 40 + EVENT_MAX, "{details:#?}");
+        // In a narrow chat the box is the events' width, two columns in from each edge.
+        let (_, details) = opened(long.trim_end(), 44);
+        assert!(details.iter().all(|d| start(d) == 2), "{details:#?}");
+        assert!(
+            details.iter().all(|d| d.chars().count() <= 42),
+            "{details:#?}"
+        );
+    }
+
+    #[test]
+    fn the_left_herdr_flags_details_sit_in_the_same_box() {
+        let text = "@kids-lead #1 is in progress but its worker dev-1 is gone from herdr (no \
+                    live agent by that name); if it was closed: tower task unassign 1, or set \
+                    the next worker.";
+        // One line wider than EVENT_MAX: the box takes its 80 columns, centred in the 120.
+        let (line, details) = opened(text, 120);
+        assert_eq!(line.trim(), "dev-1 left herdr while on #1 · hide details");
+        assert!(details.len() > 1, "{details:#?}");
+        assert!(details.iter().all(|d| start(d) == 20), "{details:#?}");
     }
 }
