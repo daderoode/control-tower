@@ -386,8 +386,10 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a
 /// line of its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
-/// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). Spaces are all
-/// that is added or dropped, so `marked` can find the owner's mentions in the pieces.
+/// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). The line's
+/// leading spaces stay on its first line of text; a URL's line starts at the text's column,
+/// as the copy's block URL does. Spaces are all that is added or dropped, so `marked` can
+/// find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -398,19 +400,23 @@ pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<Stri
     let mut out = Vec::new();
     let text = |out: &mut Vec<(String, Option<String>)>, t: &str| {
         // Spaces only: `marked` counts every other character.
-        let t = t.trim_matches(' ');
-        if !t.is_empty() {
+        if !t.trim_start_matches(' ').is_empty() {
             out.extend(wrap_line_paths(t, w).into_iter().map(|p| (p, None)));
         }
     };
     let mut at = 0;
     for r in found {
-        text(&mut out, &raw[at..r.start]);
+        // Only the space next to a URL goes: the line's indent before its first stays.
+        let mut before = raw[at..r.start].trim_end_matches(' ');
+        if at > 0 {
+            before = before.trim_start_matches(' ');
+        }
+        text(&mut out, before);
         let url = &raw[r.clone()];
         out.extend((pack_url(url, w).into_iter()).map(|p| (p, Some(url.to_string()))));
         at = r.end;
     }
-    text(&mut out, &raw[at..]);
+    text(&mut out, raw[at..].trim_start_matches(' '));
     out
 }
 

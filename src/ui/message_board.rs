@@ -595,12 +595,14 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     pieces
 }
 
+/// `text` on lines at most `w` wide (`wrap_line_by`), its leading spaces dropped.
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(text, w, |_| None)
+    wrap_line_by(text.trim_start_matches(' '), w, |_| None)
 }
 
 /// `wrap_line`, with a path (`is_path`) kept in its line and broken only after a `/`, as
-/// the copy breaks one.
+/// the copy breaks one, and the line's leading spaces kept on its first line, as the copy's
+/// message body (`white-space: pre-wrap`) keeps them.
 pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
     wrap_line_by(
         text,
@@ -638,7 +640,9 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// Words of `text` on lines at most `w` wide. A word too wide for any line starts where the
 /// line is, rather than leaving it short, and breaks where a line ends. A word `breaks`
 /// gives break characters for starts where the line is too, and breaks only after one of
-/// them (`units`), or inside a piece between them too wide for a line of its own.
+/// them (`units`), or inside a piece between them too wide for a line of its own. The
+/// text's leading spaces go with its first word, so they start its first line and count
+/// toward its width.
 fn wrap_line_by(
     text: &str,
     w: usize,
@@ -647,7 +651,11 @@ fn wrap_line_by(
     let w = w.max(1);
     let mut out = Vec::new();
     let mut line = String::new();
-    for word in text.split(' ').filter(|s| !s.is_empty()) {
+    let body = text.trim_start_matches(' ');
+    let indent = &text[..text.len() - body.len()];
+    let mut words = body.split(' ').filter(|s| !s.is_empty());
+    let first = words.next().map(|word| format!("{indent}{word}"));
+    for word in first.as_deref().into_iter().chain(words) {
         let need = if line.is_empty() { 0 } else { 1 } + word.width();
         if line.width() + need <= w {
             if !line.is_empty() {

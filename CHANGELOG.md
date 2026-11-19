@@ -9,6 +9,12 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A message line's indent stays in its bubble.** A line written with leading spaces, such
+  as an indented list item, keeps them on its first line, as the UI design does; a URL's own
+  line still starts at the text's column.
+
 ## [0.4.0] - 2026-11-16
 
 ### Added
