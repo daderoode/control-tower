@@ -86,6 +86,12 @@ tag's date, and a new empty Unreleased goes above it.
   `search?q=rye`, moved to the next line whole, or broke only where a line ended. It now
   breaks after the `?` where the UI design does, not before a mark a line cannot start
   with, such as `!` or `)`, and after the last `?` of a run (#37).
+- **An ideographic space at a line's end no longer breaks the word before it.** In a
+  message, a delivery failure's opened details, and a title, goal, event, ack or inbox row,
+  a full-width space (U+3000) that ended a line counted toward its width, so the word before
+  it broke early, and a run of them could start the next line. It now hangs past the line's
+  end as in the UI design, so the word before it fits and the next line starts with the
+  word after it; within a line it keeps its width (#40).
 
 ## [0.4.0] - 2026-11-16
 
