@@ -1435,9 +1435,9 @@ impl Dash {
     }
 
     /// After the inbox list scrolled, with `at` selected: an item no longer wholly in view
-    /// hands the selection to the nearest item that is (or, in a list too short for one, the
-    /// nearest whose first line is in view, then the nearest partly in view), so Enter and
-    /// `r` never act on an item out of sight.
+    /// hands the selection to the nearest item that is (or, when none is, the nearest whose
+    /// first line is in view, then the nearest partly in view), so Enter and `r` never act on
+    /// an item out of sight.
     fn inbox_follow_view(&mut self, ib: &InboxLayout, at: Option<i64>) {
         let Some(at) = at else {
             return;
