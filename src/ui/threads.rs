@@ -16,7 +16,7 @@ use unicode_width::UnicodeWidthStr;
 use super::chat::event_text;
 use super::message_board::{fold_spaces, highlight, pill, status_style};
 use super::theme::{Depth, bad, bold, dim, fit, ok};
-use crate::board::{Message, Talk, Thread, ThreadStatus, age, is_tower};
+use crate::board::{Message, Talk, Thread, ThreadStatus, Tone, age, is_tower};
 use crate::inbox::Alert;
 
 /// The widest an age gets: "999d".
@@ -107,8 +107,10 @@ pub fn stands(
         s.push(Span::styled(who, Style::new().fg(colour)));
         s.push(Span::raw(": "));
     }
-    // Its spaces folded, as the copy's `nowrap` line draws them.
-    s.extend(highlight(&fold_spaces(&text), true, false, depth));
+    // Its spaces folded, as the copy's `nowrap` line draws them; a leading tag toned as in
+    // its bubble.
+    let awareness = Tone::of(&text) == Tone::Awareness;
+    s.extend(highlight(&fold_spaces(&text), true, awareness, depth));
     Some(fit(s, w))
 }
 

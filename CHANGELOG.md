@@ -42,6 +42,9 @@ tag's date, and a new empty Unreleased goes above it.
 - **The replying-to line, where a thread stands and an inbox row fold their spaces.** Each
   draws a message's line with each run of spaces between words as one, as the UI design
   does, where it had kept them as written; the message's bubble still keeps them (#27).
+- **Where a thread stands tones a leading `decision:`.** On the thread's header and in the
+  thread list, a for-your-awareness line that starts with `decision:` draws it bold in the
+  info colour, as its bubble does, where it had drawn plain (#34).
 
 ## [0.4.0] - 2026-11-16
 

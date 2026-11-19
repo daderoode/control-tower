@@ -9344,6 +9344,62 @@ fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spac
 }
 
 #[test]
+fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_list() {
+    // T4's newest message (402), as each leading tag, on its full board beside the list.
+    let tags = [
+        (
+            "decision:",
+            "decision: the covers come from the second printer. @manager for your awareness",
+        ),
+        ("blocked:", "blocked: the second printer is out of ink too"),
+        (
+            "question:",
+            "question: the covers are late again. @manager can you call the printer?",
+        ),
+    ];
+    for (tag, text) in tags {
+        let mut board = board_fixture();
+        let t = (board.milestones[0].threads.iter_mut())
+            .find(|t| t.id == ThreadId(4))
+            .unwrap();
+        let mut messages = t.messages.clone();
+        messages.iter_mut().find(|m| m.id == 402).unwrap().text = text.into();
+        *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+        with_alerts(&mut board, &[]);
+        let view: View = Ok(board);
+        let a = area(160, 50);
+        let mut dash = select(Item::Task(TaskId(14)));
+        dash.handle(&view, a, Input::Char('b'));
+        for depth in [Depth::TrueColor, Depth::Ansi256] {
+            let buf = render_dash(&view, &dash, 160, 50, depth);
+            let all = rows(&buf);
+            // The cell where `needle` starts in row `y`, `skip` columns in.
+            let at = |y: usize, needle: &str, skip: &str| {
+                let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
+                buf[(x as u16, y as u16)].clone()
+            };
+            let bubble = find_row_containing(&all, &format!("▌ {tag}"));
+            let want = at(bubble, &format!("▌ {tag}"), "▌ ");
+            let said = format!("cat-lead: {tag}");
+            let head = find_row_containing(&all, &format!("where it stands {said}"));
+            let list = (all.iter())
+                .position(|r| r.split('│').next().unwrap().contains(&said))
+                .unwrap_or_else(|| panic!("{all:#?}"));
+            assert_ne!(head, list, "{all:#?}");
+            for (y, place) in [(head, "header"), (list, "list")] {
+                let got = at(y, &said, "cat-lead: ");
+                assert_eq!(got.symbol(), &tag[..1], "{tag} {place} {depth:?}");
+                // As its bubble: decision: and blocked: bold in their colour, question: plain.
+                assert_eq!(got.fg, want.fg, "{tag} {place} {depth:?}");
+                let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
+                assert_eq!(bold(&got), bold(&want), "{tag} {place} {depth:?}");
+                assert_eq!(bold(&got), tag != "question:", "{tag} {place} {depth:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();
     let id_of = |sym: &str| sym.split(';').nth(1).map(str::to_string);
