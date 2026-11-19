@@ -1689,12 +1689,14 @@ fn tower_with_stdin(db: &Path, args: &[&str], input: impl AsRef<[u8]>) -> Output
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.as_ref())
-        .unwrap();
+    // A command refused before reading stdin can exit first and close the pipe:
+    // that write fails with BrokenPipe, and the output and status still tell.
+    match child.stdin.take().unwrap().write_all(input.as_ref()) {
+        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+            panic!("writing to tower's stdin failed: {e}")
+        }
+        _ => {}
+    }
     child.wait_with_output().unwrap()
 }
 
@@ -2169,7 +2171,8 @@ fn space_never_takes_a_labelled_workspace_or_pane_and_a_second_press_focuses_its
         [
             "pane list",
             "plugin pane focus w4:p2",
-            "plugin pane focus w9:p2"
+            "plugin pane focus w9:p2",
+            "workspace focus w9",
         ]
     );
     assert_eq!(
@@ -2263,7 +2266,8 @@ fn space_passes_over_a_candidate_that_closed_since_pane_list_to_the_dashboard() 
         [
             "pane list",
             "plugin pane focus w4:p2",
-            "plugin pane focus w9:p2"
+            "plugin pane focus w9:p2",
+            "workspace focus w9",
         ]
     );
 }
