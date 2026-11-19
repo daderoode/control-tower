@@ -47,6 +47,18 @@ tag's date, and a new empty Unreleased goes above it.
   its box, as the UI design does, its "details" or "hide details" kept whole and moved to a
   line of its own when it does not fit; a click on any of its lines still opens or folds
   it. It had been cut at the chat's edge (#30).
+- **An inbox row shows its message across its lines.** An item drew only its message's
+  first line, cut to one row. It now draws the whole message as the UI design does: its
+  lines join with a space, each run of spaces is one, and it wraps at its words onto a
+  second line under the first, ending in "…" when the message goes on. Selecting an item
+  brings both its lines into view (#33).
+- **CJK text breaks between its characters.** In a message, and in a delivery failure's
+  opened details, Chinese, Japanese and Korean text with no spaces moved to the next line
+  whole, or broke only where a line ended. It now breaks between two characters, and
+  between one and a word, where the UI design does, never before a closing mark such as
+  `。` or after an opening one such as `「`; a run too wide for a line fills the line it
+  starts on, and a path written inside it with no spaces still breaks only after a `/`.
+  A word also breaks after a `…` as the design does (#20).
 - **An @mention right after kana or an ideograph is a mention.** In Japanese or Chinese,
   where words have no spaces between them, an `@manager` or `@dev-2` written straight after
   a character, as in "見てから@managerに返事します", now reaches the owner or the worker and is
