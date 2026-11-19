@@ -2490,6 +2490,44 @@ mod tests {
     }
 
     #[test]
+    fn an_events_or_an_acks_word_too_wide_for_a_line_ends_its_last_line() {
+        // The copy's `.evt` and `.ack` leave `overflow-wrap` normal: Chrome lets a word too
+        // wide for a line overflow it and starts what follows on the next line. Here the
+        // word breaks where its lines end, and the next word starts a line of its own.
+        let none = BTreeSet::new();
+        let rows = |m: &[Message], w: usize| plan(m, 0, w, shape(&none, 60, People::default()));
+        let events = |m: &[Message], w: usize| -> Vec<String> {
+            (rows(m, w).into_iter())
+                .filter_map(|r| match r {
+                    Row::Event { piece, .. } => Some(piece),
+                    _ => None,
+                })
+                .collect()
+        };
+        // An event 8 columns wide, in a chat of 12.
+        let m = msgs(&[("system", "ab abcdefghij cd", 0)]);
+        assert_eq!(events(&m, 12), ["ab", "abcdefgh", "ij", "cd"]);
+        // A tagged one: its first line at what the tag leaves, the rest at 20, in a chat of 24.
+        let m = msgs(&[("system", "decision: ab a1b2c3d4e5f6a7b8c9d0e1f2 cd", 0)]);
+        assert_eq!(
+            events(&m, 24),
+            ["decision:", "ab", "a1b2c3d4e5f6a7b8c9d0", "e1f2", "cd"]
+        );
+        // An ack under a bubble 34 wide, in a chat of 40: 25 columns for its words.
+        let m = msgs(&[
+            ("dev-1", "Report", 0),
+            ("qa", "copy a1b2c3d4e5f6a7b8c9d0e1f2a3 ok", 60),
+        ]);
+        let acks: Vec<String> = (rows(&m, 40).into_iter())
+            .filter_map(|r| match r {
+                Row::Ack { piece, .. } => Some(piece),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(acks, ["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a", "3", "ok"]);
+    }
+
+    #[test]
     fn a_failures_line_wraps_where_the_copys_event_box_does() {
         let failed = "@manager could not deliver to 3 recipients; their posts stay on the \
                       board:\n- qa-1: gone\n- dev-2: gone\n- dev-3: gone";

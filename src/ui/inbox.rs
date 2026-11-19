@@ -99,7 +99,8 @@ enum Said {
 impl Said {
     /// What `a` says on lines `room` columns wide. As the copy's row (`.txt clamp2`,
     /// `white-space: normal`) draws a message: its line breaks and tabs are spaces, each
-    /// run of spaces one, wrapped at its words and clamped to `MESSAGE_LINES` lines.
+    /// run of spaces one, wrapped as the copy's `.clamp2` wraps it (`wrap_line`) and clamped
+    /// to `MESSAGE_LINES` lines.
     fn of(a: &Alert, room: usize) -> Said {
         let text = &a.message.text;
         if a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)
