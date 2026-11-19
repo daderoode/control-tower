@@ -48,8 +48,9 @@ tag's date, and a new empty Unreleased goes above it.
   line of its own when it does not fit; a click on any of its lines still opens or folds
   it. It had been cut at the chat's edge (#30).
 - **Where a thread stands tones a leading `decision:`.** On the thread's header and in the
-  thread list, a for-your-awareness line that starts with `decision:` draws it bold in the
-  info colour, as its bubble does, where it had drawn plain (#34).
+  thread list, a line that starts with `decision:`, from a message for your awareness (its
+  mention of you on any of its lines), draws it bold in the info colour, as its bubble
+  does, where it had drawn plain (#34).
 
 ## [0.4.0] - 2026-11-16
 

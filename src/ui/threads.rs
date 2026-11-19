@@ -87,7 +87,7 @@ pub fn stands(
     w: usize,
     depth: Depth,
 ) -> Option<Line<'static>> {
-    let (who, text) = talk.stands(t)?;
+    let (who, text, tone) = talk.stands(t)?;
     let mut s = vec![Span::styled(lead_in.to_string(), dim(depth))];
     // Tower's own word reads as the chat's quiet line does, with no "system:" label.
     if is_tower(&who) {
@@ -108,8 +108,8 @@ pub fn stands(
         s.push(Span::raw(": "));
     }
     // Its spaces folded, as the copy's `nowrap` line draws them; a leading tag toned as in
-    // its bubble.
-    let awareness = Tone::of(&text) == Tone::Awareness;
+    // its bubble, by the whole message's tone.
+    let awareness = tone == Tone::Awareness;
     s.extend(highlight(&fold_spaces(&text), true, awareness, depth));
     Some(fit(s, w))
 }

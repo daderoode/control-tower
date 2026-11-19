@@ -9435,6 +9435,11 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
             "question:",
             "question: the covers are late again. @manager can you call the printer?",
         ),
+        // The owner mentioned on a later line: for your awareness, as its bubble takes it.
+        (
+            "decision:",
+            "decision: the spine stays matte\n@manager for your awareness",
+        ),
     ];
     for (id, (tag, text)) in (410..).zip(tags) {
         let mut board = board_fixture();
@@ -9467,7 +9472,8 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
             let bubble = (all.iter())
                 .rposition(|r| r.contains(&format!("▌ {tag}")))
                 .unwrap_or_else(|| panic!("{all:#?}"));
-            assert!(all[bubble].contains(&format!("▌ {text}")), "{all:#?}");
+            let first = text.lines().next().unwrap();
+            assert!(all[bubble].contains(&format!("▌ {first}")), "{all:#?}");
             let (_, want) = at(bubble, &format!("▌ {tag}"), "▌ ");
             let said = format!("cat-lead: {tag}");
             // The header's line, right of the list's bar, by its lead-in; the list's row,
