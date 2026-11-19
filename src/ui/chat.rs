@@ -1658,6 +1658,55 @@ mod tests {
     }
 
     #[test]
+    fn a_lines_inner_runs_of_spaces_stay_and_a_break_drops_them() {
+        let pair = |t: &str| (t.to_string(), None);
+        // A line aligned in columns keeps its runs of spaces, as the copy's pre-wrap body does.
+        assert_eq!(
+            wrap_message_line("phone    2 rows", 40),
+            [pair("phone    2 rows")]
+        );
+        assert_eq!(wrap_message_line("  - a    b", 40), [pair("  - a    b")]);
+        // A break at a run drops the whole run; the next line starts at the text's column.
+        assert_eq!(
+            wrap_message_line("aa    bb    cc", 9),
+            [pair("aa    bb"), pair("cc")]
+        );
+        // A run counts toward the line's width.
+        assert_eq!(wrap_message_line("aa    bb", 7), [pair("aa"), pair("bb")]);
+        // The spaces at the line's end go, as before.
+        assert_eq!(wrap_message_line("a  b   ", 40), [pair("a  b")]);
+        // A word too wide for any line starts after the run when a column is left there...
+        assert_eq!(
+            wrap_message_line("ab   abcdefghij", 8),
+            [pair("ab   abc"), pair("defghij")]
+        );
+        // ...and on the next line when the run leaves none.
+        assert_eq!(
+            wrap_message_line("ab      abcdefghij", 8),
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
+        );
+        // Only the spaces next to a URL go; a run in the text after it stays.
+        let url = "https://a.b/c/d";
+        assert_eq!(
+            wrap_message_line("see    https://a.b/c/d    then  more", 40),
+            [
+                pair("see"),
+                (url.to_string(), Some(url.to_string())),
+                pair("then  more")
+            ]
+        );
+        // The owner's mentions stay marked after a run.
+        let p = message_pieces("ask    @manager", 40);
+        let marks: Vec<(usize, usize)> = p[0].marks.iter().map(|r| (r.start, r.end)).collect();
+        assert_eq!(
+            (p[0].text.as_str(), marks),
+            ("ask    @manager", vec![(7, 15)])
+        );
+        // Outside a bubble a line's spaces still fold: its indent goes, each run is one.
+        assert_eq!(wrap_line("  a    b  ", 40), ["a b"]);
+    }
+
+    #[test]
     fn the_tags_and_age_columns_are_what_the_name_line_draws() {
         for text in ["plain", "blocked: x", "decision: y"] {
             let m = &msgs(&[("dev-1", text, 0)])[0];
