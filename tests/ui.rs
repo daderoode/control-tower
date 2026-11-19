@@ -9427,6 +9427,99 @@ fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spac
 }
 
 #[test]
+fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_list() {
+    // T4 gets a newest message from cat-lead, starting with each leading tag in turn, on its
+    // full board beside the list, with whether its tag is bold. Each round's message has its
+    // own id: a message never changes, so the board keeps a conversation's bubbles by its
+    // messages' ids.
+    let tags = [
+        (
+            "decision:",
+            "decision: the covers come from the second printer. @manager for your awareness",
+            true,
+        ),
+        (
+            "blocked:",
+            "blocked: the second printer is out of ink too",
+            true,
+        ),
+        (
+            "question:",
+            "question: the covers are late again. @manager can you call the printer?",
+            false,
+        ),
+        // The owner mentioned on a later line: for your awareness, as its bubble takes it.
+        (
+            "decision:",
+            "decision: the spine stays matte\n@manager for your awareness",
+            true,
+        ),
+        // Not for your awareness (no mention of the owner): plain, as its bubble.
+        ("decision:", "decision: the covers stay blue", false),
+    ];
+    for (id, (tag, text, bold_tag)) in (410..).zip(tags) {
+        let mut board = board_fixture();
+        let t = (board.milestones[0].threads.iter_mut())
+            .find(|t| t.id == ThreadId(4))
+            .unwrap();
+        let mut messages = t.messages.clone();
+        messages.push(Message {
+            id,
+            author: "cat-lead".into(),
+            text: text.into(),
+            at: NOW - 5 * 60,
+        });
+        *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+        with_alerts(&mut board, &[]);
+        let view: View = Ok(board);
+        let a = area(160, 50);
+        let mut dash = select(Item::Task(TaskId(14)));
+        dash.handle(&view, a, Input::Char('b'));
+        for depth in [Depth::TrueColor, Depth::Ansi256] {
+            let buf = render_dash(&view, &dash, 160, 50, depth);
+            let all = rows(&buf);
+            // The column and cell where `needle` first starts in row `y`, `skip` columns in.
+            let at = |y: usize, needle: &str, skip: &str| {
+                let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
+                (x, buf[(x as u16, y as u16)].clone())
+            };
+            // Its bubble line: the last with the tag, as the newest message is drawn last
+            // (dev-1's blocked: and cat-lead's question: are above it).
+            let bubble = (all.iter())
+                .rposition(|r| r.contains(&format!("▌ {tag}")))
+                .unwrap_or_else(|| panic!("{all:#?}"));
+            let first = text.lines().next().unwrap();
+            assert!(all[bubble].contains(&format!("▌ {first}")), "{all:#?}");
+            let (_, want) = at(bubble, &format!("▌ {tag}"), "▌ ");
+            let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
+            assert_eq!(bold(&want), bold_tag, "{text:?} bubble {depth:?}");
+            let said = format!("cat-lead: {tag}");
+            // The header's line, right of the list's bar, by its lead-in; the list's row,
+            // left of it. T4 is the newest thread, so its list row can share the header's
+            // screen row.
+            let stands = format!("where it stands {said}");
+            let head = find_row_containing(&all, &stands);
+            let list = (all.iter())
+                .position(|r| r.split('│').next().unwrap().contains(&said))
+                .unwrap_or_else(|| panic!("{all:#?}"));
+            let bar = |y: usize| all[y][..all[y].find('│').unwrap()].width();
+            let lead_in = "where it stands cat-lead: ";
+            for (y, needle, skip, place) in [
+                (head, stands.as_str(), lead_in, "header"),
+                (list, said.as_str(), "cat-lead: ", "list"),
+            ] {
+                let (x, got) = at(y, needle, skip);
+                assert_eq!(x > bar(y), place == "header", "{place} {all:#?}");
+                assert_eq!(got.symbol(), &tag[..1], "{tag} {place} {depth:?}");
+                // As its bubble: in the bubble's colour, bold exactly when the round says.
+                assert_eq!(got.fg, want.fg, "{text:?} {place} {depth:?}");
+                assert_eq!(bold(&got), bold_tag, "{text:?} {place} {depth:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn an_inbox_row_shows_its_message_across_its_lines_folded_and_clamped_to_two() {
     // T4's question (402) on three lines, with runs of spaces between its words.
     let mut board = board_fixture();

@@ -764,11 +764,13 @@ impl<'a> Talk<'a> {
         t.id.to_string()
     }
 
-    /// Where thread `t` stands, by whom: on its task's first open thread, the task's doing
-    /// line (the blocked reason first, as its detail has it), else the first line of its
-    /// newest message by a person that is not an ack, else of its newest message; either
-    /// way without a "Status:" prefix.
-    pub fn stands(&self, t: &Thread) -> Option<(String, String)> {
+    /// Where thread `t` stands, by whom, and its tone: on its task's first open thread, the
+    /// task's doing line (the blocked reason first, as its detail has it), else the first
+    /// line of its newest message by a person that is not an ack, else of its newest
+    /// message; either way without a "Status:" prefix. The tone is the whole message's, as
+    /// its bubble takes it; a blocked reason, which has no message, takes its
+    /// "blocked: <why>" line's.
+    pub fn stands(&self, t: &Thread) -> Option<(String, String, Tone)> {
         // The doing line is the task's, so it heads the task's home thread only (or, while
         // no person has posted on the task, its first open thread); any other thread on the
         // task says where it stands in its own words.
@@ -784,12 +786,15 @@ impl<'a> Talk<'a> {
             match k.doing_line() {
                 Some(DoingLine::Blocked(why)) => {
                     let who = k.details.assignee.clone().unwrap_or_default();
-                    return Some((who, format!("blocked: {why}")));
+                    let text = format!("blocked: {why}");
+                    let tone = Tone::of(&text);
+                    return Some((who, text, tone));
                 }
                 Some(DoingLine::Post(line)) => {
-                    let who =
-                        (k.details.doing.as_ref()).map_or_else(String::new, |m| m.author.clone());
-                    return Some((who, without_status(line).to_string()));
+                    let doing = k.details.doing.as_ref();
+                    let who = doing.map_or_else(String::new, |m| m.author.clone());
+                    let tone = doing.map_or(Tone::Plain, tone_of);
+                    return Some((who, without_status(line).to_string(), tone));
                 }
                 None => {}
             }
@@ -810,7 +815,11 @@ impl<'a> Talk<'a> {
         };
         let m = newest(&|m| !is_tower(&m.author) && !is_ack(m)).or_else(|| newest(&|_| true))?;
         let first = m.text.lines().next().unwrap_or_default();
-        Some((m.author.clone(), without_status(first).to_string()))
+        Some((
+            m.author.clone(),
+            without_status(first).to_string(),
+            tone_of(m),
+        ))
     }
 
     /// Task `task`'s home thread on this board's whole repo: its first open thread a person
@@ -2671,11 +2680,16 @@ mod talk_tests {
             let want = (
                 "dev-1".to_string(),
                 "building the picture-book shelf".to_string(),
+                Tone::Plain,
             );
             assert_eq!(talk.stands(t1), Some(want));
             // Only tower's messages: the newest of them.
             let t5 = *talk.threads.iter().find(|t| t.id == ThreadId(5)).unwrap();
-            let want = ("system".to_string(), "nudged dev-2: no post".to_string());
+            let want = (
+                "system".to_string(),
+                "nudged dev-2: no post".to_string(),
+                Tone::Plain,
+            );
             assert_eq!(talk.stands(t5), Some(want));
         }
         // The task's doing line once there is one (one source with its detail).
@@ -2684,14 +2698,40 @@ mod talk_tests {
         {
             let talk = Talk::of_repo(&b, &b.repos[0]);
             let t1 = *talk.threads.iter().find(|t| t.id == ThreadId(1)).unwrap();
-            let want = ("dev-1".to_string(), "picture-book shelf done".to_string());
+            let want = (
+                "dev-1".to_string(),
+                "picture-book shelf done".to_string(),
+                Tone::Plain,
+            );
+            assert_eq!(talk.stands(t1), Some(want));
+        }
+        // Its tone is the whole message's: a mention of the owner on a later line counts,
+        // as in its bubble.
+        b.milestones[0].tasks[0].details.doing = Some(msg(
+            98,
+            "dev-1",
+            "decision: the shelf takes 12 books\n@manager for your awareness",
+            700,
+        ));
+        {
+            let talk = Talk::of_repo(&b, &b.repos[0]);
+            let t1 = *talk.threads.iter().find(|t| t.id == ThreadId(1)).unwrap();
+            let want = (
+                "dev-1".to_string(),
+                "decision: the shelf takes 12 books".to_string(),
+                Tone::Awareness,
+            );
             assert_eq!(talk.stands(t1), Some(want));
         }
         // The blocked reason wins, as in its detail.
         b.milestones[0].tasks[0].details.blocked = Some("no cover images".into());
         let talk = Talk::of_repo(&b, &b.repos[0]);
         let t1 = *talk.threads.iter().find(|t| t.id == ThreadId(1)).unwrap();
-        let want = ("dev-1".to_string(), "blocked: no cover images".to_string());
+        let want = (
+            "dev-1".to_string(),
+            "blocked: no cover images".to_string(),
+            Tone::Blocked,
+        );
         assert_eq!(talk.stands(t1), Some(want));
     }
 
@@ -2922,11 +2962,18 @@ mod fold_tests {
         let t = |id| *talk.threads.iter().find(|t| t.id == ThreadId(id)).unwrap();
         assert_eq!(
             talk.stands(t(1)),
-            Some(("dev-1".into(), "picture-book shelf done".into()))
+            Some((
+                "dev-1".into(),
+                "picture-book shelf done".into(),
+                Tone::Plain
+            ))
         );
         let own =
             "decision: the shelf shows 12 books, not 10. @manager for your awareness".to_string();
-        assert_eq!(talk.stands(t(2)), Some(("kids-lead".into(), own)));
+        assert_eq!(
+            talk.stands(t(2)),
+            Some(("kids-lead".into(), own, Tone::Awareness))
+        );
         // With the first resolved, the second open one is the task's first open thread.
         let mut done = t(1).clone();
         done.resolved = Some(Resolution {
@@ -2939,7 +2986,11 @@ mod fold_tests {
         let t2 = *talk.threads.iter().find(|t| t.id == ThreadId(2)).unwrap();
         assert_eq!(
             talk.stands(t2),
-            Some(("dev-1".into(), "picture-book shelf done".into()))
+            Some((
+                "dev-1".into(),
+                "picture-book shelf done".into(),
+                Tone::Plain
+            ))
         );
     }
 

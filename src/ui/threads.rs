@@ -16,7 +16,7 @@ use unicode_width::UnicodeWidthStr;
 use super::chat::event_text;
 use super::message_board::{fold_spaces, highlight, pill, status_style};
 use super::theme::{Depth, bad, bold, dim, fit, ok};
-use crate::board::{Message, Talk, Thread, ThreadStatus, age, is_tower};
+use crate::board::{Message, Talk, Thread, ThreadStatus, Tone, age, is_tower};
 use crate::inbox::Alert;
 
 /// The widest an age gets: "999d".
@@ -87,7 +87,7 @@ pub fn stands(
     w: usize,
     depth: Depth,
 ) -> Option<Line<'static>> {
-    let (who, text) = talk.stands(t)?;
+    let (who, text, tone) = talk.stands(t)?;
     let mut s = vec![Span::styled(lead_in.to_string(), dim(depth))];
     // Tower's own word reads as the chat's quiet line does, with no "system:" label.
     if is_tower(&who) {
@@ -107,8 +107,10 @@ pub fn stands(
         s.push(Span::styled(who, Style::new().fg(colour)));
         s.push(Span::raw(": "));
     }
-    // Its spaces folded, as the copy's `nowrap` line draws them.
-    s.extend(highlight(&fold_spaces(&text), true, false, depth));
+    // Its spaces folded, as the copy's `nowrap` line draws them; a leading tag toned as in
+    // its bubble, by the whole message's tone.
+    let awareness = tone == Tone::Awareness;
+    s.extend(highlight(&fold_spaces(&text), true, awareness, depth));
     Some(fit(s, w))
 }
 
