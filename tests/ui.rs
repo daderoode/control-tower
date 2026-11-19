@@ -9643,12 +9643,16 @@ fn a_selected_inbox_items_first_line_stays_in_view_at_any_height() {
     let board = view.as_ref().unwrap();
     let ids: Vec<i64> = board.inbox.all().map(|a| a.message.id).collect();
     // At 40 columns every item takes two lines: NEED YOU, 402, 501, a blank, FOR YOUR
-    // AWARENESS, 502, 310.
-    for list_h in 1..=5u16 {
-        let a = area(40, list_h + 3);
+    // AWARENESS, 502, 310. A pane under five rows has no rule or keys line, so the list is
+    // all of it but the top line; from five rows it is three rows shorter. Panes 2 to 8 rows
+    // high give lists 1 to 5 lines high (2 and 3 lines twice, with and without the keys).
+    let mut tested = BTreeSet::new();
+    for pane_h in 2..=8u16 {
+        let a = area(40, pane_h);
         let mut dash = inbox_dash(&view, a);
         let ib = layout(&view, &dash, a).inbox.unwrap();
-        assert_eq!(ib.list.height, list_h);
+        let list_h = ib.list.height;
+        tested.insert(list_h);
         assert_eq!(ib.rows.len(), 11, "{:?}", ib.rows);
         let h = usize::from(list_h);
         let last_top = ib.rows.len() - h;
@@ -9659,7 +9663,7 @@ fn a_selected_inbox_items_first_line_stays_in_view_at_any_height() {
             let top = top(dash);
             assert!(
                 (top..top + h).contains(&first),
-                "list {list_h}, {what}: {id:?}'s first line {first} out of view at {top}\n{:#?}",
+                "pane {pane_h}, list {list_h}, {what}: {id:?}'s first line {first} out of view at {top}\n{:#?}",
                 screen(&view, dash, a)
             );
         };
@@ -9675,7 +9679,7 @@ fn a_selected_inbox_items_first_line_stays_in_view_at_any_height() {
                     } else {
                         before.saturating_sub(page)
                     };
-                    assert_eq!(top(&dash), paged, "{input:?} {k}");
+                    assert_eq!(top(&dash), paged, "pane {pane_h}, {input:?} {k}");
                 }
             }
             // Paging never sticks: it gets to the end item's first line.
@@ -9688,7 +9692,7 @@ fn a_selected_inbox_items_first_line_stays_in_view_at_any_height() {
             let top = top(&dash);
             assert!(
                 (top..top + h).contains(&first),
-                "list {list_h}, {input:?}: stuck at {top}"
+                "pane {pane_h}, list {list_h}, {input:?}: stuck at {top}"
             );
         }
         for input in [Input::Down; 4].into_iter().chain([Input::Up; 4]) {
@@ -9705,9 +9709,14 @@ fn a_selected_inbox_items_first_line_stays_in_view_at_any_height() {
             } else {
                 before.saturating_sub(3)
             };
-            assert_eq!(top(&dash), wheeled, "list {list_h}, wheel down {down}");
+            assert_eq!(
+                top(&dash),
+                wheeled,
+                "pane {pane_h}, list {list_h}, wheel down {down}"
+            );
         }
     }
+    assert_eq!(tested, (1..=5).collect::<BTreeSet<u16>>());
 }
 
 #[test]
