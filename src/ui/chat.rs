@@ -1809,6 +1809,25 @@ mod tests {
         // Not before a character a line cannot start with.
         assert_eq!(wrapped("ab abc-,defg", 8), ["ab", "abc-,def", "g"]);
         assert_eq!(wrapped("ab abc-)defg", 8), ["ab", "abc-)def", "g"]);
+        // Before a character other than ASCII, where Chrome breaks through ICU: not before a
+        // quote or another script's digit, nor after a minus sign (no ASCII letter or digit
+        // before the `-`).
+        assert_eq!(
+            wrapped("the loaves for the morning shift: café-12", 40),
+            ["the loaves for the morning shift:", "café-12"]
+        );
+        assert_eq!(
+            wrapped("the loaves for the morning are non-“standard” today", 40),
+            ["the loaves for the morning are", "non-“standard” today"]
+        );
+        assert_eq!(wrapped("ab aé-5000000", 8), ["ab", "aé-50000", "00"]);
+        assert_eq!(wrapped("ab abc-٣٣", 8), ["ab", "abc-٣٣"]);
+        assert_eq!(wrapped("ab x-éabcdef", 8), ["ab x-", "éabcdef"]);
+        assert_eq!(wrapped("ab abc-ーdefg", 8), ["ab abc-", "ーdefg"]);
+        assert_eq!(wrapped("ab abc-·defg", 8), ["ab abc-", "·defg"]);
+        // Nor after a `-` that starts the word, before one.
+        assert_eq!(wrapped("ab -éabcdefg", 8), ["ab", "-éabcdef", "g"]);
+        assert_eq!(wrapped("ab -½00000", 9), ["ab", "-½00000"]);
         // A word with breaks starts after a line's indent only when its first piece fits
         // there; else the indent keeps its line, as the copy's does, and so does a path's.
         assert_eq!(wrapped("    ab-cdefgh", 8), ["    ab-", "cdefgh"]);

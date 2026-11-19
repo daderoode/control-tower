@@ -275,6 +275,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "icu_segmenter",
  "nix 0.31.3",
  "ratatui",
  "rusqlite",
