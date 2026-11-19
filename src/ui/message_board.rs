@@ -1800,13 +1800,18 @@ mod tests {
         for word in [a.clone(), dots.clone(), format!("{dots}{a}")] {
             assert!(paths(&word).is_empty(), "{}", word.len());
         }
-        // A path after such a run is found where the copy's pattern starts it.
+        // A path after such a run is found where the copy's pattern starts it: (start, end).
+        let found = |word: &str| -> Vec<(usize, usize)> {
+            (paths(word).into_iter())
+                .map(|r| (r.start, r.end))
+                .collect()
+        };
         let word = format!("{}@{}/cc/dd/ee", "a".repeat(1000), "b".repeat(980));
-        assert_eq!(paths(&word), [1001..word.len()]);
+        assert_eq!(found(&word), [(1001, word.len())]);
         let word = format!("{dots}/var/log/tower/output.log");
-        assert_eq!(paths(&word), [2000..word.len()]);
+        assert_eq!(found(&word), [(2000, word.len())]);
         let word = format!("{}a/bb/ccc/dddd/eeeee", ".-".repeat(1000));
-        assert_eq!(paths(&word), [2000..word.len()]);
+        assert_eq!(found(&word), [(2000, word.len())]);
         // A bubble draws such a word on lines of its own, broken where each line ends.
         let word = format!("{dots}{a}");
         let mut want = vec!["ab".to_string()];
