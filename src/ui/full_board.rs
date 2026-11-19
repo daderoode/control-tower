@@ -654,8 +654,9 @@ fn name_room(w: usize) -> usize {
 }
 
 /// Thread `t`'s name, and its own title, on at most two list lines `w` wide, styled
-/// (the name bold, its own title dim), without the mark and age. It wraps at word
-/// boundaries; past two lines the second is cut with "…", but never into the own title:
+/// (the name bold, its own title dim), without the mark and age. It wraps as the copy's
+/// `.clamp2` does (`wrap_line`); past two lines the second is cut with "…", but never into
+/// the own title:
 /// then, as in a one-line row, the name is cut first and its own title keeps all but
 /// `NAME_KEEPS` columns of the second line.
 fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'static>>> {

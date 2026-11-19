@@ -14,6 +14,8 @@
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 
+use icu_properties::CodePointMapData;
+use icu_properties::props::{EastAsianWidth, GeneralCategory, LineBreak};
 use icu_segmenter::LineSegmenter;
 use icu_segmenter::LineSegmenterBorrowed;
 use icu_segmenter::options::{LineBreakOptions, LineBreakStrictness};
@@ -564,10 +566,10 @@ pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
 }
 
 /// `text` in pieces at most `w` columns wide, a piece per line of it (a blank line stays
-/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Details`).
+/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Plain`).
 pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
     text.split('\n')
-        .flat_map(|line| wrap_line_by(line, w, Wrap::Details))
+        .flat_map(|line| wrap_line_by(line, w, Wrap::Plain))
         .collect()
 }
 
@@ -597,9 +599,16 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     pieces
 }
 
-/// `text` on lines at most `w` wide (`wrap_line_by`), its spaces folded (`fold_spaces`).
+/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
+/// `.clamp2` text (titles, goals, thread names, inbox rows) breaks it (`Wrap::Plain`).
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(&fold_spaces(text), w, Wrap::Folded)
+    wrap_line_by(&fold_spaces(text), w, Wrap::Plain)
+}
+
+/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
+/// events and acks break it (`Wrap::Event`).
+pub(crate) fn wrap_event_line(text: &str, w: usize) -> Vec<String> {
+    wrap_line_by(&fold_spaces(text), w, Wrap::Event)
 }
 
 /// `text` with its spaces folded as the copy's normal and `nowrap` text folds them: its
@@ -617,92 +626,220 @@ pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
 /// How `wrap_line_by` breaks a line, after the copy's element for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wrap {
-    /// Text whose spaces were folded (`fold_spaces`): titles, acks, events. A word too wide
-    /// for any line starts where the line is.
-    Folded,
-    /// A delivery failure's opened details (`.evtdetail`). `white-space: pre-wrap` keeps a
-    /// line's leading spaces on its first line and each run between words as written;
-    /// `overflow-wrap: anywhere` breaks at the space before a word with no break of its own,
-    /// such as a long hash, too wide for a line, so it starts on a line of its own; a word
-    /// with a `-` breaks after it as Chrome does (`hyphen_units`). The details mark no
-    /// paths, so a path is a word like any other.
-    Details,
-    /// A message body (`.seg .body`): as `Details`, and a path (`is_path`) breaks only after
-    /// each `/`, as the copy's `<wbr>` breaks one.
+    /// Text the copy breaks with `overflow-wrap: anywhere` and marks no paths in, so a path
+    /// is a word like any other: a delivery failure's opened details (`.evtdetail`) and,
+    /// their spaces folded (`fold_spaces`), titles, goals, thread names and inbox rows
+    /// (`.clamp2`). The details' `white-space: pre-wrap` keeps a line's leading spaces on
+    /// its first line and each run between words as written; `overflow-wrap: anywhere`
+    /// breaks at the space before a word with no break of its own, such as a long hash, too
+    /// wide for a line, so it starts on a line of its own; a word breaks inside where Chrome
+    /// does (`break_units`), such as after a `-` or between two ideographs.
+    Plain,
+    /// Events, a delivery failure's line and acks (`.evt`, `.ack`), their spaces folded: as
+    /// `Plain`, but the copy leaves `overflow-wrap` normal there, so a piece of a word too
+    /// wide for any line (`own_breaks`) overflows its line in Chrome, and what follows it
+    /// starts the next. Here it breaks where its lines end, and its last line ends with it.
+    Event,
+    /// A message body (`.seg .body`): as `Plain`, and a path the copy marks (`paths`),
+    /// alone or joined to other text, breaks only after each `/`, as the copy's `<wbr>`
+    /// breaks one; the text joined to it breaks as any other.
     Body,
 }
 
 /// `word` in the pieces `how` may break it between, short of breaking it anywhere, or
-/// `None` when it has no such break: a path in a `Body` after each `/`, and any other word
-/// after a `-` (`hyphen_units`).
+/// `None` when it has no such break: where Chrome does (`break_units`), a path in a `Body`
+/// only after each `/`.
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
-        Wrap::Folded => return None,
-        Wrap::Body if is_path(word) => units(word, &['/']),
-        Wrap::Details | Wrap::Body => hyphen_units(word),
+        Wrap::Plain | Wrap::Event => break_units(word, &[]),
+        Wrap::Body => break_units(word, &paths(word)),
     };
     (pieces.len() > 1).then_some(pieces)
 }
 
-/// `word` in the pieces Chrome breaks it between after a `-`, as the copy draws it. Not the
-/// Unicode line-breaking rules alone (UAX #14, `icu_segmenter`): Chrome (Blink) decides a
-/// break between two ASCII characters from a table of its own, and `icu_segmenter` differs
-/// from it there (no break in 'abc-123' or '2026-11-19', one before '$'). So, after a `-`
-/// that does not end the word:
-/// - before an ASCII character, a break unless it is one a line cannot start with
-///   (`. , ; : ! ? ) ] } / $`) or a digit after a minus sign (a `-` with no ASCII letter or
-///   digit before it), as Blink's table does; each `-` of a run breaks too;
-/// - before any other character, no break after a `-` that starts the word (nothing or a
-///   no-break space before it), as Chrome keeps one with what follows; else a break where
-///   `icu_segmenter` finds one (Blink hands these to ICU), at CSS `line-break: auto`'s
-///   strictness (`Normal`, so a `ー` may start a line).
-fn hyphen_units(word: &str) -> Vec<&str> {
+/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`):
+/// inside one of `paths`, byte ranges of `word`, only after each `/`, where the copy puts a
+/// `<wbr>`, and the last `/` of a path breaks from what follows it too.
+fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     static SEGMENTER: LineSegmenterBorrowed<'static> = {
         let mut options = LineBreakOptions::default();
         options.strictness = Some(LineBreakStrictness::Normal);
         LineSegmenter::new_for_non_complex_scripts(options)
     };
-    let breaks = |prev: Option<char>, next_at: usize, next: char| {
-        if next.is_ascii() {
-            let minus = next.is_ascii_digit() && !prev.is_some_and(|c| c.is_ascii_alphanumeric());
-            !minus && !".,;:!?)]}/$".contains(next)
-        } else {
-            !prev.is_none_or(|c| c == '\u{a0}')
-                && SEGMENTER.segment_str(word).any(|at| at == next_at)
-        }
+    let found: Vec<usize> = if word.is_ascii() {
+        Vec::new()
+    } else {
+        SEGMENTER.segment_str(word).collect()
     };
+    let chars: Vec<(usize, char)> = word.char_indices().collect();
     let mut out = Vec::new();
     let mut start = 0;
-    let mut prev: Option<char> = None;
-    let mut chars = word.char_indices().peekable();
-    while let Some((_, c)) = chars.next() {
-        if let (Some(&(next_at, next)), '-') = (chars.peek(), c)
-            && breaks(prev, next_at, next)
-        {
-            out.push(&word[start..next_at]);
-            start = next_at;
+    for i in 1..chars.len() {
+        let (at, next) = chars[i];
+        let before = i.checked_sub(2).map(|j| chars[j].1);
+        let after = chars.get(i + 1).map(|&(_, c)| c);
+        let c = chars[i - 1].1;
+        let after_path = paths.iter().any(|r| r.start < at && at <= r.end);
+        let in_path = paths.iter().any(|r| r.start < at && at < r.end);
+        let icu = found.binary_search(&at).is_ok();
+        let breaks = if after_path && c == '/' {
+            true
+        } else if in_path {
+            false
+        } else {
+            breaks_between(before, c, next, after, icu)
+        };
+        if breaks {
+            out.push(&word[start..at]);
+            start = at;
         }
-        prev = Some(c);
     }
     out.push(&word[start..]);
     out
 }
 
-/// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
-/// digits and `_ . @ + - ~` with at least two `/` among them, and no URL scheme (a URL is
-/// laid out on its own, `chat::wrap_message_line`).
-fn is_path(word: &str) -> bool {
-    let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || "_.@+-~/".contains(c)));
-    core.chars().count() >= 16 && core.matches('/').count() >= 2 && !word.contains("://")
+/// Whether Chrome breaks a line between `c` and `next` inside a word, as the copy draws it,
+/// `before` and `after` being the characters around them, and `icu` whether `icu_segmenter`
+/// breaks there. Chrome (Blink) decides a break between two ASCII characters from a table
+/// of its own and hands any other to ICU, the Unicode line-breaking rules (UAX #14), here
+/// `icu_segmenter` at CSS `line-break: auto`'s strictness (`Normal`, so a small kana or a
+/// `ー` may start a line). So:
+/// - between two ASCII characters, a break only after a `-`, unless before a character a
+///   line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after a minus sign
+///   (a `-` with no ASCII letter or digit before it), as Blink's table does; each `-` of a
+///   run breaks too;
+/// - between any other two, a break where `icu_segmenter` finds one: between two
+///   ideographs, kana or hangul, between one and a letter or digit, but not before a
+///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
+///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
+///   hyphen that starts the word (nothing or a no-break space before it) before a letter
+///   (UAX #14's LB20a), and a break before an opening `“` or `‘` between two East Asian
+///   characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
+fn breaks_between(
+    before: Option<char>,
+    c: char,
+    next: char,
+    after: Option<char>,
+    icu: bool,
+) -> bool {
+    if c.is_ascii() && next.is_ascii() {
+        let minus = next.is_ascii_digit() && !before.is_some_and(|c| c.is_ascii_alphanumeric());
+        return c == '-' && !minus && !".,;:!?)]}/$".contains(next);
+    }
+    let class = |c: char| CodePointMapData::<LineBreak>::new().get(c);
+    let category = |c: char| CodePointMapData::<GeneralCategory>::new().get(c);
+    let east_asian = |c: Option<char>| {
+        c.is_some_and(|c| {
+            matches!(
+                CodePointMapData::<EastAsianWidth>::new().get(c),
+                EastAsianWidth::F | EastAsianWidth::W | EastAsianWidth::H
+            )
+        })
+    };
+    // LB20a: a letter is what UAX #14 takes as AL (AI and XX resolve to it) or HL.
+    if matches!(class(c), LineBreak::HY | LineBreak::HH)
+        && before.is_none_or(|c| c == '\u{a0}')
+        && matches!(
+            class(next),
+            LineBreak::AL | LineBreak::HL | LineBreak::AI | LineBreak::XX
+        )
+    {
+        return false;
+    }
+    // LB19a, short of the rules before it that keep the two together.
+    if class(next) == LineBreak::QU && category(next) == GeneralCategory::InitialPunctuation {
+        return east_asian(Some(c))
+            && east_asian(after)
+            && !matches!(
+                class(c),
+                LineBreak::OP | LineBreak::GL | LineBreak::WJ | LineBreak::ZWJ
+            );
+    }
+    if class(c) == LineBreak::QU && category(c) == GeneralCategory::FinalPunctuation {
+        let kept = [
+            LineBreak::CM,
+            LineBreak::ZWJ,
+            LineBreak::WJ,
+            LineBreak::GL,
+            LineBreak::CL,
+            LineBreak::CP,
+            LineBreak::EX,
+            LineBreak::SY,
+            LineBreak::IS,
+            LineBreak::BA,
+            LineBreak::HY,
+            LineBreak::NS,
+            LineBreak::IN,
+        ];
+        return east_asian(before) && east_asian(Some(next)) && !kept.contains(&class(next));
+    }
+    icu
 }
 
-/// `word` in the pieces it may break between: after each of `after`'s characters, or after
-/// any character when `after` is empty.
+/// The byte ranges of the paths in `word` as the copy marks them in a message: the matches
+/// of its `PATH_RE`, `(?:~|\b[\w.-]+)?\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?` (`\w` and `\b` are
+/// ASCII), found from the left, each search going on after the last match; a match shorter
+/// than 16 characters is not marked. So a path joined to other text, as CJK text often is,
+/// is found inside it. A URL is laid out before this (`chat::wrap_message_line`).
+fn paths(word: &str) -> Vec<Range<usize>> {
+    let b = word.as_bytes();
+    let w = |i: usize| {
+        b.get(i)
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+    };
+    // The end of the run from `i` of `\w` and the bytes of `more`.
+    let run = |i: usize, more: &[u8]| {
+        (i..b.len())
+            .find(|&j| !(w(j) || more.contains(&b[j])))
+            .unwrap_or(b.len())
+    };
+    // The end of `\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?` matched from `i`. A run stops only at
+    // what it cannot take, so taking each whole is how the pattern matches.
+    let rest = |i: usize| {
+        let (mut at, mut runs) = (i, 0);
+        while b.get(at) == Some(&b'/') {
+            let end = run(at + 1, b".@+-");
+            if end == at + 1 {
+                break;
+            }
+            (at, runs) = (end, runs + 1);
+        }
+        let slash = usize::from(b.get(at) == Some(&b'/'));
+        (runs >= 2).then_some(at + slash)
+    };
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        // `\b[\w.-]+`: a run from a word's edge, else none.
+        let edge = w(i) != (i > 0 && w(i - 1));
+        let prefix = if edge { run(i, b".-") } else { i };
+        let found = (b[i] == b'~')
+            .then(|| rest(i + 1))
+            .flatten()
+            .or_else(|| (prefix > i).then(|| rest(prefix)).flatten())
+            .or_else(|| rest(i));
+        match found {
+            Some(end) => {
+                if end - i >= 16 {
+                    out.push(i..end);
+                }
+                i = end;
+            }
+            // No match starts inside a run the prefix took: from any byte of it, the run ends
+            // where it does here, and no `~` or `/` is in it. So the search goes on after it,
+            // and each byte is looked at a bounded number of times.
+            None => i = prefix.max(i + 1),
+        }
+    }
+    out
+}
+
+/// `word` in the pieces it may break between: after each of `after`'s characters.
 pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut start = 0;
     for (i, c) in word.char_indices() {
-        if after.is_empty() || after.contains(&c) {
+        if after.contains(&c) {
             let end = i + c.len_utf8();
             out.push(&word[start..end]);
             start = end;
@@ -714,11 +851,11 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
     out
 }
 
-/// Words of `text` on lines at most `w` wide. A word too wide for any line starts where the
-/// line is, rather than leaving it short, and breaks where a line ends; unless `how` is
-/// `Wrap::Folded`, it starts on a line of its own instead, unless it has breaks of its own
-/// (`own_breaks`): such a word starts where the line is when its first piece fits there,
-/// and breaks only between its pieces, or inside a piece too wide for a line of its own.
+/// Words of `text` on lines at most `w` wide. A word too wide for any line starts on a line
+/// of its own and breaks where a line ends, unless it has breaks of its own (`own_breaks`):
+/// such a word starts where the line is when its first piece fits there, and breaks only
+/// between its pieces, or inside a piece too wide for a line of its own, after which, in
+/// `Wrap::Event` text, its line ends.
 /// The text's leading spaces, when narrower than a line, start its first line, as the
 /// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
 /// next line as any other word does, leaving them alone on the first. Each run of spaces
@@ -754,14 +891,13 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             line.push_str(word);
             continue;
         }
-        // A word with breaks of its own, or one too wide for any line in folded text,
-        // starts where the line is, rather than leaving it short, when its first piece fits
-        // there (so an indent the piece does not fit after keeps its line, as the copy's
-        // does); any other goes on the next, the space before it hanging at the end of this
-        // one.
+        // A word with breaks of its own starts where the line is, rather than leaving it
+        // short, when its first piece fits there (so an indent the piece does not fit after
+        // keeps its line, as the copy's does); any other goes on the next, the space before
+        // it hanging at the end of this one.
         let own = own_breaks(word, how);
-        let here = own.is_some() || (word.width() > w && how == Wrap::Folded);
-        let pieces = own.unwrap_or_else(|| units(word, &[]));
+        let here = own.is_some();
+        let pieces = own.unwrap_or_else(|| vec![word]);
         if here && !line.is_empty() && line.width() + gap + pieces[0].width() <= w {
             line.push_str(&" ".repeat(gap));
         } else if !line.is_empty() {
@@ -771,11 +907,15 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             if !line.is_empty() && line.width() + unit.width() > w {
                 out.push(std::mem::take(&mut line));
             }
+            let wide = unit.width() > w;
             for c in unit.chars() {
                 if !line.is_empty() && line.width() + c.width().unwrap_or(0) > w {
                     out.push(std::mem::take(&mut line));
                 }
                 line.push(c);
+            }
+            if wide && how == Wrap::Event {
+                out.push(std::mem::take(&mut line));
             }
         }
     }
@@ -1403,6 +1543,16 @@ mod tests {
         assert!(red("see `@manager` in the docs").is_empty());
         assert!(red("```\n@manager\n```").is_empty());
         assert!(red("mail me at x@manager.example").is_empty());
+        // Right after kana, with no space: marked, as the signed copy's hl marks it.
+        assert_eq!(
+            red("notes.mdを見てから@managerに返事します。"),
+            ["@manager"]
+        );
+        // Before `.` or `(` and a CJK letter: marked; before `.` or `(` and ASCII: code.
+        assert_eq!(
+            red("请@manager.谢谢 请@manager(明天)看 @manager.x() @manager(1)"),
+            ["@manager", "@manager"]
+        );
         // A mention past the clip is marked from the whole text, on its own line.
         assert_eq!(red("a\n> b\n@manager"), ["@manager"]);
         // Across a wrapped line, the mention stays whole and the quote's continuation stays
@@ -1436,8 +1586,17 @@ mod tests {
                 "icon."
             ]
         );
-        // Where plain wrapping breaks it anywhere, a path breaks after a `/`.
-        assert_eq!(wrap_line(text, 30)[0], "Icons live in assets/icons/boo");
+        // A title marks no paths, so there one too wide for a line starts on a line of its
+        // own and breaks where the line ends; a message breaks it after a `/`.
+        assert_eq!(
+            wrap_line(text, 30),
+            [
+                "Icons live in",
+                "assets/icons/bookmarks/outline",
+                "/bookmark-ribbon.svg, one file",
+                "an icon."
+            ]
+        );
         assert_eq!(wrap_line_paths(text, 30)[0], "Icons live in assets/icons/");
         // Under 16 characters it is a word like any other.
         assert_eq!(
@@ -1574,6 +1733,42 @@ mod tests {
     }
 
     #[test]
+    fn folded_text_breaks_as_the_copys_clamp_and_event_box_do() {
+        // As headless Chrome draws the copy's `.clamp2` (titles, goals, thread names and inbox
+        // rows, with `overflow-wrap: anywhere`): a word breaks after a `-`, and a word too
+        // wide for a line starts on a line of its own and breaks where the line ends.
+        let title = "Bookmarks page for the reading-list and the shelf-grid layout";
+        assert_eq!(
+            wrap_line(title, 27),
+            [
+                "Bookmarks page for the",
+                "reading-list and the shelf-",
+                "grid layout"
+            ]
+        );
+        assert_eq!(
+            wrap_line("ab abcdefghij cd", 8),
+            ["ab", "abcdefgh", "ij cd"]
+        );
+        assert_eq!(
+            wrap_line("ab abcdefghij-k cd", 8),
+            ["ab", "abcdefgh", "ij-k cd"]
+        );
+        // The copy's `.evt` and `.ack` leave `overflow-wrap` normal, so Chrome lets a piece too
+        // wide for a line overflow it and starts what follows on the next line: here the
+        // piece breaks where its lines end, and its last line ends with it.
+        assert_eq!(
+            wrap_event_line("ab abcdefghij cd", 8),
+            ["ab", "abcdefgh", "ij", "cd"]
+        );
+        assert_eq!(
+            wrap_event_line("ab abcdefghij-k cd", 8),
+            ["ab", "abcdefgh", "ij-", "k cd"]
+        );
+        assert_eq!(wrap_event_line(title, 27), wrap_line(title, 27));
+    }
+
+    #[test]
     fn wrap_breaks_at_spaces_and_splits_only_words_too_wide() {
         assert_eq!(wrap("copy, go", 20), vec!["copy, go"]);
         assert_eq!(wrap("one two three", 7), vec!["one two", "three"]);
@@ -1592,6 +1787,106 @@ mod tests {
     }
 
     #[test]
+    fn a_delivery_failures_details_break_cjk_text_where_the_copy_does() {
+        // Between two ideographs, as Chrome breaks the copy's `.evtdetail`, so a run too wide
+        // for any line fills the line it starts on; not before a closing mark.
+        assert_eq!(wrap("ab  中文字", 6), ["ab  中", "文字"]);
+        let run = "中".repeat(30);
+        assert_eq!(
+            wrap(&format!("pane 中 {run}"), 20),
+            [
+                format!("pane 中 {}", "中".repeat(6)),
+                "中".repeat(10),
+                "中".repeat(10),
+                "中".repeat(4)
+            ]
+        );
+        assert_eq!(wrap("中文。字字", 4), ["中", "文。", "字字"]);
+    }
+
+    #[test]
+    fn paths_are_what_the_copys_path_pattern_finds_in_a_word() {
+        // Each as the copy's PATH_RE finds it with `matchAll`, keeping matches of 16 or more.
+        let found = |word: &str| -> Vec<String> {
+            (paths(word).into_iter())
+                .map(|r| word[r].to_string())
+                .collect()
+        };
+        // A `~` starts one, after text too; a letter before the `~` is not part of it.
+        let home = "~/projects/bakery/rye/notes.md";
+        assert_eq!(found(home), [home]);
+        assert_eq!(found(&format!("x{home}")), [home]);
+        assert_eq!(
+            found("x~y/var/log/tower/output.log"),
+            ["y/var/log/tower/output.log"]
+        );
+        // A trailing `/` is the path's, and CJK text either side is not.
+        assert_eq!(
+            found("設定は~/.config/tower/plugins/。確認"),
+            ["~/.config/tower/plugins/"]
+        );
+        assert_eq!(
+            found("ログは/var/log/tower/output.logに書いて"),
+            ["/var/log/tower/output.log"]
+        );
+        // A match under 16 characters is skipped and the search goes on after it.
+        assert_eq!(found("src/ui/chat.rs"), Vec::<String>::new());
+        assert_eq!(
+            found("a/b/c:/var/log/tower/output.log"),
+            ["/var/log/tower/output.log"]
+        );
+        assert_eq!(
+            found("ab/cd/ef//var/log/tower/output.log"),
+            ["/var/log/tower/output.log"]
+        );
+        // Two in one word.
+        assert_eq!(
+            found("assets/icons/bookmarks,docs/notes/plans/q4.md"),
+            ["assets/icons/bookmarks", "docs/notes/plans/q4.md"]
+        );
+        // After a scheme other than http, the path starts at the host's `/`.
+        assert_eq!(
+            found("ftp://host.example/a/b/c/d"),
+            ["/host.example/a/b/c/d"]
+        );
+        // The prefix takes letters, digits, `_`, `.` and `-` from a word's edge; not `@`,
+        // and not `.-` with no word character before it.
+        assert_eq!(found("a.b-c/dddd/eeee/ffff"), ["a.b-c/dddd/eeee/ffff"]);
+        assert_eq!(
+            found("@dev/assets/icons/bookmarks"),
+            ["dev/assets/icons/bookmarks"]
+        );
+        assert_eq!(found(".-/var/log/tower/x.log"), ["/var/log/tower/x.log"]);
+    }
+
+    #[test]
+    fn a_2000_character_word_is_searched_for_paths_as_any_other() {
+        let a = "a".repeat(2000);
+        let dots = ".".repeat(2000);
+        // No path in a run of word characters, of dots, or the two together.
+        for word in [a.clone(), dots.clone(), format!("{dots}{a}")] {
+            assert!(paths(&word).is_empty(), "{}", word.len());
+        }
+        // A path after such a run is found where the copy's pattern starts it: (start, end).
+        let found = |word: &str| -> Vec<(usize, usize)> {
+            (paths(word).into_iter())
+                .map(|r| (r.start, r.end))
+                .collect()
+        };
+        let word = format!("{}@{}/cc/dd/ee", "a".repeat(1000), "b".repeat(980));
+        assert_eq!(found(&word), [(1001, word.len())]);
+        let word = format!("{dots}/var/log/tower/output.log");
+        assert_eq!(found(&word), [(2000, word.len())]);
+        let word = format!("{}a/bb/ccc/dddd/eeeee", ".-".repeat(1000));
+        assert_eq!(found(&word), [(2000, word.len())]);
+        // A bubble draws such a word on lines of its own, broken where each line ends.
+        let word = format!("{dots}{a}");
+        let mut want = vec!["ab".to_string()];
+        want.extend((0..100).map(|k| word[k * 40..(k + 1) * 40].to_string()));
+        assert_eq!(wrap_line_paths(&format!("ab {word}"), 40), want);
+    }
+
+    #[test]
     fn wrap_at_most_carries_the_rest_as_written_on_its_last_line() {
         assert_eq!(
             wrap_at_most("one two three", 7, 2),
@@ -1601,11 +1896,13 @@ mod tests {
             wrap_at_most("one two three four", 7, 2),
             vec!["one two", "three four"]
         );
-        // A word broken across the lines past the last stays whole, its spacing as written.
+        // A word too wide for a line starts on a line of its own, as the copy's `.clamp2`
+        // starts it, and the rest keeps its spacing as written.
         assert_eq!(
             wrap_at_most("ab bookshelf  now", 4, 2),
-            vec!["ab b", "ookshelf  now"]
+            vec!["ab", "bookshelf  now"]
         );
+        // A word broken across the lines past the last stays whole.
         assert_eq!(wrap_at_most("abcdefghij", 4, 2), vec!["abcd", "efghij"]);
         assert_eq!(wrap_at_most("abcdefghij", 4, 1), vec!["abcdefghij"]);
         assert_eq!(wrap_at_most("日本語です", 4, 2), vec!["日本", "語です"]);

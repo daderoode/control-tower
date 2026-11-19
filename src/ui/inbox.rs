@@ -2,24 +2,26 @@
 //! header (one line, never more), and the inbox it opens, across the body: a "◀ back  INBOX"
 //! line over the NEED YOU section, then FOR YOUR AWARENESS (no read section: read items stay
 //! readable in their threads), each item its author
-//! in their role's colour, its message's first line and, dim at the right, its repo, its
-//! thread in words and its age (UI v0.1.7).
+//! in their role's colour, its message on at most two lines and, dim at the right, its
+//! repo, its thread in words and its age (UI v0.1.7; the two lines, UI v0.1.13).
 //!
 //! The inbox is planned once, unstyled (`plan`), and both its layout (which line opens
 //! which item) and its drawing read the plan, so they cannot disagree. What is in each
 //! section comes from `crate::inbox`, never from here.
 
+use std::ops::Range;
+
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::chat::failed_to;
+use super::chat::{failed_to, marked};
 use super::control::Control;
-use super::message_board::{fold_spaces, highlight};
+use super::message_board::{highlight_marked, wrap_line};
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, ok, selected_bg};
 use super::tree::split_line;
-use crate::board::{Board, DELIVERY_FAILURE, SYSTEM_AUTHOR, Talk, age};
+use crate::board::{Board, DELIVERY_FAILURE, SYSTEM_AUTHOR, Talk, age, owner_mentions};
 use crate::inbox::{Alert, Inbox, Kind};
 
 /// Columns "◀ back" takes on the inbox's top line, for clicking it.
@@ -31,6 +33,8 @@ const MESSAGE_MIN: usize = 12;
 /// The widest an age gets on the alert line ("999d"), reserved so the layout, which has no
 /// time, lays the line out as the drawing does.
 const AGE_COLUMNS: usize = 4;
+/// The most lines an inbox item's message takes, as the copy's `.txt clamp2` clamps it.
+const MESSAGE_LINES: usize = 2;
 
 /// The alert line's background, the golden UI's #1d1517, on a 24-bit terminal; none on the
 /// 256-colour palette, which has no tint this dark.
@@ -39,11 +43,6 @@ pub(crate) fn alert_bg(depth: Depth) -> Style {
         Depth::TrueColor => Style::new().bg(Color::Rgb(0x1d, 0x15, 0x17)),
         Depth::Ansi256 => Style::new(),
     }
-}
-
-/// The first line of a message, as a row shows it.
-fn first_line(text: &str) -> &str {
-    text.lines().next().unwrap_or(text)
 }
 
 /// Each repo's board as the inbox names threads and colours authors on it, built once for
@@ -83,19 +82,101 @@ pub(crate) fn alert_name(board: &Board, a: &Alert) -> String {
     format!("{} in ‘{thread}’ · {repo}", a.message.author)
 }
 
-/// What an alert says on one line: its message's first line, or a delivery failure's short
-/// form, "@manager delivery failed to X", whose full text is in its thread.
-fn said(a: &Alert, depth: Depth) -> Vec<Span<'static>> {
-    let text = &a.message.text;
-    if a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR) && text.starts_with(DELIVERY_FAILURE) {
-        return vec![
-            Span::styled("@manager", bold().fg(bad(depth))),
-            Span::raw(format!(" delivery failed to {}", failed_to(text))),
-        ];
+/// What an alert says, unstyled, as its inbox row shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Said {
+    /// A delivery failure's short form, "@manager delivery failed to X", on one line: its
+    /// full text is in its thread.
+    Failure(String),
+    /// Its message on at most `MESSAGE_LINES` lines, each with the byte ranges in it of the
+    /// owner's mentions, and whether the message goes on past the last.
+    Text {
+        lines: Vec<(String, Vec<Range<usize>>)>,
+        more: bool,
+    },
+}
+
+impl Said {
+    /// What `a` says on lines `room` columns wide. As the copy's row (`.txt clamp2`,
+    /// `white-space: normal`) draws a message: its line breaks and tabs are spaces, each
+    /// run of spaces one, wrapped as the copy's `.clamp2` wraps it (`wrap_line`) and clamped
+    /// to `MESSAGE_LINES` lines.
+    fn of(a: &Alert, room: usize) -> Said {
+        let text = &a.message.text;
+        if a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)
+            && text.starts_with(DELIVERY_FAILURE)
+        {
+            return Said::Failure(failed_to(text).to_string());
+        }
+        // The same bytes, so the mentions found in `text` are where they were.
+        let flat: String = (text.chars())
+            .map(|c| {
+                if matches!(c, '\n' | '\r' | '\t') {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect();
+        let mut lines = wrap_line(&flat, room);
+        let more = lines.len() > MESSAGE_LINES;
+        lines.truncate(MESSAGE_LINES);
+        let marks = owner_mentions(text);
+        let found = marked(&flat, 0, &marks, lines.iter().map(String::as_str));
+        Said::Text {
+            lines: lines.into_iter().zip(found).collect(),
+            more,
+        }
     }
-    // Its spaces folded, as the copy's row (`white-space: normal`) draws them.
-    let first = fold_spaces(first_line(text));
-    highlight(&first, true, a.kind == Kind::Awareness, depth)
+
+    /// How many list lines it takes.
+    fn height(&self) -> usize {
+        match self {
+            Said::Failure(_) => 1,
+            Said::Text { lines, .. } => lines.len(),
+        }
+    }
+
+    /// Its lines, styled, each at most `room` columns: the last ends in "…" where the
+    /// message goes on, right after its last word, or in place of its last character when
+    /// the line is full, as the copy's clamp ends it.
+    fn lines(&self, awareness: bool, room: usize, depth: Depth) -> Vec<Vec<Span<'static>>> {
+        let (lines, more) = match self {
+            Said::Failure(to) => {
+                return vec![vec![
+                    Span::styled("@manager", bold().fg(bad(depth))),
+                    Span::raw(format!(" delivery failed to {to}")),
+                ]];
+            }
+            Said::Text { lines, more } => (lines, *more),
+        };
+        let n = lines.len();
+        (lines.iter().enumerate())
+            .map(|(k, (piece, marks))| {
+                if !(more && k + 1 == n) {
+                    return highlight_marked(piece, marks, k == 0, awareness, depth);
+                }
+                // The "…" in the row's text style, never a mention's: the piece is cut
+                // first, to leave it a column, and then styled.
+                let mut end = 0;
+                let mut used = 0;
+                for (at, c) in piece.char_indices() {
+                    used += c.width().unwrap_or(0);
+                    if used + 1 > room {
+                        break;
+                    }
+                    end = at + c.len_utf8();
+                }
+                let marks: Vec<Range<usize>> = (marks.iter())
+                    .filter(|r| r.start < end)
+                    .map(|r| r.start..r.end.min(end))
+                    .collect();
+                let mut spans = highlight_marked(&piece[..end], &marks, k == 0, awareness, depth);
+                spans.push(Span::raw("…"));
+                spans
+            })
+            .collect()
+    }
 }
 
 /// The alert line, exactly `w` columns: "⚠ N need you · ⓘ N for your awareness · newest:
@@ -238,13 +319,23 @@ pub(crate) fn alert_parts(
     (line, at)
 }
 
-/// One line of the inbox's list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// One row of the inbox's list: an item's takes as many lines as its message (`Said`).
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Row<'a> {
     Blank,
     Head(Section, usize),
     Nothing,
-    Item(&'a Alert),
+    Item(&'a Alert, Said),
+}
+
+impl Row<'_> {
+    /// How many list lines it takes.
+    fn height(&self) -> usize {
+        match self {
+            Row::Item(_, said) => said.height(),
+            _ => 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,8 +344,11 @@ enum Section {
     Awareness,
 }
 
-/// The inbox's list, line by line: each section's head and its items, or "nothing".
-fn plan(inbox: &Inbox) -> Vec<Row<'_>> {
+/// The inbox's list, row by row, for a list `w` wide: each section's head and its items, or
+/// "nothing"; `talks` from `talks`.
+fn plan<'a>(board: &'a Board, talks: &[Talk], w: usize) -> Vec<Row<'a>> {
+    let inbox = &board.inbox;
+    let author_w = author_width(inbox, w);
     let mut rows = Vec::new();
     for (section, items) in [
         (Section::NeedYou, &inbox.need_you),
@@ -267,7 +361,10 @@ fn plan(inbox: &Inbox) -> Vec<Row<'_>> {
         if items.is_empty() {
             rows.push(Row::Nothing);
         }
-        rows.extend(items.iter().map(Row::Item));
+        rows.extend(items.iter().map(|a| {
+            let (repo, thread, _) = whereabouts(board, talks, a, Depth::Ansi256);
+            Row::Item(a, Said::of(a, message_room(&repo, &thread, author_w, w)))
+        }));
     }
     rows
 }
@@ -278,7 +375,8 @@ pub struct InboxLayout {
     /// The "◀ back  INBOX" line.
     pub top: Rect,
     pub list: Rect,
-    /// The message id of the item on each list line; `None` for heads and gaps.
+    /// The message id of the item on each list line, an item's on each of its lines; `None`
+    /// for heads and gaps.
     pub rows: Vec<Option<i64>>,
 }
 
@@ -288,11 +386,14 @@ pub fn inbox_layout(board: &Board, body: Rect) -> InboxLayout {
     InboxLayout {
         top: Rect::new(body.x, body.y, body.width, top_h),
         list: Rect::new(body.x, body.y + top_h, body.width, body.height - top_h),
-        rows: plan(&board.inbox)
+        rows: plan(board, &talks(board), usize::from(body.width))
             .iter()
-            .map(|r| match r {
-                Row::Item(a) => Some(a.message.id),
-                _ => None,
+            .flat_map(|r| {
+                let id = match r {
+                    Row::Item(a, _) => Some(a.message.id),
+                    _ => None,
+                };
+                std::iter::repeat_n(id, r.height())
             })
             .collect(),
     }
@@ -309,8 +410,8 @@ pub fn top_line(w: usize, depth: Depth) -> Line<'static> {
     )
 }
 
-/// The inbox's list lines, each exactly `w` columns, with `selected`'s row on the selected
-/// background and ages as of `now`.
+/// The inbox's list lines, each exactly `w` columns, with `selected`'s lines on the
+/// selected background and ages as of `now`.
 pub fn list_lines(
     board: &Board,
     selected: Option<i64>,
@@ -318,19 +419,13 @@ pub fn list_lines(
     now: i64,
     depth: Depth,
 ) -> Vec<Line<'static>> {
-    let inbox = &board.inbox;
     let talks = talks(board);
-    let lead_w = (inbox.all())
-        .map(|a| a.message.author.width())
-        .max()
-        .unwrap_or(0)
-        .min(LEAD_MAX)
-        .min(w / 3);
-    plan(inbox)
+    let author_w = author_width(&board.inbox, w);
+    plan(board, &talks, w)
         .iter()
-        .map(|row| match row {
-            Row::Blank => fit(Vec::new(), w),
-            Row::Nothing => fit(vec![Span::styled("   nothing", dim(depth))], w),
+        .flat_map(|row| match row {
+            Row::Blank => vec![fit(Vec::new(), w)],
+            Row::Nothing => vec![fit(vec![Span::styled("   nothing", dim(depth))], w)],
             Row::Head(section, n) => {
                 let (text, style) = match section {
                     Section::NeedYou => (format!(" ⚠ {n} NEED YOU"), bold().fg(bad(depth))),
@@ -338,57 +433,168 @@ pub fn list_lines(
                         (format!(" ⓘ {n} FOR YOUR AWARENESS"), bold().fg(info(depth)))
                     }
                 };
-                fit(vec![Span::styled(text, style)], w)
+                vec![fit(vec![Span::styled(text, style)], w)]
             }
-            Row::Item(a) => {
-                let mut line = item_line(board, &talks, a, lead_w, w, now, depth);
+            Row::Item(a, said) => {
+                let mut lines = item_lines(board, &talks, a, said, author_w, w, now, depth);
                 if Some(a.message.id) == selected {
-                    line.style = Style::new().bg(selected_bg(depth));
+                    for line in &mut lines {
+                        line.style = Style::new().bg(selected_bg(depth));
+                    }
                 }
-                line
+                lines
             }
         })
         .collect()
 }
 
-/// "   <author>  <message's first line>" cut to fit, the author in their role's colour, and
-/// dim at the right " <repo> · <thread in words> · 15m ", at most a third of the line and
-/// dropped when the pane is too narrow to show it beside the author.
-fn item_line(
-    board: &Board,
-    talks: &[Talk],
-    a: &Alert,
-    author_w: usize,
-    w: usize,
-    now: i64,
-    depth: Depth,
-) -> Line<'static> {
-    let (repo, thread, colour) = whereabouts(board, talks, a, depth);
-    let mut left = vec![Span::raw("   ")];
-    let author = Span::styled(a.message.author.clone(), bold().fg(colour));
-    left.extend(fit(vec![author], author_w).spans);
-    left.push(Span::raw("  "));
-    left.extend(said(a, depth));
-    // The message keeps at least `MESSAGE_MIN` columns. The right block takes at most a
-    // third of the line and what the message leaves: the thread's name gives way first,
-    // then the repo's, and the block goes whole before the message would.
+/// The author column's width in a list `w` wide: the longest author listed, up to
+/// `LEAD_MAX` and a third of the line.
+fn author_width(inbox: &Inbox, w: usize) -> usize {
+    (inbox.all())
+        .map(|a| a.message.author.width())
+        .max()
+        .unwrap_or(0)
+        .min(LEAD_MAX)
+        .min(w / 3)
+}
+
+/// The columns the right block may take in a list `w` wide, `author_w` its author column:
+/// at most a third of the line, and what leaves the message `MESSAGE_MIN`.
+fn right_budget(author_w: usize, w: usize) -> usize {
     let min_left = 3 + author_w + 2 + MESSAGE_MIN;
-    let budget = (w / 3).min(w.saturating_sub(min_left + 1));
-    let when = age(a.message.at, now);
+    (w / 3).min(w.saturating_sub(min_left + 1))
+}
+
+/// The dim block at an item's right, " <repo> · <thread> · <age> ", in at most `budget`
+/// columns: the thread's name gives way first, then the repo's, and the block goes whole
+/// (`None`) before either is cut below two columns (one that short whole still shows).
+fn right_text(repo: &str, thread: &str, when: &str, budget: usize) -> Option<String> {
     // " <repo> · <thread> · <age> " less the repo and thread.
     let fixed = format!("  ·  · {when} ").width();
     let repo_room = budget.saturating_sub(fixed + 4).min(repo.width());
     let thread_room = budget.saturating_sub(fixed + repo_room).min(thread.width());
-    // A name is never cut below two columns, but one that short whole still shows.
-    let right = if repo_room < repo.width().min(2) || thread_room < thread.width().min(2) {
-        Vec::new()
-    } else {
-        let repo = fit(vec![Span::raw(repo)], repo_room).to_string();
-        let thread = fit(vec![Span::raw(thread)], thread_room).to_string();
-        vec![Span::styled(
-            format!(" {repo} · {thread} · {when} "),
-            dim(depth),
-        )]
-    };
-    split_line(left, right, min_left, w)
+    if repo_room < repo.width().min(2) || thread_room < thread.width().min(2) {
+        return None;
+    }
+    let repo = fit(vec![Span::raw(repo.to_string())], repo_room).to_string();
+    let thread = fit(vec![Span::raw(thread.to_string())], thread_room).to_string();
+    Some(format!(" {repo} · {thread} · {when} "))
+}
+
+/// The columns an item's message has on each of its lines, in a list `w` wide: what its
+/// author column and its right block leave. The layout has no clock, so the block is taken
+/// at its widest for any age ("9m" to "999d"), and the message breaks where it does in the
+/// layout whatever its age.
+fn message_room(repo: &str, thread: &str, author_w: usize, w: usize) -> usize {
+    let budget = right_budget(author_w, w);
+    let right = (2..=AGE_COLUMNS)
+        .filter_map(|n| right_text(repo, thread, &"9".repeat(n), budget))
+        .map(|r| r.width())
+        .max()
+        .unwrap_or(0);
+    w.saturating_sub(3 + author_w + 2 + right).max(1)
+}
+
+/// "   <author>  <message>", the author in their role's colour, and dim at the right
+/// " <repo> · <thread in words> · 15m ", at most a third of the line and dropped when the
+/// pane is too narrow to show it beside the author; the message's second line, if any,
+/// under its first.
+#[allow(clippy::too_many_arguments)]
+fn item_lines(
+    board: &Board,
+    talks: &[Talk],
+    a: &Alert,
+    said: &Said,
+    author_w: usize,
+    w: usize,
+    now: i64,
+    depth: Depth,
+) -> Vec<Line<'static>> {
+    let (repo, thread, colour) = whereabouts(board, talks, a, depth);
+    let room = message_room(&repo, &thread, author_w, w);
+    let mut texts = (said.lines(a.kind == Kind::Awareness, room, depth)).into_iter();
+    let mut left = vec![Span::raw("   ")];
+    let author = Span::styled(a.message.author.clone(), bold().fg(colour));
+    left.extend(fit(vec![author], author_w).spans);
+    left.push(Span::raw("  "));
+    left.extend(texts.next().unwrap_or_default());
+    // The message keeps at least `MESSAGE_MIN` columns. The right block takes at most a
+    // third of the line and what the message leaves, and goes whole before the message
+    // would.
+    let min_left = 3 + author_w + 2 + MESSAGE_MIN;
+    let when = age(a.message.at, now);
+    let right = right_text(&repo, &thread, &when, right_budget(author_w, w))
+        .map(|r| vec![Span::styled(r, dim(depth))])
+        .unwrap_or_default();
+    let mut lines = vec![split_line(left, right, min_left, w)];
+    lines.extend(texts.map(|text| {
+        let mut spans = vec![Span::raw(" ".repeat(3 + author_w + 2))];
+        spans.extend(text);
+        fit(spans, w)
+    }));
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::{Message, RepoId, ThreadId};
+
+    /// The inbox row's message lines for `text`, `room` columns wide, unstyled.
+    fn row(text: &str, room: usize) -> Vec<String> {
+        let a = Alert {
+            kind: Kind::NeedsYou,
+            repo: RepoId(1),
+            thread: ThreadId(1),
+            message: Message {
+                id: 1,
+                author: "cat-lead".into(),
+                text: text.into(),
+                at: 0,
+            },
+        };
+        (Said::of(&a, room)
+            .lines(false, room, Depth::TrueColor)
+            .iter())
+        .map(|spans| spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect()
+    }
+
+    #[test]
+    fn an_inbox_rows_words_break_where_the_copys_clamp_breaks_them() {
+        // As headless Chrome draws the copy's `.txt clamp2` (`overflow-wrap: anywhere`): a
+        // word too wide for a line starts on a line of its own, and a word breaks after a `-`.
+        let link = "decision: @manager see https://example.invalid/shed/plans/roof/very/long/\
+                    path/that/never/ends/and/keeps/going for the plan";
+        assert_eq!(
+            row(link, 27),
+            ["decision: @manager see", "https://example.invalid/sh…"]
+        );
+        assert_eq!(
+            row(link, 47),
+            [
+                "decision: @manager see",
+                "https://example.invalid/shed/plans/roof/very/l…"
+            ]
+        );
+        assert_eq!(
+            row(
+                "question: @manager can we re-run the long-running check on the \
+                 cross-platform build before Friday?",
+                47
+            ),
+            [
+                "question: @manager can we re-run the long-",
+                "running check on the cross-platform build…"
+            ]
+        );
+        assert_eq!(
+            row(
+                "decision: the garden-shed-lead-senior-reviewer keeps the plan @manager",
+                27
+            ),
+            ["decision: the garden-shed-", "lead-senior-reviewer keeps…"]
+        );
+    }
 }

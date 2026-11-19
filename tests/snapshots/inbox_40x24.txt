@@ -1,15 +1,15 @@
  ◀ back  INBOX                    14:32 
  ⚠ 2 NEED YOU                           
-   cat-lead       question: the covers …
-   dev-1          question: @manager wh…
+   cat-lead       question: the covers  
+                  are late again.…      
+   dev-1          question: @manager    
+                  which book goes first?
                                         
  ⓘ 2 FOR YOUR AWARENESS                 
-   checkout-lead  decision: phones get …
-   cat-lead       decision: books out o…
-                                        
-                                        
-                                        
-                                        
+   checkout-lead  decision: phones get 1
+                  book per row. @manage…
+   cat-lead       decision: books out of
+                  print also leave the… 
                                         
                                         
                                         
