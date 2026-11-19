@@ -386,8 +386,10 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a
 /// line of its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
-/// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). Spaces are all
-/// that is added or dropped, so `marked` can find the owner's mentions in the pieces.
+/// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). The line's
+/// leading spaces stay on its first line of text; a URL's line starts at the text's column,
+/// as the copy's block URL does. Spaces are all that is added or dropped, so `marked` can
+/// find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -398,19 +400,23 @@ pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<Stri
     let mut out = Vec::new();
     let text = |out: &mut Vec<(String, Option<String>)>, t: &str| {
         // Spaces only: `marked` counts every other character.
-        let t = t.trim_matches(' ');
-        if !t.is_empty() {
+        if !t.trim_start_matches(' ').is_empty() {
             out.extend(wrap_line_paths(t, w).into_iter().map(|p| (p, None)));
         }
     };
     let mut at = 0;
     for r in found {
-        text(&mut out, &raw[at..r.start]);
+        // Only the space next to a URL goes: the line's indent before its first stays.
+        let mut before = raw[at..r.start].trim_end_matches(' ');
+        if at > 0 {
+            before = before.trim_start_matches(' ');
+        }
+        text(&mut out, before);
         let url = &raw[r.clone()];
         out.extend((pack_url(url, w).into_iter()).map(|p| (p, Some(url.to_string()))));
         at = r.end;
     }
-    text(&mut out, &raw[at..]);
+    text(&mut out, raw[at..].trim_start_matches(' '));
     out
 }
 
@@ -1605,6 +1611,49 @@ mod tests {
                 (url, vec![], Some(url)),
                 ("@manager", vec![(0, 8)], None)
             ]
+        );
+    }
+
+    #[test]
+    fn a_lines_indent_stays_on_its_first_line_but_not_on_a_url() {
+        let url = "https://example.com/a/b";
+        let pair = |t: &str, l: Option<&str>| (t.to_string(), l.map(str::to_string));
+        assert_eq!(
+            wrap_message_line("  - see https://example.com/a/b", 40),
+            [pair("  - see", None), pair(url, Some(url))]
+        );
+        assert_eq!(
+            wrap_message_line("  - plain", 40),
+            [pair("  - plain", None)]
+        );
+        // A line that starts with a URL: the URL's line is at the text's column.
+        assert_eq!(
+            wrap_message_line("  https://example.com/a/b then", 40),
+            [pair(url, Some(url)), pair("then", None)]
+        );
+        // The indent counts toward the first line's width; the lines after it start at the
+        // text's column.
+        assert_eq!(
+            wrap_message_line("    one two three", 12),
+            [pair("    one two", None), pair("three", None)]
+        );
+        // An indented word that fits a line of its own but not after the indent goes to the
+        // next line whole, leaving the indent alone on the first, as the copy does.
+        let hash = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(
+            wrap_message_line(&format!("    {hash} sha"), 40),
+            [pair("    ", None), pair(hash, None), pair("sha", None)]
+        );
+        // An indent as wide as the line is dropped, so no line is wider than the bubble.
+        assert_eq!(wrap_message_line("      ab cd", 6), [pair("ab cd", None)]);
+        // A line of spaces alone is a blank line, as before.
+        assert_eq!(wrap_message_line("   ", 40), [pair("", None)]);
+        // The owner's mentions stay marked after an indent.
+        let p = message_pieces("  - ask @manager", 40);
+        let marks: Vec<(usize, usize)> = p[0].marks.iter().map(|r| (r.start, r.end)).collect();
+        assert_eq!(
+            (p[0].text.as_str(), marks),
+            ("  - ask @manager", vec![(8, 16)])
         );
     }
 

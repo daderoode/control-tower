@@ -9063,6 +9063,43 @@ fn url_message(name: &str, mut dash: Dash, w: u16) {
     }
 }
 
+/// A message whose list lines are indented as the owner wrote them, one of them with a URL.
+fn indented_view() -> View {
+    let mut board = board_fixture();
+    let t = &mut board.milestones[0].threads[1];
+    let mut messages = t.messages.clone();
+    messages.push(Message {
+        id: 9100,
+        author: "cat-lead".into(),
+        text: "Left on the shelf grid:\n  - plain\n  - see https://example.com/a/b".into(),
+        at: NOW - 9 * 60,
+    });
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    sync(&mut board);
+    Ok(board)
+}
+
+#[test]
+fn a_message_lines_indent_stays_in_its_bubble() {
+    let view = indented_view();
+    let w = 160;
+    let mut dash = select(Item::Task(TaskId(13)));
+    dash.handle(&view, area(w, 50), Input::Char('b'));
+    let buf = render_dash(&view, &dash, w, 50, Depth::TrueColor);
+    assert_exact_width(&buf);
+    let b = board_of(&view, &dash, area(w, 50));
+    let conv = columns(&buf, b.conv.x, b.conv.width);
+    let text = |r: &String| r.split_once('▌').map(|(_, t)| t.trim_end().to_string());
+    let at = (conv.iter())
+        .position(|r| r.contains("▌ Left on the shelf grid:"))
+        .unwrap_or_else(|| panic!("{conv:#?}"));
+    // Each list line keeps its two spaces after the bubble's own; the URL's line is at the
+    // text's column.
+    let got: Vec<String> = (1..=3).map(|k| text(&conv[at + k]).unwrap()).collect();
+    assert_eq!(got, ["   - plain", "   - see", " https://example.com/a/b"]);
+    assert_snapshot(&format!("indented_message_space_{w}x50"), &buf);
+}
+
 #[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();

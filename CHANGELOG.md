@@ -15,6 +15,10 @@ tag's date, and a new empty Unreleased goes above it.
   own workspace, prefix+a left you where you were: herdr 0.9.5's `plugin pane focus` moves
   only the herdr server's focus, not what your terminal shows. `tower space` now also
   focuses the dashboard's workspace, as it already did when it opened one (#3).
+- **A message line's indent stays in its bubble.** A line after a message's first that is
+  written with leading spaces, such as an indented list item, keeps them on its first drawn
+  line, as the UI design does. A message's first line starts at the text's column, since a
+  posted message is trimmed, and so does a URL's own line.
 
 ## [0.4.0] - 2026-11-16
 
