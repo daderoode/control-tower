@@ -14,7 +14,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use super::chat::event_text;
-use super::message_board::{highlight, pill, status_style};
+use super::message_board::{fold_spaces, highlight, pill, status_style};
 use super::theme::{Depth, bad, bold, dim, fit, ok};
 use crate::board::{Message, Talk, Thread, ThreadStatus, age, is_tower};
 use crate::inbox::Alert;
@@ -189,8 +189,9 @@ fn need_line(talk: &Talk, a: &Alert, w: usize, now: i64, depth: Depth) -> Line<'
         Span::styled(m.author.clone(), bold().fg(colour)),
         Span::raw(" "),
     ];
-    let first = m.text.lines().next().unwrap_or_default();
-    left.extend(highlight(first, true, false, depth));
+    // Its spaces folded, as the copy's `nowrap` row draws them.
+    let first = fold_spaces(m.text.lines().next().unwrap_or_default());
+    left.extend(highlight(&first, true, false, depth));
     // The thread's name gives way before the question does, down to a third of the line.
     let right = fit(
         vec![Span::styled(right.clone(), dim(depth))],
