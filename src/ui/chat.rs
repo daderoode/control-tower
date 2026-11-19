@@ -2513,10 +2513,11 @@ mod tests {
             events(&m, 24),
             ["decision:", "ab", "a1b2c3d4e5f6a7b8c9d0", "e1f2", "cd"]
         );
-        // An ack under a bubble 34 wide, in a chat of 40: 25 columns for its words.
+        // An ack under a bubble 34 wide, in a chat of 40: 25 columns for its words. Posted in
+        // the same minute as the message, so no hour line parts them.
         let m = msgs(&[
             ("dev-1", "Report", 0),
-            ("qa", "copy a1b2c3d4e5f6a7b8c9d0e1f2a3 ok", 60),
+            ("qa", "copy a1b2c3d4e5f6a7b8c9d0e1f2a3 ok", 0),
         ]);
         let acks: Vec<String> = (rows(&m, 40).into_iter())
             .filter_map(|r| match r {
