@@ -1536,6 +1536,11 @@ mod tests {
             red("notes.mdを見てから@managerに返事します。"),
             ["@manager"]
         );
+        // Before `.` or `(` and a CJK letter: marked; before `.` or `(` and ASCII: code.
+        assert_eq!(
+            red("请@manager.谢谢 请@manager(明天)看 @manager.x() @manager(1)"),
+            ["@manager", "@manager"]
+        );
         // A mention past the clip is marked from the whole text, on its own line.
         assert_eq!(red("a\n> b\n@manager"), ["@manager"]);
         // Across a wrapped line, the mention stays whole and the quote's continuation stays

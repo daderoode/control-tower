@@ -681,10 +681,12 @@ send loses that one send, and no one is told.
   owner, and never a `system` post (the watch nudges workers itself), except tower's reply
   to an author below, which goes to that author. A name that is no herdr agent counts as a
   failed send, so quote example names in backticks. Code is no mention: a name followed
-  straight by `(`, or by `.` and a letter, digit or `_` (`@cart.isEmpty()`), while a
-  sentence ending on a name (`@qa.`) still mentions it. While herdr cannot list its agents,
-  posts for workers wait (said once in the log) and go when it answers. A lead receives the
-  posts on its own board only: a worker naming another board's lead reaches no one.
+  straight by `(` and anything ASCII (`@cart(x)`), or by `.` and an ASCII letter, digit or
+  `_` (`@cart.isEmpty()`), while a sentence ending on a name (`@qa.`) still mentions it,
+  and so does a name before `.` or `(` and Chinese or Japanese (`请@qa.谢谢`). While herdr
+  cannot list its agents, posts for workers wait (said once in the log) and go when it
+  answers. A lead receives the posts on its own board only: a worker naming another
+  board's lead reaches no one.
 - **To the owner:** unchanged, the `@manager` items.
 
 A name herdr has no agent for, that no worker on the board ever had (no task's assignee has
