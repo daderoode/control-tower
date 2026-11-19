@@ -14,6 +14,8 @@
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 
+use icu_properties::CodePointMapData;
+use icu_properties::props::{EastAsianWidth, GeneralCategory, LineBreak};
 use icu_segmenter::LineSegmenter;
 use icu_segmenter::LineSegmenterBorrowed;
 use icu_segmenter::options::{LineBreakOptions, LineBreakStrictness};
@@ -624,76 +626,202 @@ enum Wrap {
     /// line's leading spaces on its first line and each run between words as written;
     /// `overflow-wrap: anywhere` breaks at the space before a word with no break of its own,
     /// such as a long hash, too wide for a line, so it starts on a line of its own; a word
-    /// with a `-` breaks after it as Chrome does (`hyphen_units`). The details mark no
-    /// paths, so a path is a word like any other.
+    /// breaks inside where Chrome does (`break_units`), such as after a `-` or between two
+    /// ideographs. The details mark no paths, so a path is a word like any other.
     Details,
-    /// A message body (`.seg .body`): as `Details`, and a path (`is_path`) breaks only after
-    /// each `/`, as the copy's `<wbr>` breaks one.
+    /// A message body (`.seg .body`): as `Details`, and a path the copy marks (`paths`),
+    /// alone or joined to other text, breaks only after each `/`, as the copy's `<wbr>`
+    /// breaks one; the text joined to it breaks as any other.
     Body,
 }
 
 /// `word` in the pieces `how` may break it between, short of breaking it anywhere, or
-/// `None` when it has no such break: a path in a `Body` after each `/`, and any other word
-/// after a `-` (`hyphen_units`).
+/// `None` when it has no such break: where Chrome does (`break_units`), a path in a `Body`
+/// only after each `/`.
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
         Wrap::Folded => return None,
-        Wrap::Body if is_path(word) => units(word, &['/']),
-        Wrap::Details | Wrap::Body => hyphen_units(word),
+        Wrap::Details => break_units(word, &[]),
+        Wrap::Body => break_units(word, &paths(word)),
     };
     (pieces.len() > 1).then_some(pieces)
 }
 
-/// `word` in the pieces Chrome breaks it between after a `-`, as the copy draws it. Not the
-/// Unicode line-breaking rules alone (UAX #14, `icu_segmenter`): Chrome (Blink) decides a
-/// break between two ASCII characters from a table of its own, and `icu_segmenter` differs
-/// from it there (no break in 'abc-123' or '2026-11-19', one before '$'). So, after a `-`
-/// that does not end the word:
-/// - before an ASCII character, a break unless it is one a line cannot start with
-///   (`. , ; : ! ? ) ] } / $`) or a digit after a minus sign (a `-` with no ASCII letter or
-///   digit before it), as Blink's table does; each `-` of a run breaks too;
-/// - before any other character, no break after a `-` that starts the word (nothing or a
-///   no-break space before it), as Chrome keeps one with what follows; else a break where
-///   `icu_segmenter` finds one (Blink hands these to ICU), at CSS `line-break: auto`'s
-///   strictness (`Normal`, so a `ー` may start a line).
-fn hyphen_units(word: &str) -> Vec<&str> {
+/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`):
+/// inside one of `paths`, byte ranges of `word`, only after each `/`, where the copy puts a
+/// `<wbr>`, and the last `/` of a path breaks from what follows it too.
+fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     static SEGMENTER: LineSegmenterBorrowed<'static> = {
         let mut options = LineBreakOptions::default();
         options.strictness = Some(LineBreakStrictness::Normal);
         LineSegmenter::new_for_non_complex_scripts(options)
     };
-    let breaks = |prev: Option<char>, next_at: usize, next: char| {
-        if next.is_ascii() {
-            let minus = next.is_ascii_digit() && !prev.is_some_and(|c| c.is_ascii_alphanumeric());
-            !minus && !".,;:!?)]}/$".contains(next)
-        } else {
-            !prev.is_none_or(|c| c == '\u{a0}')
-                && SEGMENTER.segment_str(word).any(|at| at == next_at)
-        }
+    let found: Vec<usize> = if word.is_ascii() {
+        Vec::new()
+    } else {
+        SEGMENTER.segment_str(word).collect()
     };
+    let chars: Vec<(usize, char)> = word.char_indices().collect();
     let mut out = Vec::new();
     let mut start = 0;
-    let mut prev: Option<char> = None;
-    let mut chars = word.char_indices().peekable();
-    while let Some((_, c)) = chars.next() {
-        if let (Some(&(next_at, next)), '-') = (chars.peek(), c)
-            && breaks(prev, next_at, next)
-        {
-            out.push(&word[start..next_at]);
-            start = next_at;
+    for i in 1..chars.len() {
+        let (at, next) = chars[i];
+        let before = i.checked_sub(2).map(|j| chars[j].1);
+        let after = chars.get(i + 1).map(|&(_, c)| c);
+        let c = chars[i - 1].1;
+        let after_path = paths.iter().any(|r| r.start < at && at <= r.end);
+        let in_path = paths.iter().any(|r| r.start < at && at < r.end);
+        let icu = found.binary_search(&at).is_ok();
+        let breaks = if after_path && c == '/' {
+            true
+        } else if in_path {
+            false
+        } else {
+            breaks_between(before, c, next, after, icu)
+        };
+        if breaks {
+            out.push(&word[start..at]);
+            start = at;
         }
-        prev = Some(c);
     }
     out.push(&word[start..]);
     out
 }
 
-/// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
-/// digits and `_ . @ + - ~` with at least two `/` among them, and no URL scheme (a URL is
-/// laid out on its own, `chat::wrap_message_line`).
-fn is_path(word: &str) -> bool {
-    let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || "_.@+-~/".contains(c)));
-    core.chars().count() >= 16 && core.matches('/').count() >= 2 && !word.contains("://")
+/// Whether Chrome breaks a line between `c` and `next` inside a word, as the copy draws it,
+/// `before` and `after` being the characters around them, and `icu` whether `icu_segmenter`
+/// breaks there. Chrome (Blink) decides a break between two ASCII characters from a table
+/// of its own and hands any other to ICU, the Unicode line-breaking rules (UAX #14), here
+/// `icu_segmenter` at CSS `line-break: auto`'s strictness (`Normal`, so a small kana or a
+/// `ー` may start a line). So:
+/// - between two ASCII characters, a break only after a `-`, unless before a character a
+///   line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after a minus sign
+///   (a `-` with no ASCII letter or digit before it), as Blink's table does; each `-` of a
+///   run breaks too;
+/// - between any other two, a break where `icu_segmenter` finds one: between two
+///   ideographs, kana or hangul, between one and a letter or digit, but not before a
+///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
+///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
+///   hyphen that starts the word (nothing or a no-break space before it) before a letter
+///   (UAX #14's LB20a), and a break before an opening `“` or `‘` between two East Asian
+///   characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
+fn breaks_between(
+    before: Option<char>,
+    c: char,
+    next: char,
+    after: Option<char>,
+    icu: bool,
+) -> bool {
+    if c.is_ascii() && next.is_ascii() {
+        let minus = next.is_ascii_digit() && !before.is_some_and(|c| c.is_ascii_alphanumeric());
+        return c == '-' && !minus && !".,;:!?)]}/$".contains(next);
+    }
+    let class = |c: char| CodePointMapData::<LineBreak>::new().get(c);
+    let category = |c: char| CodePointMapData::<GeneralCategory>::new().get(c);
+    let east_asian = |c: Option<char>| {
+        c.is_some_and(|c| {
+            matches!(
+                CodePointMapData::<EastAsianWidth>::new().get(c),
+                EastAsianWidth::F | EastAsianWidth::W | EastAsianWidth::H
+            )
+        })
+    };
+    // LB20a: a letter is what UAX #14 takes as AL (AI and XX resolve to it) or HL.
+    if matches!(class(c), LineBreak::HY | LineBreak::HH)
+        && before.is_none_or(|c| c == '\u{a0}')
+        && matches!(
+            class(next),
+            LineBreak::AL | LineBreak::HL | LineBreak::AI | LineBreak::XX
+        )
+    {
+        return false;
+    }
+    // LB19a, short of the rules before it that keep the two together.
+    if class(next) == LineBreak::QU && category(next) == GeneralCategory::InitialPunctuation {
+        return east_asian(Some(c))
+            && east_asian(after)
+            && !matches!(
+                class(c),
+                LineBreak::OP | LineBreak::GL | LineBreak::WJ | LineBreak::ZWJ
+            );
+    }
+    if class(c) == LineBreak::QU && category(c) == GeneralCategory::FinalPunctuation {
+        let kept = [
+            LineBreak::CM,
+            LineBreak::ZWJ,
+            LineBreak::WJ,
+            LineBreak::GL,
+            LineBreak::CL,
+            LineBreak::CP,
+            LineBreak::EX,
+            LineBreak::SY,
+            LineBreak::IS,
+            LineBreak::BA,
+            LineBreak::HY,
+            LineBreak::NS,
+            LineBreak::IN,
+        ];
+        return east_asian(before) && east_asian(Some(next)) && !kept.contains(&class(next));
+    }
+    icu
+}
+
+/// The byte ranges of the paths in `word` as the copy marks them in a message: the matches
+/// of its `PATH_RE`, `(?:~|\b[\w.-]+)?\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?` (`\w` and `\b` are
+/// ASCII), found from the left, each search going on after the last match; a match shorter
+/// than 16 characters is not marked. So a path joined to other text, as CJK text often is,
+/// is found inside it. A URL is laid out before this (`chat::wrap_message_line`).
+fn paths(word: &str) -> Vec<Range<usize>> {
+    let b = word.as_bytes();
+    let w = |i: usize| {
+        b.get(i)
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+    };
+    // The end of the run from `i` of `\w` and the bytes of `more`.
+    let run = |i: usize, more: &[u8]| {
+        (i..b.len())
+            .find(|&j| !(w(j) || more.contains(&b[j])))
+            .unwrap_or(b.len())
+    };
+    // The end of `\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?` matched from `i`. A run stops only at
+    // what it cannot take, so taking each whole is how the pattern matches.
+    let rest = |i: usize| {
+        let (mut at, mut runs) = (i, 0);
+        while b.get(at) == Some(&b'/') {
+            let end = run(at + 1, b".@+-");
+            if end == at + 1 {
+                break;
+            }
+            (at, runs) = (end, runs + 1);
+        }
+        let slash = usize::from(b.get(at) == Some(&b'/'));
+        (runs >= 2).then_some(at + slash)
+    };
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        // `\b[\w.-]+`: a run from a word's edge, else none.
+        let edge = w(i) != (i > 0 && w(i - 1));
+        let prefix = if edge { run(i, b".-") } else { i };
+        let found = (b[i] == b'~')
+            .then(|| rest(i + 1))
+            .flatten()
+            .or_else(|| (prefix > i).then(|| rest(prefix)).flatten())
+            .or_else(|| rest(i));
+        match found {
+            Some(end) => {
+                if end - i >= 16 {
+                    out.push(i..end);
+                }
+                i = end;
+            }
+            // No match starts inside a run the prefix took: from any byte of it, the run ends
+            // where it does here, and no `~` or `/` is in it. So the search goes on after it,
+            // and each byte is looked at a bounded number of times.
+            None => i = prefix.max(i + 1),
+        }
+    }
+    out
 }
 
 /// `word` in the pieces it may break between: after each of `after`'s characters, or after
@@ -1589,6 +1717,106 @@ mod tests {
                 assert!(piece.width() <= w.max(2), "w={w} {piece:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_delivery_failures_details_break_cjk_text_where_the_copy_does() {
+        // Between two ideographs, as Chrome breaks the copy's `.evtdetail`, so a run too wide
+        // for any line fills the line it starts on; not before a closing mark.
+        assert_eq!(wrap("ab  中文字", 6), ["ab  中", "文字"]);
+        let run = "中".repeat(30);
+        assert_eq!(
+            wrap(&format!("pane 中 {run}"), 20),
+            [
+                format!("pane 中 {}", "中".repeat(6)),
+                "中".repeat(10),
+                "中".repeat(10),
+                "中".repeat(4)
+            ]
+        );
+        assert_eq!(wrap("中文。字字", 4), ["中", "文。", "字字"]);
+    }
+
+    #[test]
+    fn paths_are_what_the_copys_path_pattern_finds_in_a_word() {
+        // Each as the copy's PATH_RE finds it with `matchAll`, keeping matches of 16 or more.
+        let found = |word: &str| -> Vec<String> {
+            (paths(word).into_iter())
+                .map(|r| word[r].to_string())
+                .collect()
+        };
+        // A `~` starts one, after text too; a letter before the `~` is not part of it.
+        let home = "~/projects/bakery/rye/notes.md";
+        assert_eq!(found(home), [home]);
+        assert_eq!(found(&format!("x{home}")), [home]);
+        assert_eq!(
+            found("x~y/var/log/tower/output.log"),
+            ["y/var/log/tower/output.log"]
+        );
+        // A trailing `/` is the path's, and CJK text either side is not.
+        assert_eq!(
+            found("設定は~/.config/tower/plugins/。確認"),
+            ["~/.config/tower/plugins/"]
+        );
+        assert_eq!(
+            found("ログは/var/log/tower/output.logに書いて"),
+            ["/var/log/tower/output.log"]
+        );
+        // A match under 16 characters is skipped and the search goes on after it.
+        assert_eq!(found("src/ui/chat.rs"), Vec::<String>::new());
+        assert_eq!(
+            found("a/b/c:/var/log/tower/output.log"),
+            ["/var/log/tower/output.log"]
+        );
+        assert_eq!(
+            found("ab/cd/ef//var/log/tower/output.log"),
+            ["/var/log/tower/output.log"]
+        );
+        // Two in one word.
+        assert_eq!(
+            found("assets/icons/bookmarks,docs/notes/plans/q4.md"),
+            ["assets/icons/bookmarks", "docs/notes/plans/q4.md"]
+        );
+        // After a scheme other than http, the path starts at the host's `/`.
+        assert_eq!(
+            found("ftp://host.example/a/b/c/d"),
+            ["/host.example/a/b/c/d"]
+        );
+        // The prefix takes letters, digits, `_`, `.` and `-` from a word's edge; not `@`,
+        // and not `.-` with no word character before it.
+        assert_eq!(found("a.b-c/dddd/eeee/ffff"), ["a.b-c/dddd/eeee/ffff"]);
+        assert_eq!(
+            found("@dev/assets/icons/bookmarks"),
+            ["dev/assets/icons/bookmarks"]
+        );
+        assert_eq!(found(".-/var/log/tower/x.log"), ["/var/log/tower/x.log"]);
+    }
+
+    #[test]
+    fn a_2000_character_word_is_searched_for_paths_as_any_other() {
+        let a = "a".repeat(2000);
+        let dots = ".".repeat(2000);
+        // No path in a run of word characters, of dots, or the two together.
+        for word in [a.clone(), dots.clone(), format!("{dots}{a}")] {
+            assert!(paths(&word).is_empty(), "{}", word.len());
+        }
+        // A path after such a run is found where the copy's pattern starts it: (start, end).
+        let found = |word: &str| -> Vec<(usize, usize)> {
+            (paths(word).into_iter())
+                .map(|r| (r.start, r.end))
+                .collect()
+        };
+        let word = format!("{}@{}/cc/dd/ee", "a".repeat(1000), "b".repeat(980));
+        assert_eq!(found(&word), [(1001, word.len())]);
+        let word = format!("{dots}/var/log/tower/output.log");
+        assert_eq!(found(&word), [(2000, word.len())]);
+        let word = format!("{}a/bb/ccc/dddd/eeeee", ".-".repeat(1000));
+        assert_eq!(found(&word), [(2000, word.len())]);
+        // A bubble draws such a word on lines of its own, broken where each line ends.
+        let word = format!("{dots}{a}");
+        let mut want = vec!["ab".to_string()];
+        want.extend((0..100).map(|k| word[k * 40..(k + 1) * 40].to_string()));
+        assert_eq!(wrap_line_paths(&format!("ab {word}"), 40), want);
     }
 
     #[test]
