@@ -19,6 +19,10 @@ tag's date, and a new empty Unreleased goes above it.
   written with leading spaces, such as an indented list item, keeps them on its first drawn
   line, as the UI design does. A message's first line starts at the text's column, since a
   posted message is trimmed, and so does a URL's own line.
+- **A message line's runs of spaces stay in its bubble.** Text aligned in columns with
+  several spaces between words keeps them, as the UI design does, where they had drawn as
+  one. A line that wraps at a run of spaces drops it, so the next line starts with its word,
+  and the spaces next to a URL still go (#15).
 
 ## [0.4.0] - 2026-11-16
 

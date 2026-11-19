@@ -595,14 +595,17 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     pieces
 }
 
-/// `text` on lines at most `w` wide (`wrap_line_by`), its leading spaces dropped.
+/// `text` on lines at most `w` wide (`wrap_line_by`), its spaces folded: its leading ones
+/// dropped and each run between words one.
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(text.trim_start_matches(' '), w, |_| None)
+    let words: Vec<&str> = text.split(' ').filter(|s| !s.is_empty()).collect();
+    wrap_line_by(&words.join(" "), w, |_| None)
 }
 
 /// `wrap_line`, with a path (`is_path`) kept in its line and broken only after a `/`, as
-/// the copy breaks one, and the line's leading spaces kept on its first line, as the copy's
-/// message body (`white-space: pre-wrap`) keeps them.
+/// the copy breaks one, and the line's spaces kept as the copy's message body
+/// (`white-space: pre-wrap`) keeps them: its leading ones on its first line and each run
+/// between words as written.
 pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
     wrap_line_by(
         text,
@@ -643,7 +646,9 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// them (`units`), or inside a piece between them too wide for a line of its own. The
 /// text's leading spaces, when narrower than a line, start its first line, as the copy's
 /// `pre-wrap` body keeps them: a first word that does not fit after them goes to the next
-/// line as any other word does, leaving them alone on the first.
+/// line as any other word does, leaving them alone on the first. Each run of spaces between
+/// words stays as written, and counts toward the line's width; a line that breaks at a run
+/// drops it, as `pre-wrap` hangs it, so the next line starts with the word.
 fn wrap_line_by(
     text: &str,
     w: usize,
@@ -658,9 +663,21 @@ fn wrap_line_by(
     } else {
         " ".repeat(indent)
     };
-    for word in body.split(' ').filter(|s| !s.is_empty()) {
-        // No space between the indent and the first word.
-        let gap = usize::from(line.bytes().any(|b| b != b' '));
+    // The run of spaces before the next word: the one after the last word, and one more for
+    // each empty piece `split` leaves after it.
+    let mut run = 0;
+    for word in body.split(' ') {
+        if word.is_empty() {
+            run += 1;
+            continue;
+        }
+        // No space between the indent and the first word, or at the start of a line.
+        let gap = if line.bytes().any(|b| b != b' ') {
+            run
+        } else {
+            0
+        };
+        run = 1;
         if line.width() + gap + word.width() <= w {
             line.push_str(&" ".repeat(gap));
             line.push_str(word);
