@@ -77,6 +77,10 @@ tag's date, and a new empty Unreleased goes above it.
   word with a `-`, such as a name like `senior-reviewer-2`, now breaks after it where the
   design does, where it had moved whole or broken anywhere; CJK text there breaks between
   its characters as in a message (#23).
+- **Where a thread stands tones a leading `decision:`.** On the thread's header and in the
+  thread list, a line that starts with `decision:`, from a message for your awareness (its
+  mention of you on any of its lines), draws it bold in the info colour, as its bubble
+  does, where it had drawn plain (#34).
 - **A word breaks after a `?`.** In a message, and in a delivery failure's opened details,
   a word with a `?` inside, such as `what?why` or `search?q=rye`, moved to the next line
   whole, or broke only where a line ended. It now breaks after the `?` where the UI design
