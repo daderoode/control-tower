@@ -47,6 +47,11 @@ tag's date, and a new empty Unreleased goes above it.
   its box, as the UI design does, its "details" or "hide details" kept whole and moved to a
   line of its own when it does not fit; a click on any of its lines still opens or folds
   it. It had been cut at the chat's edge (#30).
+- **An @mention right after kana or an ideograph is a mention.** In Japanese or Chinese,
+  where words have no spaces between them, an `@manager` or `@dev-2` written straight after
+  a character, as in "見てから@managerに返事します", now reaches the owner or the worker and is
+  drawn marked, as the UI design marks it. An `@` right after an ASCII letter or digit, as in
+  an e-mail address, is still no mention (#41).
 
 ## [0.4.0] - 2026-11-16
 

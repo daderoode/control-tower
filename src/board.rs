@@ -1428,8 +1428,9 @@ pub fn refuse_owner(author: &str) -> Result<()> {
     Ok(())
 }
 
-/// The names `text` @mentions, like `@qa-2`, in order: a `@` not right after a letter or
-/// digit (so not an email address), then letters, digits, `-` and `_`, less any trailing
+/// The names `text` @mentions, like `@qa-2`, in order: a `@` not right after an ASCII
+/// letter or digit (so not an email address, but after kana or an ideograph, where words
+/// have no spaces between them, it is), then letters, digits, `-` and `_`, less any trailing
 /// `-` or `_`. A name with spaces, such as a lead's session name, cannot be mentioned. What
 /// a post quotes is no mention: a fenced block (between lines starting with three
 /// backticks), a code span (between backticks on one line; an unmatched one ends with its
@@ -1464,7 +1465,7 @@ pub fn mentions(text: &str) -> Vec<(usize, &str)> {
         for (i, c) in line.char_indices() {
             if c == '`' {
                 code = !code;
-            } else if c == '@' && !code && !prev.is_some_and(char::is_alphanumeric) {
+            } else if c == '@' && !code && !prev.is_some_and(|p| p.is_ascii_alphanumeric()) {
                 let rest = &line[i + 1..];
                 let end = (rest
                     .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')))
@@ -2275,6 +2276,9 @@ mod tests {
             ),
             ("blocked: no covers, @manager please", Tone::Awareness),
             ("@manager question: not at the start", Tone::Awareness),
+            // Right after kana, with no space, as Japanese is written.
+            ("notes.mdを見てから@managerに返事します。", Tone::Awareness),
+            ("question: 確認後@managerの判断を待ちます", Tone::NeedsYou),
             ("Question: @manager capitalised", Tone::Awareness),
             // The owner's name in any case is the owner, as in delivery.
             ("question: @Manager which order?", Tone::NeedsYou),
@@ -2382,7 +2386,14 @@ mod tests {
             ),
             ("no mention here", vec![]),
             ("@", vec![]),
-            ("é@x but (@y", vec!["y"]),
+            // Only an ASCII letter or digit makes an e-mail address; after any other
+            // letter, such as kana, an ideograph or hangul, where words have no spaces
+            // between them, it is a mention, as the signed copy marks every `@manager`.
+            ("2@x or Z@x but (@y", vec!["y"]),
+            ("notes.mdを見てから@managerに返事します。", vec!["manager"]),
+            ("请@dev-2看一下，然后@qa。", vec!["dev-2", "qa"]),
+            ("검토@senior 부탁", vec!["senior"]),
+            ("é@x", vec!["x"]),
             // Quoted: code spans, fenced blocks and quoted lines.
             ("run `herdr agent prompt @dev-2` then @qa", vec!["qa"]),
             ("```\n@dev-1 x\n```\n@senior", vec!["senior"]),

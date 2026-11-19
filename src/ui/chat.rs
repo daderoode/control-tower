@@ -1507,6 +1507,11 @@ mod tests {
             ]
             .map(|(p, m)| (p.to_string(), m.to_string()))
         );
+        // Right after kana, with no space, the mention is marked.
+        assert_eq!(
+            marked("見てから@managerに返事", 40, 40),
+            [("見てから@managerに返事".to_string(), "@manager".to_string())]
+        );
         let split = pieces("日本語 @manager です @Manager", 12, 40);
         assert_eq!(split[0].0, "日本語");
         // A word too wide for a line breaks inside it; the mention's halves stay marked.
