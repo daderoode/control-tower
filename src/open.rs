@@ -4,9 +4,11 @@
 //!
 //! `space` finds the dashboard first: a pane labelled `control-tower` in `herdr pane list`
 //! (herdr labels a plugin pane with its manifest title) that `herdr plugin pane focus`
-//! confirms is this plugin's `ui` pane, which focuses it and its workspace. Any pane can
-//! carry the label (a renamed shell, the shell herdr restores after a restart), so the label
-//! alone is never enough. With no confirmed dashboard it always creates a workspace of
+//! confirms is this plugin's `ui` pane, which focuses it; `herdr workspace focus` then
+//! brings its workspace into view, which `plugin pane focus` does not do for an attached
+//! client (herdr 0.9.5 moves only the server's focus). Any pane can carry the label (a
+//! renamed shell, the shell herdr restores after a restart), so the label alone is never
+//! enough. With no confirmed dashboard it always creates a workspace of
 //! its own and opens the dashboard there; it never adopts a workspace by its label, and the
 //! only pane it closes is the new workspace's first shell, so the dashboard fills it.
 //!
@@ -116,9 +118,10 @@ fn failed_with(e: &anyhow::Error, code: &str) -> bool {
     format!("{e:#}").contains(&format!("\"code\":\"{code}\""))
 }
 
-/// Focuses `pane` if it is the dashboard, which focuses its workspace too, and says whether
-/// it was. A pane that is not a plugin pane, or that has closed since `pane list`, is not
-/// the dashboard; any other failure is an error.
+/// Focuses `pane` if it is the dashboard, and says whether it was. herdr moves its own
+/// focused workspace with it but not an attached client's view, so the caller brings the
+/// workspace into view with `herdr workspace focus`. A pane that is not a plugin pane, or
+/// that has closed since `pane list`, is not the dashboard; any other failure is an error.
 fn focus_dashboard(exe: &Path, db: &Path, pane: &str) -> Result<bool> {
     match herdr(exe, db, &["plugin", "pane", "focus", pane]) {
         Ok(json) => is_dashboard(&json),
@@ -241,6 +244,9 @@ pub fn space(exe: &Path, db: &Path, from: Press) -> Result<String> {
         // check, which has done nothing but focus the dashboard.
         if focus_dashboard(exe, db, &p.pane_id)? {
             record_from(db, from, Some(&p.workspace_id))?;
+            // herdr 0.9.5's `plugin pane focus` moves only the server's focused workspace,
+            // not an attached client's view; `workspace focus` moves both (issue #3).
+            herdr(exe, db, &["workspace", "focus", &p.workspace_id])?;
             return Ok(format!("focused the {LABEL} workspace {}", p.workspace_id));
         }
     }
