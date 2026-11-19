@@ -1637,6 +1637,15 @@ mod tests {
             wrap_message_line("    one two three", 12),
             [pair("    one two", None), pair("three", None)]
         );
+        // An indented word that fits a line of its own but not after the indent goes to the
+        // next line whole, leaving the indent alone on the first, as the copy does.
+        let hash = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(
+            wrap_message_line(&format!("    {hash} sha"), 40),
+            [pair("    ", None), pair(hash, None), pair("sha", None)]
+        );
+        // An indent as wide as the line is dropped, so no line is wider than the bubble.
+        assert_eq!(wrap_message_line("      ab cd", 6), [pair("ab cd", None)]);
         // A line of spaces alone is a blank line, as before.
         assert_eq!(wrap_message_line("   ", 40), [pair("", None)]);
         // The owner's mentions stay marked after an indent.

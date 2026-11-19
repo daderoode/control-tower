@@ -641,8 +641,9 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// line is, rather than leaving it short, and breaks where a line ends. A word `breaks`
 /// gives break characters for starts where the line is too, and breaks only after one of
 /// them (`units`), or inside a piece between them too wide for a line of its own. The
-/// text's leading spaces go with its first word, so they start its first line and count
-/// toward its width.
+/// text's leading spaces, when narrower than a line, start its first line, as the copy's
+/// `pre-wrap` body keeps them: a first word that does not fit after them goes to the next
+/// line as any other word does, leaving them alone on the first.
 fn wrap_line_by(
     text: &str,
     w: usize,
@@ -650,25 +651,26 @@ fn wrap_line_by(
 ) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
-    let mut line = String::new();
     let body = text.trim_start_matches(' ');
-    let indent = &text[..text.len() - body.len()];
-    let mut words = body.split(' ').filter(|s| !s.is_empty());
-    let first = words.next().map(|word| format!("{indent}{word}"));
-    for word in first.as_deref().into_iter().chain(words) {
-        let need = if line.is_empty() { 0 } else { 1 } + word.width();
-        if line.width() + need <= w {
-            if !line.is_empty() {
-                line.push(' ');
-            }
+    let indent = text.len() - body.len();
+    let mut line = if body.is_empty() || indent >= w {
+        String::new()
+    } else {
+        " ".repeat(indent)
+    };
+    for word in body.split(' ').filter(|s| !s.is_empty()) {
+        // No space between the indent and the first word.
+        let gap = usize::from(line.bytes().any(|b| b != b' '));
+        if line.width() + gap + word.width() <= w {
+            line.push_str(&" ".repeat(gap));
             line.push_str(word);
             continue;
         }
         // A word too wide for any line, or one with its own breaks, starts where the line
         // is, rather than leaving it short; any other goes on the next.
         let after = breaks(word);
-        if (word.width() > w || after.is_some()) && !line.is_empty() && line.width() + 1 < w {
-            line.push(' ');
+        if (word.width() > w || after.is_some()) && !line.is_empty() && line.width() + gap < w {
+            line.push_str(&" ".repeat(gap));
         } else if !line.is_empty() {
             out.push(std::mem::take(&mut line));
         }
