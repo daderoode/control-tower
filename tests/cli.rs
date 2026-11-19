@@ -1689,12 +1689,14 @@ fn tower_with_stdin(db: &Path, args: &[&str], input: impl AsRef<[u8]>) -> Output
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.as_ref())
-        .unwrap();
+    // A command refused before reading stdin can exit first and close the pipe:
+    // that write fails with BrokenPipe, and the output and status still tell.
+    match child.stdin.take().unwrap().write_all(input.as_ref()) {
+        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+            panic!("writing to tower's stdin failed: {e}")
+        }
+        _ => {}
+    }
     child.wait_with_output().unwrap()
 }
 
