@@ -387,13 +387,15 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
     out
 }
 
-/// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a
-/// line of its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
+/// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a line of
+/// its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
-/// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). The line's
-/// leading spaces stay on its first line of text and its runs of spaces between words stay
-/// as written; a URL's line starts at the text's column, as the copy's block URL does. Spaces are all that is added or dropped, so `marked` can
-/// find the owner's mentions in the pieces.
+/// own too; a path in the text breaks only after a `/`, another word after a `-` where the
+/// copy breaks one, and a word with no break of its own too wide for a line starts on a
+/// line of its own (`wrap_line_paths`). The line's leading spaces stay on its first line of
+/// text and its runs of spaces between words stay as written; a URL's line starts at the
+/// text's column, as the copy's block URL does. Spaces are all that is added or dropped, so
+/// `marked` can find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -1703,12 +1705,12 @@ mod tests {
         assert_eq!(wrap_message_line("aa    bb", 7), [pair("aa"), pair("bb")]);
         // The spaces at the line's end go, as before.
         assert_eq!(wrap_message_line("a  b   ", 40), [pair("a  b")]);
-        // A word too wide for any line starts after the run when a column is left there...
+        // A word too wide for any line starts on the next, whether or not the run leaves a
+        // column on this one; the run hangs.
         assert_eq!(
             wrap_message_line("ab   abcdefghij", 8),
-            [pair("ab   abc"), pair("defghij")]
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
         );
-        // ...and on the next line when the run leaves none.
         assert_eq!(
             wrap_message_line("ab      abcdefghij", 8),
             [pair("ab"), pair("abcdefgh"), pair("ij")]
@@ -1732,6 +1734,158 @@ mod tests {
         );
         // In wrap_line (events, acks) a line's spaces still fold: its indent goes, each run is one.
         assert_eq!(wrap_line("  a    b  ", 40), ["a b"]);
+    }
+
+    #[test]
+    fn a_word_too_wide_for_any_line_starts_on_a_line_of_its_own() {
+        let pair = |t: &str| (t.to_string(), None);
+        // After one space, as the copy's `overflow-wrap: anywhere` body breaks there first;
+        // the word then breaks where each line ends.
+        assert_eq!(
+            wrap_message_line("ab abcdefghij", 8),
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
+        );
+        let hash = "0123456789abcdef0123456789abcdef0123456789";
+        assert_eq!(
+            wrap_message_line(&format!("ab {hash}"), 40),
+            [pair("ab"), pair(&hash[..40]), pair(&hash[40..])]
+        );
+        // After several words, and with text after it, which goes on the word's last line.
+        assert_eq!(
+            wrap_message_line("a ab abcdefghij cd", 8),
+            [pair("a ab"), pair("abcdefgh"), pair("ij cd")]
+        );
+        // After a line's indent, which stays alone on the first line.
+        assert_eq!(
+            wrap_message_line("    abcdefghij", 8),
+            [pair("    "), pair("abcdefgh"), pair("ij")]
+        );
+        // Alone on the line it is broken where the line ends, as before.
+        assert_eq!(
+            wrap_message_line("abcdefghij", 8),
+            [pair("abcdefgh"), pair("ij")]
+        );
+        // A path still starts where the line is and breaks only after a `/`, as the copy's
+        // path does.
+        assert_eq!(
+            wrap_message_line("ab assets/icons/bookmarks/outline", 12),
+            [
+                pair("ab assets/"),
+                pair("icons/"),
+                pair("bookmarks/"),
+                pair("outline")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_word_breaks_after_a_hyphen_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // A word with a `-` starts where the line is and breaks after it, as Chrome breaks
+        // the copy's body; a piece that then does not fit goes to the next line.
+        assert_eq!(wrapped("ab abc-def", 8), ["ab abc-", "def"]);
+        assert_eq!(wrapped("ab abc-def", 6), ["ab", "abc-", "def"]);
+        assert_eq!(
+            wrapped(
+                "ab a-word-too-wide-for-any-line-starts-on-a-line-of-its-own",
+                40
+            ),
+            [
+                "ab a-word-too-wide-for-any-line-starts-",
+                "on-a-line-of-its-own"
+            ]
+        );
+        assert_eq!(wrapped("ab 2026-11-19", 8), ["ab 2026-", "11-19"]);
+        assert_eq!(wrapped("ab 2026-11-19", 6), ["ab", "2026-", "11-19"]);
+        assert_eq!(wrapped("ab @dev-8 ok", 8), ["ab @dev-", "8 ok"]);
+        assert_eq!(wrapped("ab @dev-8 ok", 6), ["ab", "@dev-8", "ok"]);
+        // After each `-` of a run, and not after one that ends the word.
+        assert_eq!(wrapped("ab --verbose", 8), ["ab --", "verbose"]);
+        assert_eq!(wrapped("ab a--bcdefg", 6), ["ab a--", "bcdefg"]);
+        assert_eq!(
+            wrapped("ab cargo fmt --all --check", 14),
+            ["ab cargo fmt -", "-all --check"]
+        );
+        assert_eq!(wrapped("ab --", 4), ["ab -", "-"]);
+        assert_eq!(wrapped("ab --all", 4), ["ab -", "-all"]);
+        assert_eq!(wrapped("ab --verbose", 4), ["ab -", "-", "verb", "ose"]);
+        assert_eq!(wrapped("ab a--bcdefg", 5), ["ab a-", "-", "bcdef", "g"]);
+        assert_eq!(wrapped("ab abc---d", 7), ["ab abc-", "--d"]);
+        assert_eq!(wrapped("ab ----", 5), ["ab --", "--"]);
+        assert_eq!(wrapped("ab (--x", 5), ["ab (-", "-x"]);
+        assert_eq!(wrapped("ab x--", 4), ["ab", "x--"]);
+        assert_eq!(wrapped("ab abcdef-", 8), ["ab", "abcdef-"]);
+        // A piece too wide for a line breaks where the line ends.
+        assert_eq!(
+            wrapped("ab x-yzzzzzzzzzzz", 8),
+            ["ab x-", "yzzzzzzz", "zzzz"]
+        );
+        // Not after a minus sign: a `-` with no letter or digit before it and a digit after.
+        assert_eq!(wrapped("ab -5000000", 8), ["ab", "-5000000"]);
+        assert_eq!(wrapped("ab -5000000", 6), ["ab", "-50000", "00"]);
+        assert_eq!(wrapped("ab (-5000000", 10), ["ab", "(-5000000"]);
+        assert_eq!(wrapped("ab --5000", 5), ["ab -", "-5000"]);
+        assert_eq!(wrapped("ab --5000", 4), ["ab -", "-500", "0"]);
+        assert_eq!(wrapped("ab x-5000000", 8), ["ab x-", "5000000"]);
+        // Not before a character a line cannot start with.
+        assert_eq!(wrapped("ab abc-,defg", 8), ["ab", "abc-,def", "g"]);
+        assert_eq!(wrapped("ab abc-)defg", 8), ["ab", "abc-)def", "g"]);
+        // Before a character other than ASCII, where Chrome breaks through ICU: not before a
+        // quote or another script's digit, nor after a minus sign (no ASCII letter or digit
+        // before the `-`).
+        assert_eq!(
+            wrapped("the loaves for the morning shift: café-12", 40),
+            ["the loaves for the morning shift:", "café-12"]
+        );
+        assert_eq!(
+            wrapped("the loaves for the morning are non-“standard” today", 40),
+            ["the loaves for the morning are", "non-“standard” today"]
+        );
+        assert_eq!(wrapped("ab aé-5000000", 8), ["ab", "aé-50000", "00"]);
+        assert_eq!(wrapped("ab abc-٣٣", 8), ["ab", "abc-٣٣"]);
+        assert_eq!(wrapped("ab x-éabcdef", 8), ["ab x-", "éabcdef"]);
+        assert_eq!(wrapped("ab abc-ーdefg", 8), ["ab abc-", "ーdefg"]);
+        assert_eq!(wrapped("ab abc-·defg", 8), ["ab abc-", "·defg"]);
+        // Nor after a `-` that starts the word, before one.
+        assert_eq!(wrapped("ab -éabcdefg", 8), ["ab", "-éabcdef", "g"]);
+        assert_eq!(wrapped("ab -½00000", 9), ["ab", "-½00000"]);
+        // A word with breaks starts after a line's indent only when its first piece fits
+        // there; else the indent keeps its line, as the copy's does, and so does a path's.
+        assert_eq!(wrapped("    ab-cdefgh", 8), ["    ab-", "cdefgh"]);
+        let indent = " ".repeat(38);
+        assert_eq!(
+            wrapped(&format!("{indent}rye-bread"), 40),
+            [indent.as_str(), "rye-bread"]
+        );
+        let indent = " ".repeat(36);
+        let path = "assets/icons/bookmarks/outline.svg";
+        assert_eq!(
+            wrapped(&format!("{indent}{path}"), 40),
+            [indent.as_str(), path]
+        );
+        // The owner's mention after a `-` stays marked on its own line.
+        let p = message_pieces("ab x-@manager ok", 8);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("ab x-", vec![]),
+                ("@manager", vec![(0, 8)]),
+                ("ok", vec![])
+            ]
+        );
     }
 
     #[test]
