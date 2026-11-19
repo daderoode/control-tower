@@ -9249,6 +9249,41 @@ fn an_open_failures_details_sit_left_aligned_in_its_centred_box() {
 }
 
 #[test]
+fn a_needs_you_strip_row_folds_its_questions_runs_of_spaces() {
+    // T4's question (402) written with runs of spaces between its words.
+    let mut board = board_fixture();
+    let t = (board.milestones[0].threads.iter_mut())
+        .find(|t| t.id == ThreadId(4))
+        .unwrap();
+    let mut messages = t.messages.clone();
+    let q = messages.iter_mut().find(|m| m.id == 402).unwrap();
+    q.text = "question:  the   covers are late again.    @manager can you call the printer?".into();
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    // The overview's strip is in its right column, where the row is cut in "call".
+    let folded = "cat-lead question: the covers are late again. @manager";
+    let mut on_board = select(Item::Task(TaskId(14)));
+    on_board.handle(&view, a, Input::Char('b'));
+    let overview = screen(&view, &select(Item::Milestone(MilestoneId(1))), a);
+    let board = screen(&view, &on_board, a);
+    for all in [&overview, &board] {
+        let strip = (all.iter())
+            .position(|r| r.contains("⚠ Needs you · 1"))
+            .unwrap_or_else(|| panic!("{all:#?}"));
+        // As the copy's nowrap row: each run is one space.
+        assert!(all[strip + 1].contains(folded), "{all:#?}");
+    }
+    // The bubble still keeps them, as the copy's pre-wrap body does.
+    let all = board.join("\n");
+    assert!(
+        all.contains("▌ question:  the   covers are late again.    @manager"),
+        "{all}"
+    );
+}
+
+#[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();
     let id_of = |sym: &str| sym.split(';').nth(1).map(str::to_string);
