@@ -9380,10 +9380,10 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
         for depth in [Depth::TrueColor, Depth::Ansi256] {
             let buf = render_dash(&view, &dash, 160, 50, depth);
             let all = rows(&buf);
-            // The cell where `needle` starts in row `y`, `skip` columns in.
+            // The column and cell where `needle` first starts in row `y`, `skip` columns in.
             let at = |y: usize, needle: &str, skip: &str| {
                 let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
-                buf[(x as u16, y as u16)].clone()
+                (x, buf[(x as u16, y as u16)].clone())
             };
             // Its bubble line: the last with the tag, as the newest message is drawn last
             // (dev-1's blocked: and cat-lead's question: are above it).
@@ -9391,15 +9391,24 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
                 .rposition(|r| r.contains(&format!("▌ {tag}")))
                 .unwrap_or_else(|| panic!("{all:#?}"));
             assert!(all[bubble].contains(&format!("▌ {text}")), "{all:#?}");
-            let want = at(bubble, &format!("▌ {tag}"), "▌ ");
+            let (_, want) = at(bubble, &format!("▌ {tag}"), "▌ ");
             let said = format!("cat-lead: {tag}");
-            let head = find_row_containing(&all, &format!("where it stands {said}"));
+            // The header's line, right of the list's bar, by its lead-in; the list's row,
+            // left of it. T4 is the newest thread, so its list row can share the header's
+            // screen row.
+            let stands = format!("where it stands {said}");
+            let head = find_row_containing(&all, &stands);
             let list = (all.iter())
                 .position(|r| r.split('│').next().unwrap().contains(&said))
                 .unwrap_or_else(|| panic!("{all:#?}"));
-            assert_ne!(head, list, "{all:#?}");
-            for (y, place) in [(head, "header"), (list, "list")] {
-                let got = at(y, &said, "cat-lead: ");
+            let bar = |y: usize| all[y][..all[y].find('│').unwrap()].width();
+            let lead_in = "where it stands cat-lead: ";
+            for (y, needle, skip, place) in [
+                (head, stands.as_str(), lead_in, "header"),
+                (list, said.as_str(), "cat-lead: ", "list"),
+            ] {
+                let (x, got) = at(y, needle, skip);
+                assert_eq!(x > bar(y), place == "header", "{place} {all:#?}");
                 assert_eq!(got.symbol(), &tag[..1], "{tag} {place} {depth:?}");
                 // As its bubble: decision: and blocked: bold in their colour, question: plain.
                 assert_eq!(got.fg, want.fg, "{tag} {place} {depth:?}");
