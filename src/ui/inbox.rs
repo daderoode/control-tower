@@ -16,7 +16,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::chat::failed_to;
 use super::control::Control;
-use super::message_board::highlight;
+use super::message_board::{fold_spaces, highlight};
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, ok, selected_bg};
 use super::tree::split_line;
 use crate::board::{Board, DELIVERY_FAILURE, SYSTEM_AUTHOR, Talk, age};
@@ -93,7 +93,9 @@ fn said(a: &Alert, depth: Depth) -> Vec<Span<'static>> {
             Span::raw(format!(" delivery failed to {}", failed_to(text))),
         ];
     }
-    highlight(first_line(text), true, a.kind == Kind::Awareness, depth)
+    // Its spaces folded, as the copy's row (`white-space: normal`) draws them.
+    let first = fold_spaces(first_line(text));
+    highlight(&first, true, a.kind == Kind::Awareness, depth)
 }
 
 /// The alert line, exactly `w` columns: "⚠ N need you · ⓘ N for your awareness · newest:

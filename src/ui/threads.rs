@@ -107,7 +107,8 @@ pub fn stands(
         s.push(Span::styled(who, Style::new().fg(colour)));
         s.push(Span::raw(": "));
     }
-    s.extend(highlight(&text, true, false, depth));
+    // Its spaces folded, as the copy's `nowrap` line draws them.
+    s.extend(highlight(&fold_spaces(&text), true, false, depth));
     Some(fit(s, w))
 }
 
