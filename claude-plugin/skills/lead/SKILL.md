@@ -179,11 +179,11 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
      researchers and analysis agents (see Helpers).
    - **Analysis done, no spec yet:** ask the owner to run `/to-spec` (step 7).
    - **Spec signed off, no tickets yet:** ask the owner to run `/to-tickets` (step 7).
-   - **Tickets exist, no tasks yet:** build tasks under the milestone from the tickets
-     (step 8).
+   - **Tickets signed off, no tasks yet:** build tasks under the milestone from the
+     tickets (step 8).
    - **Tasks exist:** dispatch the relevant workers across the tasks.
 6. The general loop: get context, work out what needs doing, take the order from the
-   tickets' blocking order (it is the plan), dispatch workers.
+   tickets' blocking order, then The backlog's order, dispatch workers.
 7. **Spec and tickets:** before any building there is a spec and a set of tickets, and the
    owner signs off both. The owner grills the idea, runs `/to-spec` and signs off the spec,
    then runs `/to-tickets` and signs off the tickets. Those tickets, in their blocking order,
