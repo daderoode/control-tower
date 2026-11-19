@@ -1778,9 +1778,21 @@ mod tests {
         assert_eq!(wrapped("ab 2026-11-19", 6), ["ab", "2026-", "11-19"]);
         assert_eq!(wrapped("ab @dev-8 ok", 8), ["ab @dev-", "8 ok"]);
         assert_eq!(wrapped("ab @dev-8 ok", 6), ["ab", "@dev-8", "ok"]);
-        // After the last of several `-` in a row, and not after one that ends the word.
+        // After each `-` of a run, and not after one that ends the word.
         assert_eq!(wrapped("ab --verbose", 8), ["ab --", "verbose"]);
         assert_eq!(wrapped("ab a--bcdefg", 6), ["ab a--", "bcdefg"]);
+        assert_eq!(
+            wrapped("ab cargo fmt --all --check", 14),
+            ["ab cargo fmt -", "-all --check"]
+        );
+        assert_eq!(wrapped("ab --", 4), ["ab -", "-"]);
+        assert_eq!(wrapped("ab --all", 4), ["ab -", "-all"]);
+        assert_eq!(wrapped("ab --verbose", 4), ["ab -", "-", "verb", "ose"]);
+        assert_eq!(wrapped("ab a--bcdefg", 5), ["ab a-", "-", "bcdef", "g"]);
+        assert_eq!(wrapped("ab abc---d", 7), ["ab abc-", "--d"]);
+        assert_eq!(wrapped("ab ----", 5), ["ab --", "--"]);
+        assert_eq!(wrapped("ab (--x", 5), ["ab (-", "-x"]);
+        assert_eq!(wrapped("ab x--", 4), ["ab", "x--"]);
         assert_eq!(wrapped("ab abcdef-", 8), ["ab", "abcdef-"]);
         // A piece too wide for a line breaks where the line ends.
         assert_eq!(
@@ -1791,10 +1803,26 @@ mod tests {
         assert_eq!(wrapped("ab -5000000", 8), ["ab", "-5000000"]);
         assert_eq!(wrapped("ab -5000000", 6), ["ab", "-50000", "00"]);
         assert_eq!(wrapped("ab (-5000000", 10), ["ab", "(-5000000"]);
+        assert_eq!(wrapped("ab --5000", 5), ["ab -", "-5000"]);
+        assert_eq!(wrapped("ab --5000", 4), ["ab -", "-500", "0"]);
         assert_eq!(wrapped("ab x-5000000", 8), ["ab x-", "5000000"]);
         // Not before a character a line cannot start with.
         assert_eq!(wrapped("ab abc-,defg", 8), ["ab", "abc-,def", "g"]);
         assert_eq!(wrapped("ab abc-)defg", 8), ["ab", "abc-)def", "g"]);
+        // A word with breaks starts after a line's indent only when its first piece fits
+        // there; else the indent keeps its line, as the copy's does, and so does a path's.
+        assert_eq!(wrapped("    ab-cdefgh", 8), ["    ab-", "cdefgh"]);
+        let indent = " ".repeat(38);
+        assert_eq!(
+            wrapped(&format!("{indent}rye-bread"), 40),
+            [indent.as_str(), "rye-bread"]
+        );
+        let indent = " ".repeat(36);
+        let path = "assets/icons/bookmarks/outline.svg";
+        assert_eq!(
+            wrapped(&format!("{indent}{path}"), 40),
+            [indent.as_str(), path]
+        );
         // The owner's mention after a `-` stays marked on its own line.
         let p = message_pieces("ab x-@manager ok", 8);
         let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
