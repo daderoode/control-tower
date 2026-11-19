@@ -9345,7 +9345,9 @@ fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spac
 
 #[test]
 fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_list() {
-    // T4's newest message (402), as each leading tag, on its full board beside the list.
+    // T4 gets a newest message from cat-lead, starting with each leading tag in turn, on its
+    // full board beside the list. Each round's message has its own id: a message never
+    // changes, so the board keeps a conversation's bubbles by its messages' ids.
     let tags = [
         (
             "decision:",
@@ -9357,13 +9359,18 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
             "question: the covers are late again. @manager can you call the printer?",
         ),
     ];
-    for (tag, text) in tags {
+    for (id, (tag, text)) in (410..).zip(tags) {
         let mut board = board_fixture();
         let t = (board.milestones[0].threads.iter_mut())
             .find(|t| t.id == ThreadId(4))
             .unwrap();
         let mut messages = t.messages.clone();
-        messages.iter_mut().find(|m| m.id == 402).unwrap().text = text.into();
+        messages.push(Message {
+            id,
+            author: "cat-lead".into(),
+            text: text.into(),
+            at: NOW - 5 * 60,
+        });
         *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
         with_alerts(&mut board, &[]);
         let view: View = Ok(board);
@@ -9378,7 +9385,12 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
                 let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
                 buf[(x as u16, y as u16)].clone()
             };
-            let bubble = find_row_containing(&all, &format!("▌ {tag}"));
+            // Its bubble line: the last with the tag, as the newest message is drawn last
+            // (dev-1's blocked: and cat-lead's question: are above it).
+            let bubble = (all.iter())
+                .rposition(|r| r.contains(&format!("▌ {tag}")))
+                .unwrap_or_else(|| panic!("{all:#?}"));
+            assert!(all[bubble].contains(&format!("▌ {text}")), "{all:#?}");
             let want = at(bubble, &format!("▌ {tag}"), "▌ ");
             let said = format!("cat-lead: {tag}");
             let head = find_row_containing(&all, &format!("where it stands {said}"));
