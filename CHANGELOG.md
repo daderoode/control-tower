@@ -70,6 +70,13 @@ tag's date, and a new empty Unreleased goes above it.
   the owner and is drawn marked, as the UI design marks it. Code stays no mention: a name
   followed by `(` and an ASCII character or the end of its line, as in `@cart(x)`, or by
   `.` and an ASCII letter, digit or `_`, as in `@cart.isEmpty()` (#48).
+- **Titles, goals, events and inbox rows break a long or hyphenated word as the design
+  does.** A word too wide for its line, such as a link or a hash, broke right after the
+  text before it; it now starts on a line of its own and breaks where each line ends, and
+  in an event, an ack or a delivery failure's line what follows it starts the next line. A
+  word with a `-`, such as a name like `senior-reviewer-2`, now breaks after it where the
+  design does, where it had moved whole or broken anywhere; CJK text there breaks between
+  its characters as in a message (#23).
 - **A word breaks after a `?`.** In a message, and in a delivery failure's opened details,
   a word with a `?` inside, such as `what?why` or `search?q=rye`, moved to the next line
   whole, or broke only where a line ended. It now breaks after the `?` where the UI design
