@@ -1702,7 +1702,7 @@ mod tests {
             (p[0].text.as_str(), marks),
             ("ask    @manager", vec![(7, 15)])
         );
-        // Outside a bubble a line's spaces still fold: its indent goes, each run is one.
+        // In wrap_line (events, acks) a line's spaces still fold: its indent goes, each run is one.
         assert_eq!(wrap_line("  a    b  ", 40), ["a b"]);
     }
 
