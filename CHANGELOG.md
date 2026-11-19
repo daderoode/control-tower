@@ -93,8 +93,7 @@ tag's date, and a new empty Unreleased goes above it.
 - **A selected inbox item's first line stays in view.** In an inbox list of four lines or
   fewer, PgUp or PgDn across the gap between its sections could leave only the selected
   item's second line in view. Paging there now goes on to the nearest item's first line, and
-  the selection moves to an item whose first line shows, at any height; the wheel still
-  scrolls freely (#44).
+  the selection to an item whose first line shows; the wheel still scrolls freely (#44).
 
 ## [0.4.0] - 2026-11-16
 
