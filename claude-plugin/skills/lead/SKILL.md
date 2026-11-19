@@ -189,13 +189,17 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
    then runs `/to-tickets` and signs off the tickets. Those tickets, in their blocking order,
    are the plan. Both skills set `disable-model-invocation: true`, so only the owner can
    start them: never run them or try to. Ask the owner, in your own session (the owner's
-   pane), to run them there: `/to-spec` turns the current conversation into a spec without
+   pane), to grill the idea there, with your own analysis (step 5) as the starting point,
+   then to run them there: `/to-spec` turns the current conversation into a spec without
    an interview, so it must run in the session holding the context; a fresh session would
-   write from guesswork. Later, control-tower can be the tracker those skills publish to,
-   so tickets become the milestone's tasks directly.
-   **When the spec is posted**, open a copy of it for the owner in Neovim in a pane to the
-   right of yours, and make any change they ask for on the issue, never only in the copy.
-   Save the issue's title and body to a temp file (on GitLab,
+   write from guesswork. If your session no longer holds that context (after a `/clear` or
+   a fresh start), ask the owner to grill the idea again in it before `/to-spec`. Later,
+   control-tower can be the tracker those skills publish to, so tickets become the
+   milestone's tasks directly.
+   **When the spec is posted**, record it on the milestone,
+   `tower milestone set <M> --spec <spec issue URL>`, then open a copy of it for the owner
+   in Neovim in a pane to the right of yours, and make any change they ask for on the
+   issue, never only in the copy. Save the issue's title and body to a temp file (on GitLab,
    `glab issue view <#I> -F json`, whose body is `description`):
 
        f="$(mktemp -d)/spec.md"
@@ -213,6 +217,11 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
          rex split -b "$REX_BLOCK" --split right --focus -c "$PWD" -- nvim "$f"
 
    - otherwise, give the spec's link.
+
+   **Sign-off:** wait for the owner's sign-off of the spec, then ask for `/to-tickets` and
+   wait for their sign-off of the tickets. Quote and date each sign-off on the spec issue,
+   so that after a restart, or for a new lead, the milestone's spec and that issue show
+   where step 5 stands.
 8. **Tasks on the board**: for each ticket, copy its description and acceptance
    criteria, plus what it is blocked by. A task made from an issue carries the issue as its
    link (`--link`), and its title says what it is in words, without the issue's number: the
