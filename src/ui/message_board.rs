@@ -14,6 +14,8 @@
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 
+use icu_properties::CodePointMapData;
+use icu_properties::props::{EastAsianWidth, GeneralCategory, LineBreak};
 use icu_segmenter::LineSegmenter;
 use icu_segmenter::LineSegmenterBorrowed;
 use icu_segmenter::options::{LineBreakOptions, LineBreakStrictness};
@@ -624,8 +626,8 @@ enum Wrap {
     /// line's leading spaces on its first line and each run between words as written;
     /// `overflow-wrap: anywhere` breaks at the space before a word with no break of its own,
     /// such as a long hash, too wide for a line, so it starts on a line of its own; a word
-    /// with a `-` breaks after it as Chrome does (`hyphen_units`). The details mark no
-    /// paths, so a path is a word like any other.
+    /// breaks inside where Chrome does (`break_units`), such as after a `-` or between two
+    /// ideographs. The details mark no paths, so a path is a word like any other.
     Details,
     /// A message body (`.seg .body`): as `Details`, and a path (`is_path`) breaks only after
     /// each `/`, as the copy's `<wbr>` breaks one.
@@ -634,58 +636,121 @@ enum Wrap {
 
 /// `word` in the pieces `how` may break it between, short of breaking it anywhere, or
 /// `None` when it has no such break: a path in a `Body` after each `/`, and any other word
-/// after a `-` (`hyphen_units`).
+/// where Chrome does (`break_units`).
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
         Wrap::Folded => return None,
         Wrap::Body if is_path(word) => units(word, &['/']),
-        Wrap::Details | Wrap::Body => hyphen_units(word),
+        Wrap::Details | Wrap::Body => break_units(word),
     };
     (pieces.len() > 1).then_some(pieces)
 }
 
-/// `word` in the pieces Chrome breaks it between after a `-`, as the copy draws it. Not the
-/// Unicode line-breaking rules alone (UAX #14, `icu_segmenter`): Chrome (Blink) decides a
-/// break between two ASCII characters from a table of its own, and `icu_segmenter` differs
-/// from it there (no break in 'abc-123' or '2026-11-19', one before '$'). So, after a `-`
-/// that does not end the word:
-/// - before an ASCII character, a break unless it is one a line cannot start with
-///   (`. , ; : ! ? ) ] } / $`) or a digit after a minus sign (a `-` with no ASCII letter or
-///   digit before it), as Blink's table does; each `-` of a run breaks too;
-/// - before any other character, no break after a `-` that starts the word (nothing or a
-///   no-break space before it), as Chrome keeps one with what follows; else a break where
-///   `icu_segmenter` finds one (Blink hands these to ICU), at CSS `line-break: auto`'s
-///   strictness (`Normal`, so a `ー` may start a line).
-fn hyphen_units(word: &str) -> Vec<&str> {
+/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`).
+fn break_units(word: &str) -> Vec<&str> {
     static SEGMENTER: LineSegmenterBorrowed<'static> = {
         let mut options = LineBreakOptions::default();
         options.strictness = Some(LineBreakStrictness::Normal);
         LineSegmenter::new_for_non_complex_scripts(options)
     };
-    let breaks = |prev: Option<char>, next_at: usize, next: char| {
-        if next.is_ascii() {
-            let minus = next.is_ascii_digit() && !prev.is_some_and(|c| c.is_ascii_alphanumeric());
-            !minus && !".,;:!?)]}/$".contains(next)
-        } else {
-            !prev.is_none_or(|c| c == '\u{a0}')
-                && SEGMENTER.segment_str(word).any(|at| at == next_at)
-        }
+    let found: Vec<usize> = if word.is_ascii() {
+        Vec::new()
+    } else {
+        SEGMENTER.segment_str(word).collect()
     };
+    let chars: Vec<(usize, char)> = word.char_indices().collect();
     let mut out = Vec::new();
     let mut start = 0;
-    let mut prev: Option<char> = None;
-    let mut chars = word.char_indices().peekable();
-    while let Some((_, c)) = chars.next() {
-        if let (Some(&(next_at, next)), '-') = (chars.peek(), c)
-            && breaks(prev, next_at, next)
-        {
-            out.push(&word[start..next_at]);
-            start = next_at;
+    for i in 1..chars.len() {
+        let (at, next) = chars[i];
+        let before = i.checked_sub(2).map(|j| chars[j].1);
+        let after = chars.get(i + 1).map(|&(_, c)| c);
+        let icu = found.binary_search(&at).is_ok();
+        if breaks_between(before, chars[i - 1].1, next, after, icu) {
+            out.push(&word[start..at]);
+            start = at;
         }
-        prev = Some(c);
     }
     out.push(&word[start..]);
     out
+}
+
+/// Whether Chrome breaks a line between `c` and `next` inside a word, as the copy draws it,
+/// `before` and `after` being the characters around them, and `icu` whether `icu_segmenter`
+/// breaks there. Chrome (Blink) decides a break between two ASCII characters from a table
+/// of its own and hands any other to ICU, the Unicode line-breaking rules (UAX #14), here
+/// `icu_segmenter` at CSS `line-break: auto`'s strictness (`Normal`, so a small kana or a
+/// `ー` may start a line). So:
+/// - between two ASCII characters, a break only after a `-`, unless before a character a
+///   line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after a minus sign
+///   (a `-` with no ASCII letter or digit before it), as Blink's table does; each `-` of a
+///   run breaks too;
+/// - between any other two, a break where `icu_segmenter` finds one: between two
+///   ideographs, kana or hangul, between one and a letter or digit, but not before a
+///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
+///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
+///   hyphen that starts the word (nothing or a no-break space before it) before a letter
+///   (UAX #14's LB20a), and a break before an opening `“` or `‘` between two East Asian
+///   characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
+fn breaks_between(
+    before: Option<char>,
+    c: char,
+    next: char,
+    after: Option<char>,
+    icu: bool,
+) -> bool {
+    if c.is_ascii() && next.is_ascii() {
+        let minus = next.is_ascii_digit() && !before.is_some_and(|c| c.is_ascii_alphanumeric());
+        return c == '-' && !minus && !".,;:!?)]}/$".contains(next);
+    }
+    let class = |c: char| CodePointMapData::<LineBreak>::new().get(c);
+    let category = |c: char| CodePointMapData::<GeneralCategory>::new().get(c);
+    let east_asian = |c: Option<char>| {
+        c.is_some_and(|c| {
+            matches!(
+                CodePointMapData::<EastAsianWidth>::new().get(c),
+                EastAsianWidth::F | EastAsianWidth::W | EastAsianWidth::H
+            )
+        })
+    };
+    // LB20a: a letter is what UAX #14 takes as AL (AI and XX resolve to it) or HL.
+    if matches!(class(c), LineBreak::HY | LineBreak::HH)
+        && before.is_none_or(|c| c == '\u{a0}')
+        && matches!(
+            class(next),
+            LineBreak::AL | LineBreak::HL | LineBreak::AI | LineBreak::XX
+        )
+    {
+        return false;
+    }
+    // LB19a, short of the rules before it that keep the two together.
+    if class(next) == LineBreak::QU && category(next) == GeneralCategory::InitialPunctuation {
+        return east_asian(Some(c))
+            && east_asian(after)
+            && !matches!(
+                class(c),
+                LineBreak::OP | LineBreak::GL | LineBreak::WJ | LineBreak::ZWJ
+            );
+    }
+    if class(c) == LineBreak::QU && category(c) == GeneralCategory::FinalPunctuation {
+        let kept = [
+            LineBreak::CM,
+            LineBreak::ZWJ,
+            LineBreak::WJ,
+            LineBreak::GL,
+            LineBreak::CL,
+            LineBreak::CP,
+            LineBreak::EX,
+            LineBreak::SY,
+            LineBreak::IS,
+            LineBreak::BA,
+            LineBreak::HY,
+            LineBreak::NS,
+            LineBreak::IN,
+        ];
+        return east_asian(before) && east_asian(Some(next)) && !kept.contains(&class(next));
+    }
+    icu
 }
 
 /// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
@@ -1589,6 +1654,24 @@ mod tests {
                 assert!(piece.width() <= w.max(2), "w={w} {piece:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_delivery_failures_details_break_cjk_text_where_the_copy_does() {
+        // Between two ideographs, as Chrome breaks the copy's `.evtdetail`, so a run too wide
+        // for any line fills the line it starts on; not before a closing mark.
+        assert_eq!(wrap("ab  中文字", 6), ["ab  中", "文字"]);
+        let run = "中".repeat(30);
+        assert_eq!(
+            wrap(&format!("pane 中 {run}"), 20),
+            [
+                format!("pane 中 {}", "中".repeat(6)),
+                "中".repeat(10),
+                "中".repeat(10),
+                "中".repeat(4)
+            ]
+        );
+        assert_eq!(wrap("中文。字字", 4), ["中", "文。", "字字"]);
     }
 
     #[test]

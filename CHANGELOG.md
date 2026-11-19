@@ -42,6 +42,12 @@ tag's date, and a new empty Unreleased goes above it.
 - **The replying-to line, where a thread stands and an inbox row fold their spaces.** Each
   draws a message's line with each run of spaces between words as one, as the UI design
   does, where it had kept them as written; the message's bubble still keeps them (#27).
+- **CJK text breaks between its characters.** In a message, and in a delivery failure's
+  opened details, Chinese, Japanese and Korean text with no spaces moved to the next line
+  whole, or broke only where a line ended. It now breaks between two characters, and
+  between one and a word, where the UI design does, never before a closing mark such as
+  `。` or after an opening one such as `「`; a run too wide for a line fills the line it
+  starts on. A word also breaks after a `…` as the design does (#20).
 
 ## [0.4.0] - 2026-11-16
 

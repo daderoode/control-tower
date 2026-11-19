@@ -1889,6 +1889,85 @@ mod tests {
     }
 
     #[test]
+    fn cjk_text_breaks_between_its_characters_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // Between two ideographs, after a run of spaces or one, as Chrome breaks the copy's
+        // body.
+        assert_eq!(wrapped("ab  中文字", 6), ["ab  中", "文字"]);
+        assert_eq!(wrapped("ab 中文字", 6), ["ab 中", "文字"]);
+        // A run too wide for any line fills the line it starts on.
+        let run = "中".repeat(50);
+        assert_eq!(
+            wrapped(&format!("ab {run}"), 40),
+            [
+                format!("ab {}", "中".repeat(18)),
+                "中".repeat(20),
+                "中".repeat(12)
+            ]
+        );
+        // Between an ideograph and a letter, kana and hangul too.
+        assert_eq!(
+            wrapped(
+                "rebased the branch onto master: テストは全部通りました、問題ありません",
+                40
+            ),
+            [
+                "rebased the branch onto master: テストは",
+                "全部通りました、問題ありません"
+            ]
+        );
+        assert_eq!(
+            wrapped("今日はパンを焼きました。明日はケーキを作る予定です。", 20),
+            [
+                "今日はパンを焼きまし",
+                "た。明日はケーキを作",
+                "る予定です。"
+            ]
+        );
+        assert_eq!(
+            wrapped(
+                "오늘 아침에 빵을 세 개 구웠습니다. 내일은 케이크를 만들 예정입니다.",
+                14
+            ),
+            [
+                "오늘 아침에 빵",
+                "을 세 개 구웠",
+                "습니다. 내일은",
+                "케이크를 만들",
+                "예정입니다."
+            ]
+        );
+        // Not before a closing mark nor after an opening one.
+        assert_eq!(wrapped("中文。字字", 4), ["中", "文。", "字字"]);
+        assert_eq!(wrapped("「中文」字", 4), ["「中", "文」", "字"]);
+        assert_eq!(wrapped("中（中）中", 6), ["中", "（中）", "中"]);
+        // A `ー` may start a line, as CSS `line-break: auto` lets it.
+        assert_eq!(wrapped("テスト・ケース", 6), ["テス", "ト・ケ", "ース"]);
+        // A curly quote breaks from an ideograph on its outer side (UAX #14's LB19a).
+        assert_eq!(wrapped("ab 中“文”中", 5), ["ab 中", "“文”", "中"]);
+        assert_eq!(wrapped("ab 中“文”中", 9), ["ab 中“文”", "中"]);
+        // After a `-` that starts the word, before an ideograph but not before a letter,
+        // nor after a `‐` before one (LB20a).
+        assert_eq!(wrapped("ab -中文字中文字", 8), ["ab -中文", "字中文字"]);
+        assert_eq!(wrapped("ab ‐éabc", 6), ["ab", "‐éabc"]);
+        // A word with no break of its own after an ideograph starts on a line of its own.
+        let hash = "0123456789abcdef0123456789abcdef0123456789";
+        assert_eq!(
+            wrapped(&format!("ab 中{hash}"), 40),
+            ["ab 中", &hash[..40], &hash[40..]]
+        );
+        // After a `…`, which Chrome also breaks through ICU.
+        assert_eq!(wrapped("ab abc…defg", 8), ["ab abc…", "defg"]);
+    }
+
+    #[test]
     fn the_tags_and_age_columns_are_what_the_name_line_draws() {
         for text in ["plain", "blocked: x", "decision: y"] {
             let m = &msgs(&[("dev-1", text, 0)])[0];
