@@ -597,11 +597,16 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     pieces
 }
 
-/// `text` on lines at most `w` wide (`wrap_line_by`), its spaces folded: its leading ones
-/// dropped and each run between words one.
+/// `text` on lines at most `w` wide (`wrap_line_by`), its spaces folded (`fold_spaces`).
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
+    wrap_line_by(&fold_spaces(text), w, |_| None)
+}
+
+/// `text` with its spaces folded as the copy's normal and `nowrap` text folds them: its
+/// leading and trailing ones dropped and each run between words one.
+pub(crate) fn fold_spaces(text: &str) -> String {
     let words: Vec<&str> = text.split(' ').filter(|s| !s.is_empty()).collect();
-    wrap_line_by(&words.join(" "), w, |_| None)
+    words.join(" ")
 }
 
 /// `wrap_line`, with a path (`is_path`) kept in its line and broken only after a `/`, as
