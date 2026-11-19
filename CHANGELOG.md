@@ -29,6 +29,9 @@ tag's date, and a new empty Unreleased goes above it.
 - **A Needs-you strip row folds its spaces.** A question in the strip draws each run of
   spaces between words as one, as the UI design does, where it had kept them as written;
   its bubble still keeps them (#25).
+- **The replying-to line, where a thread stands and an inbox row fold their spaces.** Each
+  draws a message's line with each run of spaces between words as one, as the UI design
+  does, where it had kept them as written; the message's bubble still keeps them (#27).
 
 ## [0.4.0] - 2026-11-16
 

@@ -922,7 +922,8 @@ pub fn composer_lines(
     // The question the owner is answering, from the "Needs you" strip.
     let replying = reply.map(|m| {
         let colour = talk.people().colour(&m.author, depth);
-        let first = m.text.lines().next().unwrap_or_default().to_string();
+        // Its spaces folded, as the copy's `nowrap` quote draws them.
+        let first = message_board::fold_spaces(m.text.lines().next().unwrap_or_default());
         let mut head = vec![
             Span::styled(" replying to ", dim(depth)),
             Span::styled(m.author.clone(), bold().fg(colour)),
