@@ -566,10 +566,10 @@ pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
 }
 
 /// `text` in pieces at most `w` columns wide, a piece per line of it (a blank line stays
-/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Details`).
+/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Plain`).
 pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
     text.split('\n')
-        .flat_map(|line| wrap_line_by(line, w, Wrap::Details))
+        .flat_map(|line| wrap_line_by(line, w, Wrap::Plain))
         .collect()
 }
 
@@ -599,9 +599,16 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     pieces
 }
 
-/// `text` on lines at most `w` wide (`wrap_line_by`), its spaces folded (`fold_spaces`).
+/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
+/// `.clamp2` text (titles, goals, thread names, inbox rows) breaks it (`Wrap::Plain`).
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(&fold_spaces(text), w, Wrap::Folded)
+    wrap_line_by(&fold_spaces(text), w, Wrap::Plain)
+}
+
+/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
+/// events and acks break it (`Wrap::Event`).
+pub(crate) fn wrap_event_line(text: &str, w: usize) -> Vec<String> {
+    wrap_line_by(&fold_spaces(text), w, Wrap::Event)
 }
 
 /// `text` with its spaces folded as the copy's normal and `nowrap` text folds them: its
@@ -619,17 +626,21 @@ pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
 /// How `wrap_line_by` breaks a line, after the copy's element for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wrap {
-    /// Text whose spaces were folded (`fold_spaces`): titles, acks, events. A word too wide
-    /// for any line starts where the line is.
-    Folded,
-    /// A delivery failure's opened details (`.evtdetail`). `white-space: pre-wrap` keeps a
-    /// line's leading spaces on its first line and each run between words as written;
-    /// `overflow-wrap: anywhere` breaks at the space before a word with no break of its own,
-    /// such as a long hash, too wide for a line, so it starts on a line of its own; a word
-    /// breaks inside where Chrome does (`break_units`), such as after a `-` or between two
-    /// ideographs. The details mark no paths, so a path is a word like any other.
-    Details,
-    /// A message body (`.seg .body`): as `Details`, and a path the copy marks (`paths`),
+    /// Text the copy breaks with `overflow-wrap: anywhere` and marks no paths in, so a path
+    /// is a word like any other: a delivery failure's opened details (`.evtdetail`) and,
+    /// their spaces folded (`fold_spaces`), titles, goals, thread names and inbox rows
+    /// (`.clamp2`). The details' `white-space: pre-wrap` keeps a line's leading spaces on
+    /// its first line and each run between words as written; `overflow-wrap: anywhere`
+    /// breaks at the space before a word with no break of its own, such as a long hash, too
+    /// wide for a line, so it starts on a line of its own; a word breaks inside where Chrome
+    /// does (`break_units`), such as after a `-` or between two ideographs.
+    Plain,
+    /// Events, a delivery failure's line and acks (`.evt`, `.ack`), their spaces folded: as
+    /// `Plain`, but the copy leaves `overflow-wrap` normal there, so a piece of a word too
+    /// wide for any line (`own_breaks`) overflows its line in Chrome, and what follows it
+    /// starts the next. Here it breaks where its lines end, and its last line ends with it.
+    Event,
+    /// A message body (`.seg .body`): as `Plain`, and a path the copy marks (`paths`),
     /// alone or joined to other text, breaks only after each `/`, as the copy's `<wbr>`
     /// breaks one; the text joined to it breaks as any other.
     Body,
@@ -640,8 +651,7 @@ enum Wrap {
 /// only after each `/`.
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
-        Wrap::Folded => return None,
-        Wrap::Details => break_units(word, &[]),
+        Wrap::Plain | Wrap::Event => break_units(word, &[]),
         Wrap::Body => break_units(word, &paths(word)),
     };
     (pieces.len() > 1).then_some(pieces)
@@ -824,13 +834,12 @@ fn paths(word: &str) -> Vec<Range<usize>> {
     out
 }
 
-/// `word` in the pieces it may break between: after each of `after`'s characters, or after
-/// any character when `after` is empty.
+/// `word` in the pieces it may break between: after each of `after`'s characters.
 pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut start = 0;
     for (i, c) in word.char_indices() {
-        if after.is_empty() || after.contains(&c) {
+        if after.contains(&c) {
             let end = i + c.len_utf8();
             out.push(&word[start..end]);
             start = end;
@@ -842,11 +851,11 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
     out
 }
 
-/// Words of `text` on lines at most `w` wide. A word too wide for any line starts where the
-/// line is, rather than leaving it short, and breaks where a line ends; unless `how` is
-/// `Wrap::Folded`, it starts on a line of its own instead, unless it has breaks of its own
-/// (`own_breaks`): such a word starts where the line is when its first piece fits there,
-/// and breaks only between its pieces, or inside a piece too wide for a line of its own.
+/// Words of `text` on lines at most `w` wide. A word too wide for any line starts on a line
+/// of its own and breaks where a line ends, unless it has breaks of its own (`own_breaks`):
+/// such a word starts where the line is when its first piece fits there, and breaks only
+/// between its pieces, or inside a piece too wide for a line of its own, after which, in
+/// `Wrap::Event` text, its line ends.
 /// The text's leading spaces, when narrower than a line, start its first line, as the
 /// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
 /// next line as any other word does, leaving them alone on the first. Each run of spaces
@@ -882,14 +891,13 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             line.push_str(word);
             continue;
         }
-        // A word with breaks of its own, or one too wide for any line in folded text,
-        // starts where the line is, rather than leaving it short, when its first piece fits
-        // there (so an indent the piece does not fit after keeps its line, as the copy's
-        // does); any other goes on the next, the space before it hanging at the end of this
-        // one.
+        // A word with breaks of its own starts where the line is, rather than leaving it
+        // short, when its first piece fits there (so an indent the piece does not fit after
+        // keeps its line, as the copy's does); any other goes on the next, the space before
+        // it hanging at the end of this one.
         let own = own_breaks(word, how);
-        let here = own.is_some() || (word.width() > w && how == Wrap::Folded);
-        let pieces = own.unwrap_or_else(|| units(word, &[]));
+        let here = own.is_some();
+        let pieces = own.unwrap_or_else(|| vec![word]);
         if here && !line.is_empty() && line.width() + gap + pieces[0].width() <= w {
             line.push_str(&" ".repeat(gap));
         } else if !line.is_empty() {
@@ -899,11 +907,15 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             if !line.is_empty() && line.width() + unit.width() > w {
                 out.push(std::mem::take(&mut line));
             }
+            let wide = unit.width() > w;
             for c in unit.chars() {
                 if !line.is_empty() && line.width() + c.width().unwrap_or(0) > w {
                     out.push(std::mem::take(&mut line));
                 }
                 line.push(c);
+            }
+            if wide && how == Wrap::Event {
+                out.push(std::mem::take(&mut line));
             }
         }
     }
@@ -1574,8 +1586,17 @@ mod tests {
                 "icon."
             ]
         );
-        // Where plain wrapping breaks it anywhere, a path breaks after a `/`.
-        assert_eq!(wrap_line(text, 30)[0], "Icons live in assets/icons/boo");
+        // A title marks no paths, so there one too wide for a line starts on a line of its
+        // own and breaks where the line ends; a message breaks it after a `/`.
+        assert_eq!(
+            wrap_line(text, 30),
+            [
+                "Icons live in",
+                "assets/icons/bookmarks/outline",
+                "/bookmark-ribbon.svg, one file",
+                "an icon."
+            ]
+        );
         assert_eq!(wrap_line_paths(text, 30)[0], "Icons live in assets/icons/");
         // Under 16 characters it is a word like any other.
         assert_eq!(
@@ -1712,6 +1733,42 @@ mod tests {
     }
 
     #[test]
+    fn folded_text_breaks_as_the_copys_clamp_and_event_box_do() {
+        // As headless Chrome draws the copy's `.clamp2` (titles, goals, thread names and inbox
+        // rows, with `overflow-wrap: anywhere`): a word breaks after a `-`, and a word too
+        // wide for a line starts on a line of its own and breaks where the line ends.
+        let title = "Bookmarks page for the reading-list and the shelf-grid layout";
+        assert_eq!(
+            wrap_line(title, 27),
+            [
+                "Bookmarks page for the",
+                "reading-list and the shelf-",
+                "grid layout"
+            ]
+        );
+        assert_eq!(
+            wrap_line("ab abcdefghij cd", 8),
+            ["ab", "abcdefgh", "ij cd"]
+        );
+        assert_eq!(
+            wrap_line("ab abcdefghij-k cd", 8),
+            ["ab", "abcdefgh", "ij-k cd"]
+        );
+        // The copy's `.evt` and `.ack` leave `overflow-wrap` normal, so Chrome lets a piece too
+        // wide for a line overflow it and starts what follows on the next line: here the
+        // piece breaks where its lines end, and its last line ends with it.
+        assert_eq!(
+            wrap_event_line("ab abcdefghij cd", 8),
+            ["ab", "abcdefgh", "ij", "cd"]
+        );
+        assert_eq!(
+            wrap_event_line("ab abcdefghij-k cd", 8),
+            ["ab", "abcdefgh", "ij-", "k cd"]
+        );
+        assert_eq!(wrap_event_line(title, 27), wrap_line(title, 27));
+    }
+
+    #[test]
     fn wrap_breaks_at_spaces_and_splits_only_words_too_wide() {
         assert_eq!(wrap("copy, go", 20), vec!["copy, go"]);
         assert_eq!(wrap("one two three", 7), vec!["one two", "three"]);
@@ -1839,11 +1896,13 @@ mod tests {
             wrap_at_most("one two three four", 7, 2),
             vec!["one two", "three four"]
         );
-        // A word broken across the lines past the last stays whole, its spacing as written.
+        // A word too wide for a line starts on a line of its own, as the copy's `.clamp2`
+        // starts it, and the rest keeps its spacing as written.
         assert_eq!(
             wrap_at_most("ab bookshelf  now", 4, 2),
-            vec!["ab b", "ookshelf  now"]
+            vec!["ab", "bookshelf  now"]
         );
+        // A word broken across the lines past the last stays whole.
         assert_eq!(wrap_at_most("abcdefghij", 4, 2), vec!["abcd", "efghij"]);
         assert_eq!(wrap_at_most("abcdefghij", 4, 1), vec!["abcdefghij"]);
         assert_eq!(wrap_at_most("日本語です", 4, 2), vec!["日本", "語です"]);
