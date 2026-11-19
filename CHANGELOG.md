@@ -9,6 +9,15 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Changed
+
+- **The owner signs off the spec, and sees it beside the lead.** The lead skill follows the
+  front of the lifecycle: the owner grills the idea, runs `/to-spec` and signs off the spec,
+  then runs `/to-tickets`, whose tickets in blocking order are the plan. The lead asks the
+  owner to run both skills in its session instead of trying to run them itself, and when the
+  spec is posted it opens a copy in Neovim in a pane to the right of its own (in herdr or
+  Rex), or gives the spec's link elsewhere.
+
 ## [0.4.0] - 2026-11-16
 
 ### Added

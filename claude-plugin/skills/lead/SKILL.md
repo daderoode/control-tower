@@ -35,6 +35,7 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
   | Order | With release milestones, release by release first (see The backlog); then blockers first, then bugs before features, then oldest first; the order is shown on the board | A `priority` label on an issue runs it first |
   | Merges | As the repo's SDLC says (see Finishing) | As the repo's SDLC says |
   | Releases | With the owner's permission (the repo's SDLC or standing context), cut the release yourself; otherwise propose one | The go, unless given to you |
+  | Spec and tickets | Ask the owner to run `/to-spec` and `/to-tickets` (never run them yourself); open the spec for the owner (see Starting, step 7) | Runs them; signs off the spec and the tickets before building |
   | UI | Build only to a signed-off copy | Sign-off |
 
 ## Starting
@@ -180,11 +181,35 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
    - **Spec and tasks exist:** dispatch the relevant workers across the tasks.
 6. The general loop: get context, work out what needs doing, work out the order it can be
    done in (unless the spec already sets it out), dispatch workers.
-7. **Spec and tickets:** run `/to-spec` and `/to-tickets` yourself. `/to-spec` turns the
-   current conversation into a spec without an interview, so it must run in the session
-   holding the context; a fresh session would write from guesswork. This is planning, not
-   doing. Later, control-tower can be the tracker those skills publish to, so tickets become
-   the milestone's tasks directly.
+7. **Spec and tickets:** before any building there is a spec and a set of tickets, and the
+   owner signs off both. The owner grills the idea, runs `/to-spec` and signs off the spec,
+   then runs `/to-tickets` and signs off the tickets. Those tickets, in their blocking order,
+   are the plan. Both skills set `disable-model-invocation: true`, so only the owner can
+   start them: never run them or try to. Ask the owner, in your own session (the owner's
+   pane), to run them there: `/to-spec` turns the current conversation into a spec without
+   an interview, so it must run in the session holding the context; a fresh session would
+   write from guesswork. Later, control-tower can be the tracker those skills publish to,
+   so tickets become the milestone's tasks directly.
+   **When the spec is posted**, open a copy of it for the owner in Neovim in a pane to the
+   right of yours, and make any change they ask for on the issue, never only in the copy.
+   Save the issue's title and body to a temp file (on GitLab,
+   `glab issue view <#I> -F json`, whose body is `description`):
+
+       f="$(mktemp -d)/spec.md"
+       gh issue view <#I> --json title,body --jq '"# " + .title + "\n\n" + .body' > "$f"
+
+   Then open it, with focus, by the terminal you run in:
+   - in herdr (`$HERDR_PANE_ID` is set):
+
+         p=$(herdr pane split --current --direction right --cwd "$PWD" --focus | jq -r .result.pane.pane_id)
+         herdr pane run "$p" "nvim '$f'"
+
+   - in Rex (`$REX_SESSION` is set), a block to the right of yours (`rex` is in
+     `$REX_BIN_DIR` when it is not on PATH):
+
+         rex split -b "$REX_BLOCK" --split right --focus -c "$PWD" -- nvim "$f"
+
+   - otherwise, give the spec's link.
 8. **Tasks on the board**: for each ticket, copy its description and acceptance
    criteria, plus what it is blocked by. A task made from an issue carries the issue as its
    link (`--link`), and its title says what it is in words, without the issue's number: the
@@ -198,7 +223,7 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
 
    A task's standing context ("when picking this up, do ABC") goes in with
    `tower task set N --context "..."`; a milestone's with `tower milestone set <M> --context "..."`.
-9. **The merge task**: while you write the spec and tickets, before work
+9. **The merge task**: while the spec and tickets are written, before work
    starts, create the task or subtask that waits on the owner's merge, so progress never
    shows 100% while the owner's review is pending, unless the repo's SDLC or the standing
    context gives you the master merge:
@@ -351,7 +376,11 @@ and `tower repo show <R>` lists threads by title.
 - **The brief** gives the worker everything it needs to complete the task, all relevant
   information but no unnecessary context. Unless the repo's SDLC says otherwise, it tells
   the worker to stage its change and report, never to commit or push.
-- **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting):
+- **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting).
+  Before any building there is a spec and a set of tickets, and the owner signs off both:
+  the owner grills the idea, runs `/to-spec` and signs off the spec, then runs
+  `/to-tickets`. Those tickets, in their blocking order, are the plan (see Starting, step 7,
+  which also opens the spec for the owner). Each ticket then goes through:
   1. **Implement (dev):** builds it and runs the quality gate (or, where the repo's SDLC
      keeps them in CI, only the local checks it names, see Build once) and its own sanity
      checks, stages it and reports. Only you commit, push and open the PR: for a Standard
