@@ -387,8 +387,8 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// line of its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
 /// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). The line's
-/// leading spaces stay on its first line of text; a URL's line starts at the text's column,
-/// as the copy's block URL does. Spaces are all that is added or dropped, so `marked` can
+/// leading spaces stay on its first line of text and its runs of spaces between words stay
+/// as written; a URL's line starts at the text's column, as the copy's block URL does. Spaces are all that is added or dropped, so `marked` can
 /// find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
