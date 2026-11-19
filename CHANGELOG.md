@@ -39,6 +39,9 @@ tag's date, and a new empty Unreleased goes above it.
   now starts on the next line and breaks where each line ends, as the UI design does. A word
   with a `-` now breaks after it where the design does, so it starts where the line is; a
   path in a message still breaks after a `/` (#18).
+- **The replying-to line, where a thread stands and an inbox row fold their spaces.** Each
+  draws a message's line with each run of spaces between words as one, as the UI design
+  does, where it had kept them as written; the message's bubble still keeps them (#27).
 - **A delivery failure's line wraps in a narrow chat.** In a chat narrower than the line of
   a delivery failure or of the watch's "left herdr" flag, it wraps onto centred lines inside
   its box, as the UI design does, its "details" or "hide details" kept whole and moved to a

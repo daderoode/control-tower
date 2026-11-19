@@ -9361,6 +9361,66 @@ fn a_needs_you_strip_row_folds_its_questions_runs_of_spaces() {
 }
 
 #[test]
+fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spaces() {
+    // T4's question (402) written with runs of spaces between its words.
+    let mut board = board_fixture();
+    let t = (board.milestones[0].threads.iter_mut())
+        .find(|t| t.id == ThreadId(4))
+        .unwrap();
+    let mut messages = t.messages.clone();
+    let q = messages.iter_mut().find(|m| m.id == 402).unwrap();
+    q.text = "question:  the   covers are late again.    @manager can you call the printer?".into();
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    with_alerts(&mut board, &[]);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let folded = "cat-lead: question: the covers are late again. @manager can you call";
+    // Replying to it from the strip: on the board, the reply line and where T4 stands, in
+    // its header and its row in the thread list.
+    let mut dash = select(Item::Milestone(MilestoneId(1)));
+    let all = screen(&view, &dash, a);
+    let y = find_row_containing(&all, "⚠ Needs you · 1") + 1;
+    // In the overview's strip, right of the tree.
+    let x = all[y][..all[y].rfind("cat-lead").unwrap()].width() as u16;
+    dash.handle(&view, a, Input::Click { x, y: y as u16 });
+    assert_eq!(dash.replying(), Some(402));
+    let all = screen(&view, &dash, a);
+    // As the copy's nowrap lines: each run is one space.
+    let reply = find_row_containing(&all, "replying to cat-lead");
+    assert!(
+        all[reply].contains(&format!(" replying to {folded}")),
+        "{all:#?}"
+    );
+    let head = find_row_containing(&all, "where it stands");
+    assert!(
+        all[head].contains(&format!("where it stands {folded}")),
+        "{all:#?}"
+    );
+    // The list's row, left of the conversation, is narrower: its start.
+    assert!(
+        (all.iter()).any(|r| r
+            .split('│')
+            .next()
+            .unwrap()
+            .contains("   cat-lead: question: the covers are")),
+        "{all:#?}"
+    );
+    // The bubble still keeps them, as the copy's pre-wrap body does.
+    let all = all.join("\n");
+    assert!(
+        all.contains("▌ question:  the   covers are late again.    @manager"),
+        "{all}"
+    );
+    // Its inbox row, as the copy's normal row: each run is one space.
+    let all = screen(&view, &inbox_dash(&view, a), a);
+    let row = find_row_containing(&all, "question:");
+    assert!(
+        all[row].contains("question: the covers are late again. @manager can you call"),
+        "{all:#?}"
+    );
+}
+
+#[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();
     let id_of = |sym: &str| sym.split(';').nth(1).map(str::to_string);
