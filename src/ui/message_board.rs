@@ -14,6 +14,9 @@
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 
+use icu_segmenter::LineSegmenter;
+use icu_segmenter::LineSegmenterBorrowed;
+use icu_segmenter::options::{LineBreakOptions, LineBreakStrictness};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -560,14 +563,11 @@ pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
     }
 }
 
-/// `text` in pieces at most `w` columns wide: a piece per line of it (a blank line stays
-/// blank), each broken at spaces where it can and inside a word only when the word alone
-/// is too wide (`wrap_line_by`). Each line's spaces stay as the copy's delivery-failure
-/// details (`white-space: pre-wrap`) keep them: its leading ones on its first line and each
-/// run between words as written.
+/// `text` in pieces at most `w` columns wide, a piece per line of it (a blank line stays
+/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Details`).
 pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
     text.split('\n')
-        .flat_map(|line| wrap_line_by(line, w, |_| None))
+        .flat_map(|line| wrap_line_by(line, w, Wrap::Details))
         .collect()
 }
 
@@ -599,7 +599,7 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
 
 /// `text` on lines at most `w` wide (`wrap_line_by`), its spaces folded (`fold_spaces`).
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(&fold_spaces(text), w, |_| None)
+    wrap_line_by(&fold_spaces(text), w, Wrap::Folded)
 }
 
 /// `text` with its spaces folded as the copy's normal and `nowrap` text folds them: its
@@ -609,16 +609,83 @@ pub(crate) fn fold_spaces(text: &str) -> String {
     words.join(" ")
 }
 
-/// `wrap_line`, with a path (`is_path`) kept in its line and broken only after a `/`, as
-/// the copy breaks one, and the line's spaces kept as the copy's message body
-/// (`white-space: pre-wrap`) keeps them: its leading ones on its first line and each run
-/// between words as written.
+/// `text` on lines at most `w` wide as the copy's message body breaks it (`Wrap::Body`).
 pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
-    wrap_line_by(
-        text,
-        w,
-        |word| if is_path(word) { Some(&['/']) } else { None },
-    )
+    wrap_line_by(text, w, Wrap::Body)
+}
+
+/// How `wrap_line_by` breaks a line, after the copy's element for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Wrap {
+    /// Text whose spaces were folded (`fold_spaces`): titles, acks, events. A word too wide
+    /// for any line starts where the line is.
+    Folded,
+    /// A delivery failure's opened details (`.evtdetail`). `white-space: pre-wrap` keeps a
+    /// line's leading spaces on its first line and each run between words as written;
+    /// `overflow-wrap: anywhere` breaks at the space before a word with no break of its own,
+    /// such as a long hash, too wide for a line, so it starts on a line of its own; a word
+    /// with a `-` breaks after it as Chrome does (`hyphen_units`). The details mark no
+    /// paths, so a path is a word like any other.
+    Details,
+    /// A message body (`.seg .body`): as `Details`, and a path (`is_path`) breaks only after
+    /// each `/`, as the copy's `<wbr>` breaks one.
+    Body,
+}
+
+/// `word` in the pieces `how` may break it between, short of breaking it anywhere, or
+/// `None` when it has no such break: a path in a `Body` after each `/`, and any other word
+/// after a `-` (`hyphen_units`).
+fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
+    let pieces = match how {
+        Wrap::Folded => return None,
+        Wrap::Body if is_path(word) => units(word, &['/']),
+        Wrap::Details | Wrap::Body => hyphen_units(word),
+    };
+    (pieces.len() > 1).then_some(pieces)
+}
+
+/// `word` in the pieces Chrome breaks it between after a `-`, as the copy draws it. Not the
+/// Unicode line-breaking rules alone (UAX #14, `icu_segmenter`): Chrome (Blink) decides a
+/// break between two ASCII characters from a table of its own, and `icu_segmenter` differs
+/// from it there (no break in 'abc-123' or '2026-11-19', one before '$'). So, after a `-`
+/// that does not end the word:
+/// - before an ASCII character, a break unless it is one a line cannot start with
+///   (`. , ; : ! ? ) ] } / $`) or a digit after a minus sign (a `-` with no ASCII letter or
+///   digit before it), as Blink's table does; each `-` of a run breaks too;
+/// - before any other character, no break after a `-` that starts the word (nothing or a
+///   no-break space before it), as Chrome keeps one with what follows; else a break where
+///   `icu_segmenter` finds one (Blink hands these to ICU), at CSS `line-break: auto`'s
+///   strictness (`Normal`, so a `ー` may start a line).
+fn hyphen_units(word: &str) -> Vec<&str> {
+    static SEGMENTER: LineSegmenterBorrowed<'static> = {
+        let mut options = LineBreakOptions::default();
+        options.strictness = Some(LineBreakStrictness::Normal);
+        LineSegmenter::new_for_non_complex_scripts(options)
+    };
+    let breaks = |prev: Option<char>, next_at: usize, next: char| {
+        if next.is_ascii() {
+            let minus = next.is_ascii_digit() && !prev.is_some_and(|c| c.is_ascii_alphanumeric());
+            !minus && !".,;:!?)]}/$".contains(next)
+        } else {
+            !prev.is_none_or(|c| c == '\u{a0}')
+                && SEGMENTER.segment_str(word).any(|at| at == next_at)
+        }
+    };
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut prev: Option<char> = None;
+    let mut chars = word.char_indices().peekable();
+    while let Some((_, c)) = chars.next() {
+        if let (Some(&(next_at, next)), '-') = (chars.peek(), c)
+            && breaks(prev, next_at, next)
+        {
+            out.push(&word[start..next_at]);
+            start = next_at;
+        }
+        prev = Some(c);
+    }
+    out.push(&word[start..]);
+    out
 }
 
 /// Whether `word` holds a path as the copy finds one: at least 16 characters of letters,
@@ -648,19 +715,16 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 }
 
 /// Words of `text` on lines at most `w` wide. A word too wide for any line starts where the
-/// line is, rather than leaving it short, and breaks where a line ends. A word `breaks`
-/// gives break characters for starts where the line is too, and breaks only after one of
-/// them (`units`), or inside a piece between them too wide for a line of its own. The
-/// text's leading spaces, when narrower than a line, start its first line, as the copy's
-/// `pre-wrap` body keeps them: a first word that does not fit after them goes to the next
-/// line as any other word does, leaving them alone on the first. Each run of spaces between
-/// words stays as written, and counts toward the line's width; a line that breaks at a run
-/// drops it, as `pre-wrap` hangs it, so the next line starts with the word.
-fn wrap_line_by(
-    text: &str,
-    w: usize,
-    breaks: impl Fn(&str) -> Option<&'static [char]>,
-) -> Vec<String> {
+/// line is, rather than leaving it short, and breaks where a line ends; unless `how` is
+/// `Wrap::Folded`, it starts on a line of its own instead, unless it has breaks of its own
+/// (`own_breaks`): such a word starts where the line is when its first piece fits there,
+/// and breaks only between its pieces, or inside a piece too wide for a line of its own.
+/// The text's leading spaces, when narrower than a line, start its first line, as the
+/// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
+/// next line as any other word does, leaving them alone on the first. Each run of spaces
+/// between words stays as written, and counts toward the line's width; a line that breaks
+/// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word.
+fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
     let body = text.trim_start_matches(' ');
@@ -690,22 +754,22 @@ fn wrap_line_by(
             line.push_str(word);
             continue;
         }
-        // A word too wide for any line, or one with its own breaks, starts where the line
-        // is, rather than leaving it short; any other goes on the next.
-        let after = breaks(word);
-        if (word.width() > w || after.is_some()) && !line.is_empty() && line.width() + gap < w {
+        // A word with breaks of its own, or one too wide for any line in folded text,
+        // starts where the line is, rather than leaving it short, when its first piece fits
+        // there (so an indent the piece does not fit after keeps its line, as the copy's
+        // does); any other goes on the next, the space before it hanging at the end of this
+        // one.
+        let own = own_breaks(word, how);
+        let here = own.is_some() || (word.width() > w && how == Wrap::Folded);
+        let pieces = own.unwrap_or_else(|| units(word, &[]));
+        if here && !line.is_empty() && line.width() + gap + pieces[0].width() <= w {
             line.push_str(&" ".repeat(gap));
         } else if !line.is_empty() {
             out.push(std::mem::take(&mut line));
         }
-        for unit in units(word, after.unwrap_or(&[])) {
+        for unit in pieces {
             if !line.is_empty() && line.width() + unit.width() > w {
-                // The space before a word that then did not start here goes with the line.
-                let done = std::mem::take(&mut line);
-                let done = done.trim_end();
-                if !done.is_empty() {
-                    out.push(done.to_string());
-                }
+                out.push(std::mem::take(&mut line));
             }
             for c in unit.chars() {
                 if !line.is_empty() && line.width() + c.width().unwrap_or(0) > w {
@@ -1484,6 +1548,29 @@ mod tests {
                 height(&talk_of(&m), None, 60, SPACE)
             );
         }
+    }
+
+    #[test]
+    fn a_failures_details_wrap_as_the_copys_details_do() {
+        // As a message body does: a word with no break of its own too wide for a line starts
+        // on a line of its own, and a word breaks after a `-`.
+        assert_eq!(wrap("ab abcdefghij", 8), ["ab", "abcdefgh", "ij"]);
+        assert_eq!(wrap("ab abc-def", 8), ["ab abc-", "def"]);
+        // But a path is a word like any other, as the details mark none, where a message
+        // breaks it after each `/`.
+        let path = "ab assets/icons/bookmarks/outline";
+        assert_eq!(
+            wrap(path, 12),
+            ["ab", "assets/icons", "/bookmarks/o", "utline"]
+        );
+        assert_eq!(
+            wrap_line_paths(path, 12),
+            ["ab assets/", "icons/", "bookmarks/", "outline"]
+        );
+        assert_eq!(
+            wrap("see /opt/tower/var/log/control-tower.log now", 20),
+            ["see", "/opt/tower/var/log/c", "ontrol-tower.log now"]
+        );
     }
 
     #[test]

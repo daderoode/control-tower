@@ -33,6 +33,12 @@ tag's date, and a new empty Unreleased goes above it.
   failure or of the watch's "left herdr" flag are drawn left-aligned in a box centred under
   the failure's line, as wide as its widest line and at most 80 columns, as the UI design
   does, where they had started at the chat's left edge at its full width (#26).
+- **A word too wide for its bubble starts on a line of its own.** In a message, and in a
+  delivery failure's opened details, a word with no break of its own, such as a long hash,
+  wider than any line broke right after the text before it, so the two shared a line. It
+  now starts on the next line and breaks where each line ends, as the UI design does. A word
+  with a `-` now breaks after it where the design does, so it starts where the line is; a
+  path in a message still breaks after a `/` (#18).
 
 ## [0.4.0] - 2026-11-16
 
