@@ -9423,25 +9423,35 @@ fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spac
 #[test]
 fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_list() {
     // T4 gets a newest message from cat-lead, starting with each leading tag in turn, on its
-    // full board beside the list. Each round's message has its own id: a message never
-    // changes, so the board keeps a conversation's bubbles by its messages' ids.
+    // full board beside the list, with whether its tag is bold. Each round's message has its
+    // own id: a message never changes, so the board keeps a conversation's bubbles by its
+    // messages' ids.
     let tags = [
         (
             "decision:",
             "decision: the covers come from the second printer. @manager for your awareness",
+            true,
         ),
-        ("blocked:", "blocked: the second printer is out of ink too"),
+        (
+            "blocked:",
+            "blocked: the second printer is out of ink too",
+            true,
+        ),
         (
             "question:",
             "question: the covers are late again. @manager can you call the printer?",
+            false,
         ),
         // The owner mentioned on a later line: for your awareness, as its bubble takes it.
         (
             "decision:",
             "decision: the spine stays matte\n@manager for your awareness",
+            true,
         ),
+        // Not for your awareness (no mention of the owner): plain, as its bubble.
+        ("decision:", "decision: the covers stay blue", false),
     ];
-    for (id, (tag, text)) in (410..).zip(tags) {
+    for (id, (tag, text, bold_tag)) in (410..).zip(tags) {
         let mut board = board_fixture();
         let t = (board.milestones[0].threads.iter_mut())
             .find(|t| t.id == ThreadId(4))
@@ -9475,6 +9485,8 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
             let first = text.lines().next().unwrap();
             assert!(all[bubble].contains(&format!("▌ {first}")), "{all:#?}");
             let (_, want) = at(bubble, &format!("▌ {tag}"), "▌ ");
+            let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
+            assert_eq!(bold(&want), bold_tag, "{text:?} bubble {depth:?}");
             let said = format!("cat-lead: {tag}");
             // The header's line, right of the list's bar, by its lead-in; the list's row,
             // left of it. T4 is the newest thread, so its list row can share the header's
@@ -9493,11 +9505,9 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
                 let (x, got) = at(y, needle, skip);
                 assert_eq!(x > bar(y), place == "header", "{place} {all:#?}");
                 assert_eq!(got.symbol(), &tag[..1], "{tag} {place} {depth:?}");
-                // As its bubble: decision: and blocked: bold in their colour, question: plain.
-                assert_eq!(got.fg, want.fg, "{tag} {place} {depth:?}");
-                let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
-                assert_eq!(bold(&got), bold(&want), "{tag} {place} {depth:?}");
-                assert_eq!(bold(&got), tag != "question:", "{tag} {place} {depth:?}");
+                // As its bubble: in the bubble's colour, bold exactly when the round says.
+                assert_eq!(got.fg, want.fg, "{text:?} {place} {depth:?}");
+                assert_eq!(bold(&got), bold_tag, "{text:?} {place} {depth:?}");
             }
         }
     }

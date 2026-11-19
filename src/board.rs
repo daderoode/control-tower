@@ -764,11 +764,12 @@ impl<'a> Talk<'a> {
         t.id.to_string()
     }
 
-    /// Where thread `t` stands, by whom, and the tone of the message it comes from (whole,
-    /// as its bubble takes it): on its task's first open thread, the task's doing line (the
-    /// blocked reason first, as its detail has it), else the first line of its newest
-    /// message by a person that is not an ack, else of its newest message; either way
-    /// without a "Status:" prefix.
+    /// Where thread `t` stands, by whom, and its tone: on its task's first open thread, the
+    /// task's doing line (the blocked reason first, as its detail has it), else the first
+    /// line of its newest message by a person that is not an ack, else of its newest
+    /// message; either way without a "Status:" prefix. The tone is the whole message's, as
+    /// its bubble takes it; a blocked reason, which has no message, takes its
+    /// "blocked: <why>" line's.
     pub fn stands(&self, t: &Thread) -> Option<(String, String, Tone)> {
         // The doing line is the task's, so it heads the task's home thread only (or, while
         // no person has posted on the task, its first open thread); any other thread on the
