@@ -403,8 +403,8 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// its own too wide for a line starts on a line of its own (`wrap_line_paths`). The line's
 /// leading spaces stay on its first line of text and its runs of spaces between words stay
 /// as written; a URL's line starts at the text's column, as the copy's block URL does.
-/// Spaces are all that is added or dropped, so `marked` can find the owner's mentions in
-/// the pieces.
+/// Spaces are all that is added, and what `dropped` names all that is dropped, so `marked`
+/// can find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {

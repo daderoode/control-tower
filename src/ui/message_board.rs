@@ -971,7 +971,11 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
                 line.push(c);
             }
             if wide && how == Wrap::Event {
-                out.push(std::mem::take(&mut line));
+                // Its last line ends with it, any run after it hanging there. A piece that
+                // is only a run hung past the line before, which leaves no line to end.
+                if !line.is_empty() {
+                    out.push(std::mem::take(&mut line));
+                }
                 continue;
             }
             put_hung(&mut line, &mut out, hung, w);
@@ -1884,6 +1888,11 @@ mod tests {
         }
         assert_eq!(wrap_line_paths(text, 3), ["abc", "d　", "、", "ef"]);
         assert_eq!(wrap_line_paths(text, 4), ["abcd", "、ef"]);
+        // In an event, a piece too wide for any line ends its last line, and a run after it
+        // hangs there, so the next line starts with the word after it; a run that is the
+        // whole piece leaves no empty line behind.
+        assert_eq!(wrap_event_line("abcdef　x", 4), ["abcd", "ef", "x"]);
+        assert_eq!(wrap_event_line("　　　　中", 3), ["　", "中"]);
         // The rest past the last line starts after a run hung on the lines before it.
         assert_eq!(
             wrap_at_most("確認です　確認です　確認です　確認です", 8, 3),
