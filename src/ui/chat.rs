@@ -508,8 +508,8 @@ fn marked<'a>(
 }
 
 /// `text` in pieces, its first at most `first` columns wide and the rest at most `w` (as
-/// `wrap` breaks them), each with the byte ranges in it of the owner's mentions, as
-/// `board::owner_mentions` reads the whole text.
+/// `wrap_line` breaks them, their spaces folded), each with the byte ranges in it of the
+/// owner's mentions, as `board::owner_mentions` reads the whole text.
 pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Range<usize>>)> {
     let marks = owner_mentions(text);
     let mut out = Vec::new();
