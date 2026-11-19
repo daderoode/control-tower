@@ -1371,7 +1371,8 @@ impl Dash {
                 let page = page(ib.list.height);
                 let v = self.top_mut();
                 let down = input == Input::PageDown;
-                v.scroll = scroll_by(v.scroll, page, down, ib.rows.len(), ib.list.height);
+                let scroll = scroll_by(v.scroll, page, down, ib.rows.len(), ib.list.height);
+                v.scroll = page_to_item(scroll, down, ib);
                 self.inbox_follow_view(ib, at);
             }
             Input::Click { x, y } => {
@@ -1435,26 +1436,20 @@ impl Dash {
 
     /// After the inbox list scrolled, with `at` selected: an item no longer wholly in view
     /// hands the selection to the nearest item that is (or, in a list too short for one, the
-    /// nearest partly in view), so Enter and `r` never act on an item out of sight.
+    /// nearest whose first line is in view, then the nearest partly in view), so Enter and
+    /// `r` never act on an item out of sight.
     fn inbox_follow_view(&mut self, ib: &InboxLayout, at: Option<i64>) {
         let Some(at) = at else {
             return;
         };
         let scroll = clamp_scroll(self.inbox_scroll(), ib.rows.len(), ib.list.height);
         let shown = scroll..scroll + usize::from(ib.list.height);
-        // Each item with its first and last list line, in list order.
-        let mut items: Vec<(i64, usize, usize)> = Vec::new();
-        for (line, row) in ib.rows.iter().enumerate() {
-            match (row, items.last_mut()) {
-                (Some(id), Some((last, _, end))) if last == id => *end = line,
-                (Some(id), _) => items.push((*id, line, line)),
-                (None, _) => {}
-            }
-        }
+        let items = inbox_items(&ib.rows);
         let Some(&(_, from, to)) = items.iter().find(|(id, ..)| *id == at) else {
             return;
         };
         let whole = |(_, a, b): &&(i64, usize, usize)| shown.contains(a) && shown.contains(b);
+        let first = |(_, a, _): &&(i64, usize, usize)| shown.contains(a);
         let part = |(_, a, b): &&(i64, usize, usize)| *a < shown.end && *b >= shown.start;
         if items.iter().filter(whole).any(|(id, ..)| *id == at) {
             return;
@@ -1467,6 +1462,7 @@ impl Dash {
             }
         };
         let near = (items.iter().filter(whole).min_by_key(distance))
+            .or_else(|| items.iter().filter(first).min_by_key(distance))
             .or_else(|| items.iter().filter(part).min_by_key(distance));
         if let Some(&(id, ..)) = near {
             let index = items.iter().position(|(i, ..)| *i == id).unwrap_or(0);
@@ -1774,6 +1770,47 @@ impl Dash {
             v.scroll = into_view(v.scroll, card.line, last, r.height);
         }
     }
+}
+
+/// Each inbox item with its first and last list line, in list order, from a layout's
+/// `rows`.
+fn inbox_items(rows: &[Option<i64>]) -> Vec<(i64, usize, usize)> {
+    let mut items: Vec<(i64, usize, usize)> = Vec::new();
+    for (line, row) in rows.iter().enumerate() {
+        match (row, items.last_mut()) {
+            (Some(id), Some((last, _, end))) if last == id => *end = line,
+            (Some(id), _) => items.push((*id, line, line)),
+            (None, _) => {}
+        }
+    }
+    items
+}
+
+/// The inbox list paged `down` or up to `scroll`, moved on the way it went (or, at its end,
+/// back) to the nearest item's first line where no item's first line is in view, so the
+/// item the selection follows to always shows its first line. Items take at most two lines
+/// and at most four lines (heads, gaps, "nothing") come before an item's first, so a list
+/// of five lines or more always shows one and only a shorter list moves.
+fn page_to_item(scroll: usize, down: bool, ib: &InboxLayout) -> usize {
+    let shown = scroll..scroll + usize::from(ib.list.height);
+    let items = inbox_items(&ib.rows);
+    if items.iter().any(|(_, a, _)| shown.contains(a)) {
+        return scroll;
+    }
+    let below = items.iter().find(|(_, a, _)| *a >= scroll);
+    let above = items.iter().rev().find(|(_, a, _)| *a < scroll);
+    let next = if down {
+        below.or(above)
+    } else {
+        above.or(below)
+    };
+    next.map_or(scroll, |&(_, a, _)| {
+        clamp_scroll(
+            into_view(scroll, a, a, ib.list.height),
+            ib.rows.len(),
+            ib.list.height,
+        )
+    })
 }
 
 /// A page: the pane's height less one line, so a line of context stays.

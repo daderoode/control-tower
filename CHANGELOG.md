@@ -86,6 +86,11 @@ tag's date, and a new empty Unreleased goes above it.
   `search?q=rye`, moved to the next line whole, or broke only where a line ended. It now
   breaks after the `?` where the UI design does, not before a mark a line cannot start
   with, such as `!` or `)`, and after the last `?` of a run (#37).
+- **A selected inbox item's first line stays in view.** In an inbox list of four lines or
+  fewer, PgUp or PgDn across the gap between its sections could leave only the selected
+  item's second line in view. Paging there now goes on to the nearest item's first line, and
+  the selection moves to an item whose first line shows, at any height; the wheel still
+  scrolls freely (#44).
 
 ## [0.4.0] - 2026-11-16
 

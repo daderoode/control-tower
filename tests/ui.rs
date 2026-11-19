@@ -9633,6 +9633,83 @@ fn a_two_line_inbox_item_comes_whole_into_view_when_selected() {
     assert_eq!(all[2].trim_end(), format!("{:18}printer?", ""));
 }
 
+/// On a short inbox, paging across the gap between the sections never leaves only the
+/// selected item's second line in view: PgUp, PgDn and the arrow keys keep its first line
+/// in view at any height, and paging still reaches both ends. From five list lines up the
+/// list pages as before, and the wheel scrolls freely at any height.
+#[test]
+fn a_selected_inbox_items_first_line_stays_in_view_at_any_height() {
+    let view: View = Ok(alerts_fixture());
+    let board = view.as_ref().unwrap();
+    let ids: Vec<i64> = board.inbox.all().map(|a| a.message.id).collect();
+    // At 40 columns every item takes two lines: NEED YOU, 402, 501, a blank, FOR YOUR
+    // AWARENESS, 502, 310.
+    for list_h in 1..=5u16 {
+        let a = area(40, list_h + 3);
+        let mut dash = inbox_dash(&view, a);
+        let ib = layout(&view, &dash, a).inbox.unwrap();
+        assert_eq!(ib.list.height, list_h);
+        assert_eq!(ib.rows.len(), 11, "{:?}", ib.rows);
+        let h = usize::from(list_h);
+        let last_top = ib.rows.len() - h;
+        let top = |dash: &Dash| dash.inbox_scroll().min(last_top);
+        let first_in_view = |dash: &Dash, what: &str| {
+            let id = dash.inbox_selected(board);
+            let first = ib.rows.iter().position(|r| *r == id).unwrap();
+            let top = top(dash);
+            assert!(
+                (top..top + h).contains(&first),
+                "list {list_h}, {what}: {id:?}'s first line {first} out of view at {top}\n{:#?}",
+                screen(&view, dash, a)
+            );
+        };
+        let page = h.saturating_sub(1).max(1);
+        for (input, n) in [(Input::PageDown, 12), (Input::PageUp, 12)] {
+            for k in 0..n {
+                let before = top(&dash);
+                dash.handle(&view, a, input);
+                first_in_view(&dash, &format!("{input:?} {k}"));
+                if list_h == 5 {
+                    let paged = if input == Input::PageDown {
+                        (before + page).min(last_top)
+                    } else {
+                        before.saturating_sub(page)
+                    };
+                    assert_eq!(top(&dash), paged, "{input:?} {k}");
+                }
+            }
+            // Paging never sticks: it gets to the end item's first line.
+            let end = if input == Input::PageDown {
+                ids.last()
+            } else {
+                ids.first()
+            };
+            let first = ib.rows.iter().position(|r| r.as_ref() == end).unwrap();
+            let top = top(&dash);
+            assert!(
+                (top..top + h).contains(&first),
+                "list {list_h}, {input:?}: stuck at {top}"
+            );
+        }
+        for input in [Input::Down; 4].into_iter().chain([Input::Up; 4]) {
+            dash.handle(&view, a, input);
+            first_in_view(&dash, &format!("{input:?}"));
+        }
+        // The wheel scrolls three lines a turn, wherever that leaves the items.
+        let (x, y) = (ib.list.x + 4, ib.list.y);
+        for down in [true; 4].into_iter().chain([false; 4]) {
+            let before = top(&dash);
+            dash.handle(&view, a, Input::Wheel { x, y, down });
+            let wheeled = if down {
+                (before + 3).min(last_top)
+            } else {
+                before.saturating_sub(3)
+            };
+            assert_eq!(top(&dash), wheeled, "list {list_h}, wheel down {down}");
+        }
+    }
+}
+
 #[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();
