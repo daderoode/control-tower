@@ -510,8 +510,8 @@ fn marked<'a>(
 }
 
 /// `text` in pieces, its first at most `first` columns wide and the rest at most `w` (as
-/// `wrap` breaks them), each with the byte ranges in it of the owner's mentions, as
-/// `board::owner_mentions` reads the whole text.
+/// `wrap_line` breaks them, their spaces folded), each with the byte ranges in it of the
+/// owner's mentions, as `board::owner_mentions` reads the whole text.
 pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Range<usize>>)> {
     let marks = owner_mentions(text);
     let mut out = Vec::new();
@@ -1704,7 +1704,7 @@ mod tests {
             (p[0].text.as_str(), marks),
             ("ask    @manager", vec![(7, 15)])
         );
-        // Outside a bubble a line's spaces still fold: its indent goes, each run is one.
+        // In wrap_line (events, acks) a line's spaces still fold: its indent goes, each run is one.
         assert_eq!(wrap_line("  a    b  ", 40), ["a b"]);
     }
 
@@ -2090,5 +2090,36 @@ mod tests {
             .collect();
         assert!(all.contains("hide details"), "{all}");
         assert!(all.contains("tower task unassign 1"), "{all}");
+    }
+
+    #[test]
+    fn an_open_failures_details_keep_a_lines_indent_and_runs_of_spaces() {
+        let text = "@manager could not deliver to 2 recipients; their posts stay on the \
+                    board:\n- qa-1:  pane   closed\n    exit  1, see the watch's log\n- dev-4: \
+                    herdr has no agent named dev-4     twice";
+        let m = msgs(&[("system", text, 0)]);
+        let open = BTreeSet::from([1]);
+        // 46 wide: the details take 40 columns.
+        let rows = plan(&m, 0, 46, shape(&open, 30, People::default()));
+        let got: Vec<&str> = (rows.iter())
+            .filter_map(|r| match r {
+                Row::Detail(p) => Some(p.as_str()),
+                _ => None,
+            })
+            .collect();
+        // As the copy's pre-wrap details: each line's indent and runs stay, and a line that
+        // breaks at a run drops it, so the next line starts with its word.
+        assert_eq!(
+            got,
+            [
+                "@manager could not deliver to 2",
+                "recipients; their posts stay on the",
+                "board:",
+                "- qa-1:  pane   closed",
+                "    exit  1, see the watch's log",
+                "- dev-4: herdr has no agent named dev-4",
+                "twice",
+            ]
+        );
     }
 }

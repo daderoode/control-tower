@@ -23,6 +23,9 @@ tag's date, and a new empty Unreleased goes above it.
   several spaces between words keeps them, as the UI design does, where they had drawn as
   one. A line that wraps at a run of spaces drops it, so the next line starts with its word,
   and the spaces next to a URL still go (#15).
+- **A delivery failure's details keep their spaces.** Opened, a failure's details keep each
+  line's indent and its runs of spaces between words, as the UI design does, where they had
+  drawn folded, the indent gone and each run as one space (#19).
 - **A word too wide for its bubble starts on a line of its own.** A word with no break of its
   own, such as a long hash, wider than any line of a message broke right after the text
   before it, so the two shared a line. It now starts on the next line and breaks where each

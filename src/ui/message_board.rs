@@ -560,12 +560,14 @@ pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
     }
 }
 
-/// `text` in pieces at most `w` columns wide: a piece per line of it (a blank line stays
-/// blank), each broken at spaces where it can and inside a word only when the word alone
-/// is too wide.
+/// `text` in pieces at most `w` columns wide, a piece per line of it (a blank line stays
+/// blank), each wrapped as the copy's delivery-failure details are, by the message body's
+/// rule (`wrap_line_by`'s `message`): `white-space: pre-wrap` keeps each line's leading
+/// spaces on its first line and each run between words as written, and `overflow-wrap:
+/// anywhere` breaks inside a word only when it is too wide for a line of its own.
 pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
     text.split('\n')
-        .flat_map(|line| wrap_line(line, w))
+        .flat_map(|line| wrap_line_by(line, w, true))
         .collect()
 }
 

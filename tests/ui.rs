@@ -9139,6 +9139,65 @@ fn a_message_lines_inner_runs_of_spaces_stay_in_its_bubble() {
     assert_snapshot(&format!("aligned_message_space_{w}x50"), &buf);
 }
 
+/// A delivery failure whose details hold an indented line and runs of spaces.
+fn spaced_failure_view() -> View {
+    let mut board = board_fixture();
+    let t = &mut board.milestones[0].threads[1];
+    let mut messages = t.messages.clone();
+    messages.push(Message {
+        id: 9102,
+        author: "system".into(),
+        text: "@manager could not deliver to 2 recipients; their posts stay on the board:\n\
+               - qa-1:  pane   closed\n    exit  1, see the watch's log\n- dev-4: gone"
+            .into(),
+        at: NOW - 60,
+    });
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    sync(&mut board);
+    Ok(board)
+}
+
+#[test]
+fn a_delivery_failures_details_keep_their_indent_and_runs_of_spaces() {
+    let view = spaced_failure_view();
+    let (w, h) = (160, 50);
+    let a = area(w, h);
+    let mut dash = on_t3(&view, a);
+    // Into the chat at its newest, the failure, then open its details.
+    dash.handle(&view, a, Input::Right);
+    assert_eq!(dash.board_message(), Some(9102));
+    dash.handle(&view, a, Input::Right);
+    assert!(dash.open_messages().contains(&9102));
+    dash.fit(&view, a);
+    let buf = render_dash(&view, &dash, w, h, Depth::TrueColor);
+    assert_exact_width(&buf);
+    let b = board_of(&view, &dash, a);
+    let conv = columns(&buf, b.conv.x, b.conv.width);
+    let all = conv.join("\n");
+    assert!(
+        all.contains("delivery failed to 2 recipients · hide details"),
+        "{all}"
+    );
+    let at = (conv.iter())
+        .position(|r| r.contains("@manager could not deliver"))
+        .unwrap_or_else(|| panic!("{all}"));
+    // Every detail line starts at the first one's column.
+    let col = conv[at].chars().position(|c| c == '@').unwrap();
+    let got: Vec<String> = (1..=3)
+        .map(|k| conv[at + k].chars().skip(col).collect::<String>())
+        .map(|r| r.trim_end().to_string())
+        .collect();
+    assert_eq!(
+        got,
+        [
+            "- qa-1:  pane   closed",
+            "    exit  1, see the watch's log",
+            "- dev-4: gone"
+        ]
+    );
+    assert_snapshot(&format!("spaced_failure_detail_{w}x{h}"), &buf);
+}
+
 #[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();
