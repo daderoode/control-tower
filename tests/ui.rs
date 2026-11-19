@@ -9255,6 +9255,83 @@ fn an_open_failures_details_sit_left_aligned_in_its_centred_box() {
 }
 
 #[test]
+fn a_failures_line_wraps_in_a_narrow_chat_and_still_opens_by_keys_and_click() {
+    // 40 wide the chat takes the pane and its events 36 columns, fewer than the failure's
+    // line (41 shut, 46 open): what it says fills a centred line and its link a second.
+    let view = spaced_failure_view();
+    let (w, h) = (40, 60);
+    let a = area(w, h);
+    let mut dash = on_t3(&view, a);
+    let drawn = |dash: &mut Dash| {
+        dash.fit(&view, a);
+        let buf = render_dash(&view, dash, w, h, Depth::TrueColor);
+        assert_exact_width(&buf);
+        let b = board_of(&view, dash, a);
+        assert_eq!(b.conv.width, w);
+        let conv = columns(&buf, b.conv.x, b.conv.width);
+        let all = conv.join("\n");
+        let at = (conv.iter())
+            .position(|r| r.trim() == "delivery failed to 2 recipients ·")
+            .unwrap_or_else(|| panic!("{all}"));
+        let lines: Vec<String> = (conv[at..at + 3].iter())
+            .map(|r| r.trim_end().to_string())
+            .collect();
+        (b, at, lines, all)
+    };
+    let (b, _, lines, _) = drawn(&mut dash);
+    assert_eq!(
+        lines[..2],
+        [
+            format!("{}delivery failed to 2 recipients ·", " ".repeat(3)),
+            format!("{}details", " ".repeat(16)),
+        ]
+    );
+    // Both lines open and fold it; the keys reach it once, as one message.
+    let toggles: Vec<usize> = (b.toggles.iter())
+        .filter(|(_, id)| *id == 9102)
+        .map(|(l, _)| *l)
+        .collect();
+    assert_eq!(toggles.len(), 2, "{toggles:?}");
+    assert_eq!(toggles[1], toggles[0] + 1);
+    assert_eq!(b.starts.iter().filter(|(id, _)| *id == 9102).count(), 1);
+    // Into the chat at its newest, the failure, then → opens it.
+    dash.handle(&view, a, Input::Right);
+    assert_eq!(dash.board_message(), Some(9102));
+    dash.handle(&view, a, Input::Right);
+    assert!(dash.open_messages().contains(&9102));
+    let (b, at, lines, all) = drawn(&mut dash);
+    assert_eq!(lines[1], format!("{}hide details", " ".repeat(14)), "{all}");
+    // Its details under it in the box the events' width, two columns in.
+    assert!(
+        lines[2].starts_with("  @manager could not deliver to 2"),
+        "{all}"
+    );
+    // A click on its link's line folds it, and one on what it says opens it again (the
+    // rows are the screen's, from its top).
+    let y = u16::try_from(at + 1).unwrap();
+    dash.handle(
+        &view,
+        a,
+        Input::Click {
+            x: b.conv.x + 20,
+            y,
+        },
+    );
+    assert!(!dash.open_messages().contains(&9102), "{all}");
+    let (b, at, _, all) = drawn(&mut dash);
+    let y = u16::try_from(at).unwrap();
+    dash.handle(
+        &view,
+        a,
+        Input::Click {
+            x: b.conv.x + 20,
+            y,
+        },
+    );
+    assert!(dash.open_messages().contains(&9102), "{all}");
+}
+
+#[test]
 fn a_needs_you_strip_row_folds_its_questions_runs_of_spaces() {
     // T4's question (402) written with runs of spaces between its words.
     let mut board = board_fixture();

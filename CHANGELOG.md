@@ -42,6 +42,11 @@ tag's date, and a new empty Unreleased goes above it.
 - **The replying-to line, where a thread stands and an inbox row fold their spaces.** Each
   draws a message's line with each run of spaces between words as one, as the UI design
   does, where it had kept them as written; the message's bubble still keeps them (#27).
+- **A delivery failure's line wraps in a narrow chat.** In a chat narrower than the line of
+  a delivery failure or of the watch's "left herdr" flag, it wraps onto centred lines inside
+  its box, as the UI design does, its "details" or "hide details" kept whole and moved to a
+  line of its own when it does not fit; a click on any of its lines still opens or folds
+  it. It had been cut at the chat's edge (#30).
 - **An inbox row shows its message across its lines.** An item drew only its message's
   first line, cut to one row. It now draws the whole message as the UI design does: its
   lines join with a space, each run of spaces is one, and it wraps at its words onto a
