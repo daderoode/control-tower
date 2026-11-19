@@ -29,6 +29,10 @@ tag's date, and a new empty Unreleased goes above it.
 - **A Needs-you strip row folds its spaces.** A question in the strip draws each run of
   spaces between words as one, as the UI design does, where it had kept them as written;
   its bubble still keeps them (#25).
+- **A delivery failure's details sit in its centred box.** Opened, the details of a delivery
+  failure or of the watch's "left herdr" flag are drawn left-aligned in a box centred under
+  the failure's line, as wide as its widest line and at most 80 columns, as the UI design
+  does, where they had started at the chat's left edge at its full width (#26).
 - **A word too wide for its bubble starts on a line of its own.** In a message, and in a
   delivery failure's opened details, a word with no break of its own, such as a long hash,
   wider than any line broke right after the text before it, so the two shared a line. It
