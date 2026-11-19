@@ -1675,12 +1675,12 @@ mod tests {
         assert_eq!(wrap_message_line("aa    bb", 7), [pair("aa"), pair("bb")]);
         // The spaces at the line's end go, as before.
         assert_eq!(wrap_message_line("a  b   ", 40), [pair("a  b")]);
-        // A word too wide for any line starts after the run when a column is left there...
+        // A word too wide for any line starts on the next, whether or not the run leaves a
+        // column on this one; the run hangs.
         assert_eq!(
             wrap_message_line("ab   abcdefghij", 8),
-            [pair("ab   abc"), pair("defghij")]
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
         );
-        // ...and on the next line when the run leaves none.
         assert_eq!(
             wrap_message_line("ab      abcdefghij", 8),
             [pair("ab"), pair("abcdefgh"), pair("ij")]
@@ -1704,6 +1704,48 @@ mod tests {
         );
         // Outside a bubble a line's spaces still fold: its indent goes, each run is one.
         assert_eq!(wrap_line("  a    b  ", 40), ["a b"]);
+    }
+
+    #[test]
+    fn a_word_too_wide_for_any_line_starts_on_a_line_of_its_own() {
+        let pair = |t: &str| (t.to_string(), None);
+        // After one space, as the copy's `overflow-wrap: anywhere` body breaks there first;
+        // the word then breaks where each line ends.
+        assert_eq!(
+            wrap_message_line("ab abcdefghij", 8),
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
+        );
+        let hash = "0123456789abcdef0123456789abcdef0123456789";
+        assert_eq!(
+            wrap_message_line(&format!("ab {hash}"), 40),
+            [pair("ab"), pair(&hash[..40]), pair(&hash[40..])]
+        );
+        // After several words, and with text after it, which goes on the word's last line.
+        assert_eq!(
+            wrap_message_line("a ab abcdefghij cd", 8),
+            [pair("a ab"), pair("abcdefgh"), pair("ij cd")]
+        );
+        // After a line's indent, which stays alone on the first line.
+        assert_eq!(
+            wrap_message_line("    abcdefghij", 8),
+            [pair("    "), pair("abcdefgh"), pair("ij")]
+        );
+        // Alone on the line it is broken where the line ends, as before.
+        assert_eq!(
+            wrap_message_line("abcdefghij", 8),
+            [pair("abcdefgh"), pair("ij")]
+        );
+        // A path still starts where the line is and breaks only after a `/`, as the copy's
+        // path does.
+        assert_eq!(
+            wrap_message_line("ab assets/icons/bookmarks/outline", 12),
+            [
+                pair("ab assets/"),
+                pair("icons/"),
+                pair("bookmarks/"),
+                pair("outline")
+            ]
+        );
     }
 
     #[test]
