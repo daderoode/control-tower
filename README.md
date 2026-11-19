@@ -566,13 +566,15 @@ inbox item opens its repo's full board. `i`, or a click
 on the alert line, opens the inbox across the pane: NEED YOU first, then FOR YOUR
 AWARENESS, newest first (read items are not listed; they stay readable in their threads),
 each item its author in their role colour, its
-message's first line (a delivery failure as "@manager delivery failed to X") and, dim at
-the right, its repo, its thread in words and its age, in at most a third of the line: the
-thread's name is cut first, then the repo's, and in a narrow pane that part goes whole so
-the message keeps its room. Up
-and down and Enter, or a click, open the item's thread on the full board, and Esc there
-comes back to the inbox; `r` marks the selected item read, or on a need-you item clears it
-(the keys line says "r clear" there).
+message on at most two lines, its line breaks and runs of spaces folded to one space and
+the second line ending in "…" when it goes on (a delivery failure as "@manager delivery
+failed to X"), and, dim at the right of its first line, its repo, its thread in words and
+its age, in at most a third of the line: the thread's name is cut first, then the repo's,
+and in a narrow pane that part goes whole so the message keeps its room. Up and down
+select an item, bringing both its lines into view, and Enter, or a click on either line,
+opens the item's thread on the full board, and Esc there comes back to the inbox; `r`
+marks the selected item read, or on a need-you item clears it (the keys line says
+"r clear" there).
 Either way the item leaves the inbox and the next one takes the selection. The wheel, and
 PgUp and PgDn, move the selection with the view: an item scrolled out of sight hands it to
 the nearest item in view, so Enter and `r` never act on one you cannot see. An empty

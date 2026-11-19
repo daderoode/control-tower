@@ -1,13 +1,13 @@
  ◀ back  INBOX                                                                                                    14:32 
  ⚠ 2 NEED YOU                                                                                                           
-   cat-lead       question: the covers are late again. @manager can you call th… catalogue · Show each book's re… · 15m 
+   cat-lead       question: the covers are late again. @manager can you call the catalogue · Show each book's re… · 15m 
+                  printer?                                                                                              
    dev-1          question: @manager which book goes first?                                      checkout · Shelf · 30m 
                                                                                                                         
  ⓘ 2 FOR YOUR AWARENESS                                                                                                 
    checkout-lead  decision: phones get 1 book per row. @manager for your awareness                checkout · Shelf · 2m 
-   cat-lead       decision: books out of print also leave the shelf. @manager for your… catalogue · New book shelf · 7m 
-                                                                                                                        
-                                                                                                                        
+   cat-lead       decision: books out of print also leave the shelf. @manager for       catalogue · New book shelf · 7m 
+                  your awareness                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
