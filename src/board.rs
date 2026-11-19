@@ -1429,14 +1429,14 @@ pub fn refuse_owner(author: &str) -> Result<()> {
 }
 
 /// The names `text` @mentions, like `@qa-2`, in order: a `@` not right after an ASCII
-/// letter or digit (so not an email address, but after kana or an ideograph, where words
-/// have no spaces between them, it is), then letters, digits, `-` and `_`, less any trailing
-/// `-` or `_`. A name with spaces, such as a lead's session name, cannot be mentioned. What
-/// a post quotes is no mention: a fenced block (between lines starting with three
-/// backticks), a code span (between backticks on one line; an unmatched one ends with its
-/// line) and a line starting with `>`. Nor is code written without backticks: a name
-/// followed straight by `(`, or by `.` and a letter, digit or `_`, as in
-/// `@cart.isEmpty()`; a sentence that ends on a name, `@qa.`, still mentions it.
+/// letter or digit (so not an ASCII email address; after any other letter, such as kana, an
+/// ideograph or é, it is), then letters, digits, `-` and `_`, less any trailing `-` or `_`.
+/// A name with spaces, such as a lead's session name, cannot be mentioned. What a post
+/// quotes is no mention: a fenced block (between lines starting with three backticks), a
+/// code span (between backticks on one line; an unmatched one ends with its line) and a
+/// line starting with `>`. Nor is code written without backticks: a name followed straight
+/// by `(`, or by `.` and a letter, digit or `_`, as in `@cart.isEmpty()`; a sentence that
+/// ends on a name, `@qa.`, still mentions it.
 pub fn mentioned(text: &str) -> Vec<&str> {
     mentions(text).into_iter().map(|(_, name)| name).collect()
 }
