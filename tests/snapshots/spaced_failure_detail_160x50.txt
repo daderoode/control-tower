@@ -29,10 +29,10 @@
                                                       │ ▌ copy, testing: phone and tablet pass, desktop shows 13 books, not 12                                  
                                                       │                                                                                                         
                                                       │                             delivery failed to 2 recipients · hide details                              
-                                                      │   @manager could not deliver to 2 recipients; their posts stay on the board:                            
-                                                      │   - qa-1:  pane   closed                                                                                
-                                                      │       exit  1, see the watch's log                                                                      
-                                                      │   - dev-4: gone                                                                                         
+                                                      │               @manager could not deliver to 2 recipients; their posts stay on the board:                
+                                                      │               - qa-1:  pane   closed                                                                    
+                                                      │                   exit  1, see the watch's log                                                          
+                                                      │               - dev-4: gone                                                                             
                                                       │                                                                                                         
                                                       │                                                                                                         
                                                       │                                                                                                         
