@@ -534,3 +534,66 @@ fn item_lines(
     }));
     lines
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::{Message, RepoId, ThreadId};
+
+    /// The inbox row's message lines for `text`, `room` columns wide, unstyled.
+    fn row(text: &str, room: usize) -> Vec<String> {
+        let a = Alert {
+            kind: Kind::NeedsYou,
+            repo: RepoId(1),
+            thread: ThreadId(1),
+            message: Message {
+                id: 1,
+                author: "cat-lead".into(),
+                text: text.into(),
+                at: 0,
+            },
+        };
+        (Said::of(&a, room)
+            .lines(false, room, Depth::TrueColor)
+            .iter())
+        .map(|spans| spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect()
+    }
+
+    #[test]
+    fn an_inbox_rows_words_break_where_the_copys_clamp_breaks_them() {
+        // As headless Chrome draws the copy's `.txt clamp2` (`overflow-wrap: anywhere`): a
+        // word too wide for a line starts on a line of its own, and a word breaks after a `-`.
+        let link = "decision: @manager see https://example.invalid/shed/plans/roof/very/long/\
+                    path/that/never/ends/and/keeps/going for the plan";
+        assert_eq!(
+            row(link, 27),
+            ["decision: @manager see", "https://example.invalid/sh…"]
+        );
+        assert_eq!(
+            row(link, 47),
+            [
+                "decision: @manager see",
+                "https://example.invalid/shed/plans/roof/very/l…"
+            ]
+        );
+        assert_eq!(
+            row(
+                "question: @manager can we re-run the long-running check on the \
+                 cross-platform build before Friday?",
+                47
+            ),
+            [
+                "question: @manager can we re-run the long-",
+                "running check on the cross-platform build…"
+            ]
+        );
+        assert_eq!(
+            row(
+                "decision: the garden-shed-lead-senior-reviewer keeps the plan @manager",
+                27
+            ),
+            ["decision: the garden-shed-", "lead-senior-reviewer keeps…"]
+        );
+    }
+}

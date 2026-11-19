@@ -35,7 +35,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    fold_spaces, highlight_marked, role_colour, units, wrap, wrap_line, wrap_line_paths,
+    fold_spaces, highlight_marked, role_colour, units, wrap, wrap_event_line, wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -522,7 +522,7 @@ pub(crate) fn marked<'a>(
 }
 
 /// `text` in pieces, its first at most `first` columns wide and the rest at most `w` (as
-/// `wrap_line` breaks them, their spaces folded), each with the byte ranges in it of the
+/// `wrap_event_line` breaks them, their spaces folded), each with the byte ranges in it of the
 /// owner's mentions, as `board::owner_mentions` reads the whole text.
 pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Range<usize>>)> {
     let marks = owner_mentions(text);
@@ -532,7 +532,7 @@ pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Ran
         let mut lines = Vec::new();
         if out.is_empty() && lines.is_empty() && first < w {
             // The first piece at its own width, then the rest of that line at `w`.
-            let mut head = wrap_line(raw, first);
+            let mut head = wrap_event_line(raw, first);
             let p0 = head.remove(0);
             let mut left = p0.chars().filter(|c| *c != ' ').count();
             let at = (raw.char_indices())
@@ -547,10 +547,10 @@ pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Ran
             lines.push(p0);
             let rest = raw[at..].trim_start();
             if !rest.is_empty() {
-                lines.extend(wrap_line(rest, w));
+                lines.extend(wrap_event_line(rest, w));
             }
         } else {
-            lines = wrap_line(raw, w);
+            lines = wrap_event_line(raw, w);
         }
         let found = marked(raw, base, &marks, lines.iter().map(String::as_str));
         out.extend(lines.into_iter().zip(found));
@@ -715,7 +715,7 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                     let text = ack_text(m);
                     // Room on every line for " · " and the age at the end of the last.
                     let aw = bw.saturating_sub(2 + 3 + AGE_COLUMNS).max(1);
-                    let ps = wrap_line(&text, aw);
+                    let ps = wrap_event_line(&text, aw);
                     let n = ps.len();
                     for (j, piece) in ps.into_iter().enumerate() {
                         rows.push(Row::Ack {
@@ -893,16 +893,20 @@ fn failure_line(m: &Message, lead: Option<&Lead>, open: bool) -> (String, &'stat
 
 /// A failure's line (`failure_line`) in pieces at most `w` wide, as the copy's centred event
 /// box wraps it: each a piece of what it `said` and a piece of its `link`, either empty. Its
-/// words break as an event's do (`wrap_line`); the link, an `inline-block` there, ends the
+/// words break as an event's do (`wrap_event_line`); the link, an `inline-block` there, ends the
 /// last of them when it fits and otherwise starts a line of its own, breaking inside only
 /// when wider than a line.
 fn failure_pieces(said: &str, link: &str, w: usize) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = (wrap_line(said, w).into_iter())
+    let mut out: Vec<(String, String)> = (wrap_event_line(said, w).into_iter())
         .map(|p| (p, String::new()))
         .collect();
     match out.last_mut() {
         Some((last, room)) if last.width() + 1 + link.width() <= w => *room = link.to_string(),
-        _ => out.extend(wrap_line(link, w).into_iter().map(|p| (String::new(), p))),
+        _ => out.extend(
+            wrap_event_line(link, w)
+                .into_iter()
+                .map(|p| (String::new(), p)),
+        ),
     }
     out
 }
@@ -1769,8 +1773,9 @@ mod tests {
             (p[0].text.as_str(), marks),
             ("ask    @manager", vec![(7, 15)])
         );
-        // In wrap_line (events, acks) a line's spaces still fold: its indent goes, each run is one.
-        assert_eq!(wrap_line("  a    b  ", 40), ["a b"]);
+        // In wrap_event_line (events, acks) a line's spaces still fold: its indent goes, each
+        // run is one.
+        assert_eq!(wrap_event_line("  a    b  ", 40), ["a b"]);
     }
 
     #[test]
@@ -2486,9 +2491,13 @@ mod tests {
         let left = "@kids-lead #1 is in progress but its worker dev-1 is gone from herdr (no \
                     live agent by that name); if it was closed: tower task unassign 1, or set \
                     the next worker.";
+        let named = "@manager could not deliver to senior-reviewer-2: gone. Its posts stay on \
+                     the board.";
+        let hashed = "@manager could not deliver to a1b2c3d4e5f6a7b8c9d0e1f2: gone. Its posts \
+                      stay on the board.";
         // Where headless Chrome breaks the copy's `.evt` line in a box `ew` ch wide: its words
         // as an event's, and its link whole, ending the last line when it fits there.
-        let cases: [(&str, bool, usize, &[&str]); 9] = [
+        let cases: [(&str, bool, usize, &[&str]); 12] = [
             (
                 failed,
                 false,
@@ -2536,6 +2545,40 @@ mod tests {
                 false,
                 28,
                 &["dev-1 left herdr while on #1", "· details"],
+            ),
+            // A name breaks after a `-`.
+            (
+                named,
+                false,
+                27,
+                &["delivery failed to senior-", "reviewer-2 · details"],
+            ),
+            (
+                named,
+                false,
+                14,
+                &[
+                    "delivery",
+                    "failed to",
+                    "senior-",
+                    "reviewer-2 ·",
+                    "details",
+                ],
+            ),
+            // A name too wide for a line starts on a line of its own; Chrome lets it overflow
+            // that line and starts what follows on the next, so it breaks where its lines end
+            // and the next line starts after it.
+            (
+                hashed,
+                false,
+                14,
+                &[
+                    "delivery",
+                    "failed to",
+                    "a1b2c3d4e5f6a7",
+                    "b8c9d0e1f2",
+                    "· details",
+                ],
             ),
             // A link wider than a line breaks inside too.
             (
