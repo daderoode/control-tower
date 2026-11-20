@@ -1966,6 +1966,28 @@ mod tests {
     }
 
     #[test]
+    fn the_bracket_row_breaks_after_exactly_the_marks_chrome_does() {
+        // As headless Chrome breaks the copy's `.seg .body`, `.evtdetail` and `.clamp2`,
+        // whatever comes before the mark (a letter, a digit or nothing) and after the
+        // bracket (a letter, a digit or a closing mark): before each opening bracket after
+        // each of these 19 marks, and never after the other 11 marks that are not `-` or `?`.
+        for bracket in "([{<".chars() {
+            for before in [Some('a'), Some('1'), None] {
+                for after in ['d', '5', ')'] {
+                    for c in "!\"#%&)*+,.:;=>\\]|}~".chars() {
+                        let broken = breaks_between(before, c, bracket, Some(after), false);
+                        assert!(broken, "{before:?} {c} {bracket} {after}");
+                    }
+                    for c in "$'/@^_`([{<".chars() {
+                        let broken = breaks_between(before, c, bracket, Some(after), false);
+                        assert!(!broken, "{before:?} {c} {bracket} {after}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn paths_are_what_the_copys_path_pattern_finds_in_a_word() {
         // Each as the copy's PATH_RE finds it with `matchAll`, keeping matches of 16 or more.
         let found = |word: &str| -> Vec<String> {
