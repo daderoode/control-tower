@@ -949,7 +949,12 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             if first.chars().all(|c| c == IDEOGRAPHIC_SPACE) {
                 run.push_str(first);
                 match &word[first.len()..] {
-                    "" => continue,
+                    // A word that is only such a run: the space `split` took after it
+                    // goes on the run too.
+                    "" => {
+                        run.push(' ');
+                        continue;
+                    }
                     rest => rest,
                 }
             } else {
@@ -1966,6 +1971,18 @@ mod tests {
         // Where the word or its first piece fits after it, the run keeps its width.
         assert_eq!(pre("ab 　ef", 7), ["ab 　ef"]);
         assert_eq!(pre("ab 　中文", 7), ["ab 　中", "文"]);
+        // Mid-line, each space around a word that is only a run stays as written.
+        assert_eq!(pre("ab 　　 cd", 20), ["ab 　　 cd"]);
+        assert_eq!(pre("ab 　 　cd", 20), ["ab 　 　cd"]);
+        for text in [
+            "A: ab 　 　cd end",
+            "B: ab 　　 cd end",
+            "C: 確認 　 　 　完了 です",
+            "D: plain 　 word",
+            "E: ab 　 　cd 　　 ef",
+        ] {
+            assert_eq!(pre(text, 40), [text]);
+        }
         // Folded text (`.clamp2`, `.evt`) breaks after the spaces, so the run starts the
         // next line with its word.
         let folded = |text: &str, w: usize| {
