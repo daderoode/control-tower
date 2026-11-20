@@ -741,11 +741,13 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 /// `icu_segmenter` at CSS `line-break: auto`'s strictness (`Normal`, so a small kana or a
 /// `ー` may start a line). So:
 /// - between two ASCII characters, as Blink's table does, a break only after a `-` or a
-///   `?`: after a `-` unless before a character a line cannot start with
-///   (`. , ; : ! ? ) ] } / $`) or before a digit after a minus sign (a `-` with no ASCII
-///   letter or digit before it), each `-` of a run breaking too; after a `?` unless before
-///   one of `! " ' ) , . / : ; ? ] }`, so a run of `?` keeps together and breaks after its
-///   last;
+///   `?`, or before an opening bracket after a punctuation mark: after a `-` unless before
+///   a character a line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after
+///   a minus sign (a `-` with no ASCII letter or digit before it), each `-` of a run
+///   breaking too; after a `?` unless before one of `! " ' ) , . / : ; ? ] }`, so a run of
+///   `?` keeps together and breaks after its last; before a `(`, `[`, `{` or `<` after one
+///   of `! " # % & ) * + , . : ; = > \ ] | } ~`, not after a letter, a digit, an opening
+///   bracket, one of `$ ' / @ ^ _` or a backquote;
 /// - between any other two, a break where `icu_segmenter` finds one: between two
 ///   ideographs, kana or hangul, between one and a letter or digit, but not before a
 ///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
@@ -765,7 +767,7 @@ fn breaks_between(
         return match c {
             '-' => !minus && !".,;:!?)]}/$".contains(next),
             '?' => !"!\"'),./:;?]}".contains(next),
-            _ => false,
+            _ => "([{<".contains(next) && "!\"#%&)*+,.:;=>\\]|}~".contains(c),
         };
     }
     let class = |c: char| CodePointMapData::<LineBreak>::new().get(c);
@@ -1845,6 +1847,15 @@ mod tests {
     }
 
     #[test]
+    fn folded_text_breaks_before_an_opening_bracket_after_punctuation_where_the_copy_does() {
+        // As headless Chrome draws the copy's `.evt` and `.clamp2`: the bracket rule a
+        // message's word breaks by (`breaks_between`) holds for events, acks and titles too.
+        let title = "sent abc.[defg] to qa";
+        assert_eq!(wrap_event_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
+        assert_eq!(wrap_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
+    }
+
+    #[test]
     fn an_ideographic_space_at_a_line_end_hangs_as_the_copys_does() {
         // As headless Chrome draws the copy's message body, delivery-failure details,
         // `.clamp2` and `.evt`: a run of U+3000 ending a line hangs past it, so the word before
@@ -1943,6 +1954,15 @@ mod tests {
         assert_eq!(wrap("ab abc?defg", 8), ["ab abc?", "defg"]);
         assert_eq!(wrap("ab abc??defg", 8), ["ab abc??", "defg"]);
         assert_eq!(wrap("ab abc?!defg", 8), ["ab", "abc?!def", "g"]);
+    }
+
+    #[test]
+    fn a_delivery_failures_details_break_before_an_opening_bracket_after_punctuation() {
+        // As Chrome breaks the copy's `.evtdetail`: before the bracket after a `,` or a `~`,
+        // and not after a `$`.
+        assert_eq!(wrap("ab abc,[defg]", 8), ["ab abc,", "[defg]"]);
+        assert_eq!(wrap("ab abc~{defg}", 8), ["ab abc~", "{defg}"]);
+        assert_eq!(wrap("ab abc$[defg]", 8), ["ab", "abc$[def", "g]"]);
     }
 
     #[test]

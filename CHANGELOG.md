@@ -97,6 +97,12 @@ tag's date, and a new empty Unreleased goes above it.
   end as in the UI design, so the word before it fits and the next line starts with the
   word after it (a run after an ordinary space aside, #57); within a line it keeps its
   width (#40).
+- **A word breaks before an opening bracket after a punctuation mark.** In a message, a
+  delivery failure's opened details, and a title, goal, event, ack or inbox row, a word
+  with a `(`, `[`, `{` or `<` after a mark such as `!`, `.`, `,` or `)`, such as
+  `f(x),(y)`, moved to the next line whole, or broke only where a line ended. It now breaks
+  before the bracket where the UI design does; not after a letter, a digit, another
+  opening bracket, or one of `$ ' / @ ^ _` and a backquote (#45).
 
 ## [0.4.0] - 2026-11-16
 
