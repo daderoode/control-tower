@@ -21,7 +21,9 @@ use super::control::Control;
 use super::message_board::{clamp_end, highlight_marked, wrap_line};
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, ok, selected_bg};
 use super::tree::split_line;
-use crate::board::{Board, DELIVERY_FAILURE, SYSTEM_AUTHOR, Talk, age, owner_mentions};
+use crate::board::{
+    Board, DELIVERY_FAILURE, OWNER_HANDLE, SYSTEM_AUTHOR, Talk, age, owner_mentions,
+};
 use crate::inbox::{Alert, Inbox, Kind};
 
 /// Columns "◀ back" takes on the inbox's top line, for clicking it.
@@ -91,9 +93,6 @@ struct Said {
     more: bool,
 }
 
-/// The lead of a delivery failure's short form, marked in the row's red.
-const FAILURE_LEAD: &str = "@manager";
-
 impl Said {
     /// What `a` says on lines `room` columns wide: its message, its marks the owner's
     /// mentions, or for a delivery failure its short form, "@manager delivery failed to X"
@@ -106,8 +105,8 @@ impl Said {
         let failure = a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)
             && text.starts_with(DELIVERY_FAILURE);
         let (text, marks) = if failure {
-            let short = format!("{FAILURE_LEAD} delivery failed to {}", failed_to(text));
-            (short, std::iter::once(0..FAILURE_LEAD.len()).collect())
+            let short = format!("{OWNER_HANDLE} delivery failed to {}", failed_to(text));
+            (short, std::iter::once(0..OWNER_HANDLE.len()).collect())
         } else {
             (text.clone(), owner_mentions(text))
         };
