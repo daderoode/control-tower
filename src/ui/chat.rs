@@ -2055,6 +2055,37 @@ mod tests {
     }
 
     #[test]
+    fn a_word_breaks_before_an_opening_bracket_after_punctuation_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // Before a `(`, `[`, `{` or `<` after a punctuation mark, as Chrome breaks the copy's
+        // body; a piece that then does not fit goes to the next line.
+        assert_eq!(wrapped("ab abc!(defg)", 8), ["ab abc!", "(defg)"]);
+        assert_eq!(wrapped("ab abc.(defg)", 8), ["ab abc.", "(defg)"]);
+        assert_eq!(wrapped("ab abc,[defg]", 8), ["ab abc,", "[defg]"]);
+        assert_eq!(wrapped("ab abc:{defg}", 8), ["ab abc:", "{defg}"]);
+        assert_eq!(wrapped("ab abc;<defg>", 8), ["ab abc;", "<defg>"]);
+        assert_eq!(wrapped("ab abc)(defg)", 8), ["ab abc)", "(defg)"]);
+        assert_eq!(wrapped("ab f(x),(y)", 8), ["ab f(x),", "(y)"]);
+        assert_eq!(wrapped("ab 5%(defg)", 8), ["ab 5%", "(defg)"]);
+        assert_eq!(wrapped("ab a=<b>", 5), ["ab a=", "<b>"]);
+        // Not after a letter, a digit, an opening bracket, or one of the marks Chrome keeps
+        // with it.
+        assert_eq!(wrapped("ab abc(defg)", 8), ["ab", "abc(defg", ")"]);
+        assert_eq!(wrapped("ab abc5(defg)", 8), ["ab", "abc5(def", "g)"]);
+        assert_eq!(wrapped("ab ab((defg)", 8), ["ab", "ab((defg", ")"]);
+        assert_eq!(wrapped("ab abc$(defg)", 8), ["ab", "abc$(def", "g)"]);
+        assert_eq!(wrapped("ab abc'(defg)", 8), ["ab", "abc'(def", "g)"]);
+        assert_eq!(wrapped("ab abc_[defg]", 8), ["ab", "abc_[def", "g]"]);
+    }
+
+    #[test]
     fn cjk_text_breaks_between_its_characters_where_the_copy_does() {
         let wrapped = |t: &str, w: usize| -> Vec<String> {
             (wrap_message_line(t, w).into_iter())
