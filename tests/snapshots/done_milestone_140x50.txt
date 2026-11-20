@@ -5,7 +5,7 @@
      ✓ Bookmarks page                no ticket │ ┌────────────────────────────┬────────────────────────────┬──────────────────────────────┐ 
      ● New book shelf                     #113 │ │ WAITING 0                  │ IN PROGRESS 0              │ DONE 2                       │ 
      ○ Show each book's reviews      no ticket │ ├────────────────────────────┼────────────────────────────┼──────────────────────────────┤ 
-       under its cover, newest first, with a l…│ │ none                       │ none                       │ unassigned                   │ 
+       under its cover, newest first, with a…  │ │ none                       │ none                       │ unassigned                   │ 
                                                │ │                            │                            │ unassigned                   │ 
    ▾ Done  3 milestones                  ⚠1 ⓘ1 │ └────────────────────────────┴────────────────────────────┴──────────────────────────────┘ 
      ✓ M6 0.1.7: repo leads         14/01/2027 │                                                                                            

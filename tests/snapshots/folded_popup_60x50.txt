@@ -9,7 +9,7 @@
  ▾ checkout             │ │ unassigned                    │ 
    Checkout Lead with a…│ └───────────────────────────────┘ 
    ▾ M2   ████████ 100% │ ┌───────────────────────────────┐ 
-     Checkout with a ti…│ │ IN PROGRESS 1                 │ 
+     Checkout with a…   │ │ IN PROGRESS 1                 │ 
      ✓ Shelf  no ticket │ ├───────────────────────────────┤ 
        layout           │ │ #113 unassigned               │ 
      ✓ 日本語 no ticket │ └───────────────────────────────┘ 

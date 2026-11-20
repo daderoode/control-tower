@@ -8,7 +8,7 @@
    cat-lead: Icons live in assets…│ where it stands cat-lead: Icons live in assets/icons/bookmarks/…
                                   │─────────────────────────────────────────────────────────────────
  ● Show each book's reviews   15m │                                                                 
-   under its cover, newest …      │ ─────────────────────── within the hour ─────────────────────── 
+   under its cover, newest…       │ ─────────────────────── within the hour ─────────────────────── 
    cat-lead: question: the covers…│                                                                 
                                   │  cat-lead · lead · 58m                                          
  RESOLVED 1 ▸                     │ ▌ Picked up #13 from the M1 spec. Opening this thread           

@@ -7,13 +7,13 @@
        page                   │ MESSAGE BOARD · whole re… open full board (b) ▶ 
      ● New book shelf    #113 │ nothing on this board needs you                 
      ○ Show each    no ticket │ no threads yet                                  
-       book's reviews under i…│                                                 
+       book's reviews under…  │                                                 
 ──────────────────────────────│                                                 
                               │                                                 
  ▾ checkout                   │                                                 
    Checkout Lead with a name …│                                                 
    ▾ M2         ████████ 100% │                                                 
-     Checkout with a title lo…│                                                 
+     Checkout with a title…   │                                                 
      ✓ Shelf layout no ticket │                                                 
      ✓ 日本語のタス no ticket │                                                 
 ────────────────────────────────────────────────────────────────────────────────

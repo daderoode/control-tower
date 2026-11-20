@@ -7,13 +7,13 @@
        page                   │ MESSAGE BOARD · … open full board (b) ▶ 
      ● New book shelf    #113 │ ⚠ Needs you · 1                         
      ○ Show each    no ticket │   cat-lead question: the c…  in Show ea…
-       book's reviews under i…│ ┌─────────────────────────────────────┐ 
+       book's reviews under…  │ ┌─────────────────────────────────────┐ 
 ──────────────────────────────│ │ [open] Triage of the new issues     │ 
                               │ │ T8 · 1 message ·   3m               │ 
  ▾ checkout                   │ │ repo-wide · started by cat-lead     │ 
    Checkout Lead with a name …│ │ where it stands cat-lead: Triage: … │ 
    ▾ M2         ████████ 100% │ │                                     │ 
-     Checkout with a title lo…│ │   cat-lead · lead · 3m              │ 
+     Checkout with a title…   │ │   cat-lead · lead · 3m              │ 
      ✓ Shelf layout no ticket │ │  ▌ Triage: two bugs labelled        │ 
      ✓ 日本語のタス no ticket │ │  ▌ ready-for-agent.                 │ 
        ク名と絵文字です       │ │                         open chat ▶ │ 

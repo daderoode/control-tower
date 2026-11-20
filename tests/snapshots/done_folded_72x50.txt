@@ -7,7 +7,7 @@
        page                   │                                         
      ● New book shelf    #113 │ MESSAGE BOARD · … open full board (b) ▶ 
      ○ Show each    no ticket │ ⚠ Needs you · 1                         
-       book's reviews under i…│   cat-lead question: @mana…  in Is 0.1.…
+       book's reviews under…  │   cat-lead question: @mana…  in Is 0.1.…
                               │ ┌─────────────────────────────────────┐ 
    ▸ Done  3 milestones ⚠1 ⓘ1 │ │ [open] task 62                      │ 
 ──────────────────────────────│ │ T10 · 1 message ·  30m              │ 
@@ -15,7 +15,7 @@
  ▾ checkout                   │ │ where it stands cat-lead: decision… │ 
    Checkout Lead with a name …│ │                                     │ 
    ▾ M2         ████████ 100% │ │   cat-lead · decision · 30m         │ 
-     Checkout with a title lo…│ │  ▌ decision: @manager notes         │ 
+     Checkout with a title…   │ │  ▌ decision: @manager notes         │ 
      ✓ Shelf layout no ticket │ │  ▌ go in CHANGELOG.md only          │ 
      ✓ 日本語のタス no ticket │ │                         open chat ▶ │ 
        ク名と絵文字です       │ └─────────────────────────────────────┘ 

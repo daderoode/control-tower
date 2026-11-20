@@ -7,7 +7,7 @@
        page                   │                                         
      ● New book shelf    #113 │ MESSAGE BOARD · … open full board (b) ▶ 
      ○ Show each    no ticket │ ⚠ Needs you · 1                         
-       book's reviews under i…│   cat-lead question: @mana…  in Is 0.1.…
+       book's reviews under…  │   cat-lead question: @mana…  in Is 0.1.…
                               │ ┌─────────────────────────────────────┐ 
    ▾ Done  3 milestones ⚠1 ⓘ1 │ │ [open] task 62                      │ 
      ✓ M6 0.1.7:   14/01/2027 │ │ T10 · 1 message ·  30m              │ 
@@ -20,7 +20,7 @@
  ▾ checkout                   │ │                         open chat ▶ │ 
    Checkout Lead with a name …│ └─────────────────────────────────────┘ 
    ▾ M2         ████████ 100% │ ┌─────────────────────────────────────┐ 
-     Checkout with a title lo…│ │ [open] Is 0.1.6 ready to mark Done? │ 
+     Checkout with a title…   │ │ [open] Is 0.1.6 ready to mark Done? │ 
      ✓ Shelf layout no ticket │ │ T9 · 1 message ·  30m               │ 
      ✓ 日本語のタス no ticket │ │ on M4 · started by cat-lead         │ 
        ク名と絵文字です       │ │ where it stands cat-lead: question… │ 

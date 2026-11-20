@@ -5,13 +5,13 @@
      ✓ Bookmarks page         no ticket │ ┌────────────────────────┬────────────────────────┬─────────────────────────┐ 
      ● New book shelf              #113 │ │ WAITING 1              │ IN PROGRESS 1          │ DONE 1                  │ 
      ○ Show each book's       no ticket │ ├────────────────────────┼────────────────────────┼─────────────────────────┤ 
-       reviews under its cover, newest …│ │ unassigned             │ #113 unassigned        │ unassigned              │ 
+       reviews under its cover, newest… │ │ unassigned             │ #113 unassigned        │ unassigned              │ 
 ────────────────────────────────────────│ └────────────────────────┴────────────────────────┴─────────────────────────┘ 
                                         │                                                                               
  ▾ checkout                             │ MESSAGE BOARD · M1 and its tasks Catalogue Lead         open full board (b) ▶ 
    Checkout Lead with a name long enoug…│ nothing on this board needs you                                               
    ▾ M2 Checkout with a   ████████ 100% │ no threads yet                                                                
-     title long enough to be cut in a n…│                                                                               
+     title long enough to be cut in a…  │                                                                               
      ✓ Shelf layout           no ticket │                                                                               
      ✓ 日本語のタスク名と絵文 no ticket │                                                                               
        字です                           │                                                                               

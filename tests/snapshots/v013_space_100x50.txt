@@ -12,7 +12,7 @@
  ▾ checkout                       │ MESSAGE BOARD · M1 and its tasks Catalog… open full board (b) ▶ 
    Checkout Lead with a name long…│ ⚠ Needs you · 1                                                 
    ▾ M2 Checkout    ████████ 100% │   cat-lead question: the covers are late a…  in Let a reader sa…
-     with a title long enough to …│ ┌─────────────────────────────────────────────────────────────┐ 
+     with a title long enough to… │ ┌─────────────────────────────────────────────────────────────┐ 
      ✓ Shelf layout     no ticket │ │ [open] New book shelf               T3 · 7 messages ·   8m  │ 
      ✓ 日本語のタスク名 no ticket │ │ in progress · unassigned · started by cat-lead              │ 
        と絵文字です               │ │ where it stands qa: copy, testing: phone and tablet pass, … │ 
