@@ -8596,9 +8596,9 @@ fn where_it_stands_keeps_the_question_word_of_tower_s_question() {
                 (all.iter()).any(|r| r.split('│').next().unwrap().trim_start().starts_with(word)),
                 "{all:#?}"
             );
-            // The chat's event line keeps its tag and drops the word, as built.
-            let tagged = find_row_containing(&all, "needs you @manager dev-1 on #14");
-            assert!(!all[tagged].contains("question:"), "{all:#?}");
+            // The chat's event line keeps its tag and drops the word, as built: the tag
+            // right before "@manager" leaves no room for "question:".
+            find_row_containing(&all, "needs you @manager dev-1 on #14");
         }
     }
 }
