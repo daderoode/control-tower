@@ -29,6 +29,12 @@ tag's date, and a new empty Unreleased goes above it.
   `f(x),(y)`, moved to the next line whole, or broke only where a line ended. It now breaks
   before the bracket where the UI design does; not after a letter, a digit, another
   opening bracket, or one of `$ ' / @ ^ _` and a backquote (#45).
+- **An ideographic space after a space hangs at a message line's end.** In a message and a
+  delivery failure's opened details, a run of full-width spaces (U+3000) starting a word
+  after an ordinary space, where a line ended, started the next line. It now hangs past the
+  line's end with the spaces before it, as the UI design does, so the next line starts with
+  the word after it. Titles, goals, events, acks and inbox rows still carry it to the next
+  line with its word, as the design does there (#57).
 
 ## [0.5.0] - 2026-11-20
 
