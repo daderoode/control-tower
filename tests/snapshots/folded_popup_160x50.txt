@@ -8,7 +8,7 @@
  ▾ checkout                                │ ├────────────────────────────────────┼────────────────────────────────────┼──────────────────────────────────────┤ 
    Checkout Lead with a name long enough t…│ │ unassigned                         │ #113 unassigned                    │ done by lead                         │ 
    ▾ M2 Checkout with a      ████████ 100% │ └────────────────────────────────────┴────────────────────────────────────┴──────────────────────────────────────┘ 
-     title long enough to be cut in a narr…│                                                                                                                    
+     title long enough to be cut in a…     │                                                                                                                    
      ✓ Shelf layout              no ticket │ MESSAGE BOARD · M1 and its tasks Catalogue Lead                                              open full board (b) ▶ 
      ✓ 日本語のタスク名と絵文字  no ticket │ ⚠ Needs you · 1                                                                                                    
        です                                │   cat-lead question: the covers are late again. @manager can you call the pr…  in Let a reader save a basket for l…

@@ -7,7 +7,7 @@
        page                   │ │ WAITING 0                           │ 
      ● New book shelf    #113 │ ├─────────────────────────────────────┤ 
      ○ Show each    no ticket │ │ none                                │ 
-       book's reviews under i…│ └─────────────────────────────────────┘ 
+       book's reviews under…  │ └─────────────────────────────────────┘ 
                               │ ┌─────────────────────────────────────┐ 
    ▾ Done  3 milestones ⚠1 ⓘ1 │ │ IN PROGRESS 0                       │ 
      ✓ M6 0.1.7:   14/01/2027 │ ├─────────────────────────────────────┤ 
@@ -20,7 +20,7 @@
  ▾ checkout                   │ │ unassigned                          │ 
    Checkout Lead with a name …│ └─────────────────────────────────────┘ 
    ▾ M2         ████████ 100% │                                         
-     Checkout with a title lo…│ MESSAGE BOARD · … open full board (b) ▶ 
+     Checkout with a title…   │ MESSAGE BOARD · … open full board (b) ▶ 
      ✓ Shelf layout no ticket │ ⚠ Needs you · 1                         
      ✓ 日本語のタス no ticket │   cat-lead question: @mana…  in Is 0.1.…
        ク名と絵文字です       │ ┌─────────────────────────────────────┐ 

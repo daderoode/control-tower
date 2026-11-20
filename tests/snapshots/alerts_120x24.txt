@@ -5,13 +5,13 @@
      ✓ Bookmarks page         no ticket │  standalone 0 · Done 0 milestones                                             
      ● New book shelf              #113 │                                                                               
      ○ Show each book's       no ticket │ MESSAGE BOARD · whole repo Catalogue Lead               open full board (b) ▶ 
-       reviews under its cover, newest …│ ⚠ Needs you · 1                                                               
+       reviews under its cover, newest… │ ⚠ Needs you · 1                                                               
 ────────────────────────────────────────│   cat-lead question: the covers are late again. @ma…  in Show each book's rev…
                                         │ ┌───────────────────────────────────────────────────────────────────────────┐ 
  ▾ checkout                       ⚠1 ⓘ1 │ │ [open] New book shelf                             T3 · 7 messages ·   7m  │ 
    Checkout Lead with a name long enoug…│ │ in progress · unassigned · started by cat-lead                            │ 
    ▾ M2 Checkout with a   ████████ 100% │ │ where it stands cat-lead: decision: books out of print also leave the sh… │ 
-     title long enough to be cut in a n…│ │                            4 earlier messages                             │ 
+     title long enough to be cut in a…  │ │                            4 earlier messages                             │ 
      ✓ Shelf layout           no ticket │ │                                                                           │ 
      ✓ 日本語のタスク名と絵文 no ticket │ │   dev-2 · developer · 12m                                                 │ 
        字です                           │ │  ▌ I have done the shelf grid. Please test while I do the                 │ 

@@ -353,8 +353,9 @@ line: its ticket in the accent colour when it has one, who is on it
 by lead" for a done task the lead finished, `tower task stage N done --by <lead's
 session>`), its subtasks done of all, dim, and a bold amber "!" while it is blocked. Its
 title is in the tree, and what it is doing in its thread's header. In the tree a milestone's
-or task's title is shown whole, wrapping to an indented second line and cut with "…" only
-past two, the first line keeping whole words; task titles are dim but for tasks in progress
+or task's title is shown whole, wrapping to an indented second line and, only past two,
+ending in "…" after the last piece that fits, the first line keeping whole words; task
+titles are dim but for tasks in progress
 and the selected one, and a rule and a blank line part the repos. Selecting a task keeps its
 milestone's overview and highlights the task's card on the selected background. Under the
 columns is the milestone's part of its repo's message board, the threads linked to it or one
@@ -494,8 +495,9 @@ across the top, then a list of its threads read like a chat app's conversations,
 OPEN and RESOLVED. An open thread takes two lines: its mark (a red ●
 while a question waits on you in it, ○ open), its name in words and age, then where it
 stands; what it is on is in its header.
-A long name wraps to a second line, with the age on the first, and is cut with "…" only
-past two, never into a thread's own title, which keeps its room there.
+A long name wraps to a second line, with the age on the first, and only past two ends in
+"…" after the last piece that fits, never cut into a thread's own title, which keeps its
+room there.
 A blank line parts two open threads and comes
 before RESOLVED, a blank row is under the "Needs you" strip, and one between the thread's
 header and its conversation. RESOLVED is one row, "RESOLVED 3 ▸", folded each time the

@@ -5,13 +5,13 @@
      ✓ Bookmarks page         no ticket │ ┌────────────────────────┬────────────────────────┬─────────────────────────┐ 
      ● New book shelf              #113 │ │ WAITING 1              │ IN PROGRESS 1          │ DONE 1                  │ 
      ○ Show each book's     ! no ticket │ ├────────────────────────┼────────────────────────┼─────────────────────────┤ 
-       reviews under its cover, newest …│ │ dev-1 !                │ #113 dev-2             │ unassigned              │ 
+       reviews under its cover, newest… │ │ dev-1 !                │ #113 dev-2             │ unassigned              │ 
 ────────────────────────────────────────│ └────────────────────────┴────────────────────────┴─────────────────────────┘ 
                                         │                                                                               
  ▾ checkout                             │ MESSAGE BOARD · M1 and its tasks Catalogue Lead         open full board (b) ▶ 
    Checkout Lead with a name long enoug…│ ⚠ Needs you · 1                                                               
    ▾ M2 Checkout with a   ████████ 100% │   cat-lead question: the covers are late again. @ma…  in Show each book's rev…
-     title long enough to be cut in a n…│ ┌───────────────────────────────────────────────────────────────────────────┐ 
+     title long enough to be cut in a…  │ ┌───────────────────────────────────────────────────────────────────────────┐ 
      ✓ Shelf layout           no ticket │ │ [open] New book shelf                             T3 · 7 messages ·   8m  │ 
      ✓ 日本語のタスク名と絵文 no ticket │ │ in progress · dev-2 · started by cat-lead                                 │ 
        字です                           │ │ where it stands dev-2: testing the shelf grid                             │ 

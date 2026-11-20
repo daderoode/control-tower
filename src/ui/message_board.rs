@@ -574,8 +574,9 @@ pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
 }
 
 /// `text` wrapped to `w` columns on at most `max` lines: past that, the last line carries
-/// the rest, for `fit` to cut with "…". The rest is the text as written from where the lines
-/// before it end, so a word broken across lines stays whole.
+/// the rest, for the caller to clamp (`clamp`) at the width it draws it. The rest is the
+/// text as written from where the lines before it end, so a word broken across lines stays
+/// whole.
 pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     let max = max.max(1);
     let mut pieces = wrap_line(text, w);
@@ -598,6 +599,37 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
         pieces.push(text[at..].trim_start().to_string());
     }
     pieces
+}
+
+/// `text` on at most `max` lines `w` wide, as the copy's `.clamp2` draws it: wrapped as
+/// `wrap_line` wraps it and, past `max` lines, the last ends in "…" after its last whole
+/// piece (`clamp_end`).
+pub(crate) fn clamp(text: &str, w: usize, max: usize) -> Vec<String> {
+    let max = max.max(1);
+    let mut lines = wrap_line(text, w);
+    if lines.len() > max {
+        lines.truncate(max);
+        let last = &mut lines[max - 1];
+        last.truncate(clamp_end(last, w));
+        last.push('…');
+    }
+    lines
+}
+
+/// Where a clamped text's last line, `line` (a line `w` wide), is cut to leave its "…" a
+/// column, as the copy's line clamp ends it: the whole line when it leaves one, so the "…"
+/// comes right after its last piece, or else short of its last characters. A byte index.
+pub(crate) fn clamp_end(line: &str, w: usize) -> usize {
+    let mut end = 0;
+    let mut used = 0;
+    for (at, c) in line.char_indices() {
+        used += c.width().unwrap_or(0);
+        if used + 1 > w {
+            break;
+        }
+        end = at + c.len_utf8();
+    }
+    end
 }
 
 /// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
@@ -2089,5 +2121,33 @@ mod tests {
         assert_eq!(wrap_at_most("abcdefghij", 4, 2), vec!["abcd", "efghij"]);
         assert_eq!(wrap_at_most("abcdefghij", 4, 1), vec!["abcdefghij"]);
         assert_eq!(wrap_at_most("日本語です", 4, 2), vec!["日本", "語です"]);
+    }
+
+    #[test]
+    fn clamp_ends_its_last_line_after_its_last_whole_piece() {
+        // As headless Chrome draws the copy's `.clamp2` (#50): the last line kept ends in
+        // "…" right after its last piece, here a `-`, where carrying the rest onto it and
+        // cutting that drew "shed-lead-senior-r…".
+        let text = "the long garden-shed-lead-senior-reviewer";
+        assert_eq!(
+            clamp(text, 18, 2),
+            ["the long garden-", "shed-lead-senior-…"]
+        );
+        // A full last line leaves the "…" no column: it takes its last character's place.
+        assert_eq!(
+            clamp(text, 17, 2),
+            ["the long garden-", "shed-lead-senior…"]
+        );
+        assert_eq!(
+            clamp("its cover, newest first, with a link", 31, 1),
+            ["its cover, newest first, with …"]
+        );
+        // Its spaces fold as the copy's do.
+        assert_eq!(clamp("Search by author  now", 19, 1), ["Search by author…"]);
+        // Text that fits its lines is drawn as wrapped, with no "…".
+        assert_eq!(
+            clamp(text, 21, 2),
+            ["the long garden-shed-", "lead-senior-reviewer"]
+        );
     }
 }

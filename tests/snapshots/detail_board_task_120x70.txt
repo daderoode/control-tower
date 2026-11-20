@@ -5,13 +5,13 @@
      ✓ Bookmarks page         no ticket │ doing      nothing posted yet                                                 
      ● New book shelf               #13 │ blocked by ○ #14 Show each book's reviews under its cover, newest first, with…
      ○ Show each book's       no ticket │            #99                                                                
-       reviews under its cover, newest …│ MR         !44 draft into feat/bookmarks · pipeline running                   
+       reviews under its cover, newest… │ MR         !44 draft into feat/bookmarks · pipeline running                   
 ────────────────────────────────────────│ context    Test with the sample catalogue.                                    
                                         │ ticket     #13                                                                
  ▾ checkout                             │ tracker    https://github.com/example/bookshop/issues/13                      
    Checkout Lead with a name long enoug…│                                                                               
    ▾ M2 Checkout with a   ████████ 100% │ DESCRIPTION                                                                   
-     title long enough to be cut in a n…│ The shelf shows the twelve newest books with their covers, newest first.      
+     title long enough to be cut in a…  │ The shelf shows the twelve newest books with their covers, newest first.      
      ✓ Shelf layout           no ticket │ A ribbon marks the books that came in this week.                              
      ✓ 日本語のタスク名と絵文 no ticket │                                                                               
        字です                           │ ACCEPTANCE CRITERIA 1/2                                                       

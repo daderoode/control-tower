@@ -5,13 +5,13 @@
      ✓ Bookmarks page         no ticket │ ┌────────────────────────┬────────────────────────┬─────────────────────────┐ 
      ● New book shelf              #113 │ │ WAITING 1              │ IN PROGRESS 1          │ DONE 1                  │ 
      ○ Show each book's       no ticket │ ├────────────────────────┼────────────────────────┼─────────────────────────┤ 
-       reviews under its cover, newest …│ │ unassigned             │ #113 unassigned        │ unassigned              │ 
+       reviews under its cover, newest… │ │ unassigned             │ #113 unassigned        │ unassigned              │ 
 ────────────────────────────────────────│ └────────────────────────┴────────────────────────┴─────────────────────────┘ 
                                         │                                                                               
  ▾ checkout                             │ MESSAGE BOARD · #13 Catalogue Lead                      open full board (b) ▶ 
    Checkout Lead with a name long enoug…│ nothing on this board needs you                                               
    ▾ M2 Checkout with a   ████████ 100% │ ┌───────────────────────────────────────────────────────────────────────────┐ 
-     title long enough to be cut in a n…│ │ [open] New book shelf                             T3 · 7 messages ·   8m  │ 
+     title long enough to be cut in a…  │ │ [open] New book shelf                             T3 · 7 messages ·   8m  │ 
      ✓ Shelf layout           no ticket │ │ in progress · unassigned · started by cat-lead                            │ 
      ✓ 日本語のタスク名と絵文 no ticket │ │ where it stands qa: copy, testing: phone and tablet pass, desktop shows … │ 
        字です                           │ │                            3 earlier messages                             │ 
