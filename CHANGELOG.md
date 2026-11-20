@@ -105,6 +105,11 @@ tag's date, and a new empty Unreleased goes above it.
   word is tower's, such as a delivery failure, its line on the thread's header (on the
   message board and the full board) and in the thread list draws it in the text colour, as
   the UI design does, where it had drawn dim; only "where it stands" stays dim (#60).
+- **Where a thread stands keeps tower's `question:`.** When the thread's newest word is
+  tower's question for you, such as a worker waiting on a herdr prompt, its line on the
+  thread's header (on the message board and the full board) and in the thread list keeps
+  its leading `question:`, as the UI design does, where it had dropped it; the chat's line
+  still drops it after its "needs you" tag (#68).
 
 ## [0.4.0] - 2026-11-16
 

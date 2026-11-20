@@ -8562,6 +8562,48 @@ fn where_it_stands_draws_tower_s_word_in_the_text_colour_with_only_its_lead_in_d
 }
 
 #[test]
+fn where_it_stands_keeps_the_question_word_of_tower_s_question() {
+    let mut board = board_fixture();
+    // T4 (task #14, no progress post) holds only tower's question for the owner, so where
+    // it stands is tower's word.
+    let t = &mut board.milestones[0].threads[2];
+    let question = Message {
+        id: 498,
+        author: "system".into(),
+        text: "question: @manager dev-1 on #14 is waiting on a prompt in herdr that only you \
+               can answer."
+            .into(),
+        at: NOW - 30,
+    };
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, vec![question]);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let word = "question: @manager dev-1 on #14";
+    // The milestone's message board, with T4's card; the full board on T4, its header
+    // beside the list.
+    let card = select(Item::Milestone(MilestoneId(1)));
+    let mut full = select(Item::Task(TaskId(14)));
+    full.handle(&view, a, Input::Char('b'));
+    for (dash, place) in [(&card, "card"), (&full, "full board")] {
+        let all = screen(&view, dash, a);
+        // As the copy: no "needs you" tag on where it stands says it, so the word stays.
+        find_row_containing(&all, &format!("where it stands {word}"));
+        if place == "full board" {
+            // The thread list's row too, left of its bar, with no lead-in (the Needs you
+            // strip's row starts with "system", the header's with "where it stands").
+            assert!(
+                (all.iter()).any(|r| r.split('│').next().unwrap().trim_start().starts_with(word)),
+                "{all:#?}"
+            );
+            // The chat's event line keeps its tag and drops the word, as built.
+            let tagged = find_row_containing(&all, "needs you @manager dev-1 on #14");
+            assert!(!all[tagged].contains("question:"), "{all:#?}");
+        }
+    }
+}
+
+#[test]
 fn opening_a_folded_conversation_leaves_its_question_waiting() {
     let mut board = folded_fixture();
     // T9 (tower's, about #13) also asks the owner something.
