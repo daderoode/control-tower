@@ -448,15 +448,20 @@ fn two_lines(text: &str, first: usize, second: usize) -> (String, Option<String>
     (head, (!rest.is_empty()).then(|| clamp_line(rest, second)))
 }
 
-/// Whether `head` ends with a word that is only ideographic spaces after a word that does
-/// not end with one, which the copy's folded text does not end a line with: it carries the
-/// run to the next line with what follows it (`message_board::wrap_line`).
+/// Whether `head` ends with words that are only ideographic spaces, one or more, after a
+/// word that does not end with one, which the copy's folded text does not end a line with:
+/// it carries them to the next line with what follows them (`message_board::wrap_line`).
 fn ends_carried(head: &str) -> bool {
-    let head = head.trim_end_matches(' ');
-    let (before, word) = head.rsplit_once(' ').unwrap_or(("", head));
-    !word.is_empty()
-        && word.chars().all(|c| c == IDEOGRAPHIC_SPACE)
-        && (before.trim_end_matches(' ').chars().last()).is_some_and(|c| c != IDEOGRAPHIC_SPACE)
+    let mut head = head.trim_end_matches(' ');
+    let mut runs = 0;
+    loop {
+        let (before, word) = head.rsplit_once(' ').unwrap_or(("", head));
+        if word.is_empty() || !word.chars().all(|c| c == IDEOGRAPHIC_SPACE) {
+            return runs > 0 && !word.is_empty() && !word.ends_with(IDEOGRAPHIC_SPACE);
+        }
+        runs += 1;
+        head = before.trim_end_matches(' ');
+    }
 }
 
 /// `rest` on one line `w` wide, as the copy's `.clamp2` ends its last line (`clamp`).
@@ -781,6 +786,24 @@ mod tests {
         assert_eq!(
             two_lines("ab　 　cd", 5, 5),
             ("ab".to_string(), Some("cd".to_string()))
+        );
+        // A chain of words that are only runs goes to the second line whole. The first
+        // line is Chrome's at 10 and at 30; the second has room for the whole rest, and
+        // starts as Chrome's does.
+        let text = "設定 　 　 次へ 　ひらがな ok 　 　 カタカナ 　 漢字 　 中文 　 结束";
+        assert_eq!(
+            two_lines(text, 10, 63),
+            (
+                "設定".to_string(),
+                Some("　 　 次へ 　ひらがな ok 　 　 カタカナ 　 漢字 　 中文 　 结束".to_string())
+            )
+        );
+        assert_eq!(
+            two_lines(text, 30, 40),
+            (
+                "設定 　 　 次へ 　ひらがな ok".to_string(),
+                Some("　 　 カタカナ 　 漢字 　 中文 　 结束".to_string())
+            )
         );
     }
 }
