@@ -21,7 +21,9 @@ use super::control::Control;
 use super::message_board::{clamp_end, highlight_marked, wrap_line};
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, ok, selected_bg};
 use super::tree::split_line;
-use crate::board::{Board, DELIVERY_FAILURE, SYSTEM_AUTHOR, Talk, age, owner_mentions};
+use crate::board::{
+    Board, DELIVERY_FAILURE, OWNER_HANDLE, SYSTEM_AUTHOR, Talk, age, owner_mentions,
+};
 use crate::inbox::{Alert, Inbox, Kind};
 
 /// Columns "◀ back" takes on the inbox's top line, for clicking it.
@@ -82,33 +84,33 @@ pub(crate) fn alert_name(board: &Board, a: &Alert) -> String {
     format!("{} in ‘{thread}’ · {repo}", a.message.author)
 }
 
-/// What an alert says, unstyled, as its inbox row shows it.
+/// What an alert says, unstyled, as its inbox row shows it: its message on at most
+/// `MESSAGE_LINES` lines, each with the byte ranges in it to mark in the row's red, and
+/// whether the message goes on past the last.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Said {
-    /// A delivery failure's short form, "@manager delivery failed to X", on one line: its
-    /// full text is in its thread.
-    Failure(String),
-    /// Its message on at most `MESSAGE_LINES` lines, each with the byte ranges in it of the
-    /// owner's mentions, and whether the message goes on past the last.
-    Text {
-        lines: Vec<(String, Vec<Range<usize>>)>,
-        more: bool,
-    },
+struct Said {
+    lines: Vec<(String, Vec<Range<usize>>)>,
+    more: bool,
 }
 
 impl Said {
-    /// What `a` says on lines `room` columns wide. As the copy's row (`.txt clamp2`,
-    /// `white-space: normal`) draws a message: its line breaks and tabs are spaces, each
-    /// run of spaces one, wrapped as the copy's `.clamp2` wraps it (`wrap_line`) and clamped
-    /// to `MESSAGE_LINES` lines.
+    /// What `a` says on lines `room` columns wide: its message, its marks the owner's
+    /// mentions, or for a delivery failure its short form, "@manager delivery failed to X"
+    /// (its full text is in its thread), its mark the "@manager". As the copy's row (`.txt
+    /// clamp2`, `white-space: normal`) draws either: its line breaks and tabs are spaces,
+    /// each run of spaces one, wrapped as the copy's `.clamp2` wraps it (`wrap_line`) and
+    /// clamped to `MESSAGE_LINES` lines.
     fn of(a: &Alert, room: usize) -> Said {
         let text = &a.message.text;
-        if a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)
-            && text.starts_with(DELIVERY_FAILURE)
-        {
-            return Said::Failure(failed_to(text).to_string());
-        }
-        // The same bytes, so the mentions found in `text` are where they were.
+        let failure = a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)
+            && text.starts_with(DELIVERY_FAILURE);
+        let (text, marks) = if failure {
+            let short = format!("{OWNER_HANDLE} delivery failed to {}", failed_to(text));
+            (short, std::iter::once(0..OWNER_HANDLE.len()).collect())
+        } else {
+            (text.clone(), owner_mentions(text))
+        };
+        // The same bytes, so the marks found in `text` are where they were.
         let flat: String = (text.chars())
             .map(|c| {
                 if matches!(c, '\n' | '\r' | '\t') {
@@ -121,9 +123,8 @@ impl Said {
         let mut lines = wrap_line(&flat, room);
         let more = lines.len() > MESSAGE_LINES;
         lines.truncate(MESSAGE_LINES);
-        let marks = owner_mentions(text);
         let found = marked(&flat, 0, &marks, lines.iter().map(String::as_str));
-        Said::Text {
+        Said {
             lines: lines.into_iter().zip(found).collect(),
             more,
         }
@@ -131,33 +132,21 @@ impl Said {
 
     /// How many list lines it takes.
     fn height(&self) -> usize {
-        match self {
-            Said::Failure(_) => 1,
-            Said::Text { lines, .. } => lines.len(),
-        }
+        self.lines.len()
     }
 
     /// Its lines, styled, each at most `room` columns: the last ends in "…" where the
     /// message goes on, right after its last word, or in place of its last character when
     /// the line is full, as the copy's clamp ends it.
     fn lines(&self, awareness: bool, room: usize, depth: Depth) -> Vec<Vec<Span<'static>>> {
-        let (lines, more) = match self {
-            Said::Failure(to) => {
-                return vec![vec![
-                    Span::styled("@manager", bold().fg(bad(depth))),
-                    Span::raw(format!(" delivery failed to {to}")),
-                ]];
-            }
-            Said::Text { lines, more } => (lines, *more),
-        };
-        let n = lines.len();
-        (lines.iter().enumerate())
+        let n = self.lines.len();
+        (self.lines.iter().enumerate())
             .map(|(k, (piece, marks))| {
-                if !(more && k + 1 == n) {
+                if !(self.more && k + 1 == n) {
                     return highlight_marked(piece, marks, k == 0, awareness, depth);
                 }
-                // The "…" in the row's text style, never a mention's: the piece is cut
-                // first, to leave it a column, and then styled.
+                // The "…" in the row's text style, never a mark's: the piece is cut first, to
+                // leave it a column, and then styled.
                 let end = clamp_end(piece, room);
                 let marks: Vec<Range<usize>> = (marks.iter())
                     .filter(|r| r.start < end)
@@ -533,24 +522,71 @@ mod tests {
     use super::*;
     use crate::board::{Message, RepoId, ThreadId};
 
-    /// The inbox row's message lines for `text`, `room` columns wide, unstyled.
-    fn row(text: &str, room: usize) -> Vec<String> {
+    /// The inbox row's message lines for `author`'s `text`, `room` columns wide, styled.
+    fn spans(author: &str, text: &str, room: usize) -> Vec<Vec<Span<'static>>> {
         let a = Alert {
             kind: Kind::NeedsYou,
             repo: RepoId(1),
             thread: ThreadId(1),
             message: Message {
                 id: 1,
-                author: "cat-lead".into(),
+                author: author.into(),
                 text: text.into(),
                 at: 0,
             },
         };
-        (Said::of(&a, room)
-            .lines(false, room, Depth::TrueColor)
-            .iter())
-        .map(|spans| spans.iter().map(|s| s.content.as_ref()).collect())
-        .collect()
+        Said::of(&a, room).lines(false, room, Depth::TrueColor)
+    }
+
+    /// Each line's text and its spans' styles.
+    fn styled(lines: Vec<Vec<Span<'static>>>) -> Vec<Vec<(String, Style)>> {
+        (lines.into_iter())
+            .map(|l| l.into_iter().map(|s| (s.content.into(), s.style)).collect())
+            .collect()
+    }
+
+    /// The inbox row's message lines for `text`, `room` columns wide, unstyled.
+    fn row(text: &str, room: usize) -> Vec<String> {
+        (spans("cat-lead", text, room).iter())
+            .map(|spans| spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn a_delivery_failures_row_wraps_onto_two_lines_as_the_copys_clamp_does() {
+        // As headless Chrome draws the copy's failure row (`.txt clamp2`, #51): its short
+        // form wraps at its words onto a second line, clamped there like any row's, where
+        // it had been one line cut at the row's edge.
+        let text = "@manager could not deliver to Garden Shed Lead, the lead's pane is gone";
+        let red = bold().fg(bad(Depth::TrueColor));
+        let plain = Style::new();
+        let s = |t: &str, style| (t.to_string(), style);
+        assert_eq!(
+            styled(spans(SYSTEM_AUTHOR, text, 20)),
+            [
+                vec![s("@manager", red), s(" delivery", plain)],
+                vec![s("failed to Garden", plain), s("…", plain)],
+            ]
+        );
+        assert_eq!(
+            styled(spans(SYSTEM_AUTHOR, text, 30)),
+            [
+                vec![s("@manager", red), s(" delivery failed to", plain)],
+                vec![s("Garden Shed Lead", plain)],
+            ]
+        );
+        assert_eq!(
+            styled(spans(SYSTEM_AUTHOR, text, 12)),
+            [
+                vec![s("@manager", red)],
+                vec![s("delivery", plain), s("…", plain)],
+            ]
+        );
+        // Where "@manager" itself breaks across the lines, both its parts stay red.
+        assert_eq!(
+            styled(spans(SYSTEM_AUTHOR, text, 4)),
+            [vec![s("@man", red)], vec![s("age", red), s("…", plain)]]
+        );
     }
 
     #[test]
