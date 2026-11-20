@@ -89,7 +89,8 @@ pub fn stands(
 ) -> Option<Line<'static>> {
     let (who, text, tone) = talk.stands(t)?;
     let mut s = vec![Span::styled(lead_in.to_string(), dim(depth))];
-    // Tower's own word reads as the chat's quiet line does, with no "system:" label.
+    // Tower's own word in the chat's words for it, with no "system:" label, and in the text
+    // colour as a person's plain words: only the lead-in is dim.
     if is_tower(&who) {
         let m = Message {
             id: 0,
@@ -100,7 +101,7 @@ pub fn stands(
         let said = event_text(&m, talk.lead);
         // Its spaces folded, as the copy's `nowrap` line draws its event text.
         let first = fold_spaces(said.lines().next().unwrap_or_default());
-        s.push(Span::styled(first, dim(depth)));
+        s.push(Span::raw(first));
         return Some(fit(s, w));
     }
     if !who.is_empty() {

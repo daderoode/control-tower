@@ -8502,6 +8502,66 @@ fn where_it_stands_folds_the_runs_of_spaces_in_tower_s_word() {
 }
 
 #[test]
+fn where_it_stands_draws_tower_s_word_in_the_text_colour_with_only_its_lead_in_dim() {
+    let mut board = board_fixture();
+    // T4 (task #14, no progress post) holds only a delivery failure, so where it stands is
+    // tower's word.
+    let t = &mut board.milestones[0].threads[2];
+    let failure = Message {
+        id: 497,
+        author: "system".into(),
+        text: "@manager could not deliver to dev-1: herdr has no agent named dev-1.".into(),
+        at: NOW - 30,
+    };
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, vec![failure]);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let word = "@manager could not deliver to dev-1";
+    let stands = format!("where it stands {word}");
+    // The milestone's message board, with T4's card; the full board on T4, its header
+    // beside the list.
+    let card = select(Item::Milestone(MilestoneId(1)));
+    let mut full = select(Item::Task(TaskId(14)));
+    full.handle(&view, a, Input::Char('b'));
+    for depth in [Depth::TrueColor, Depth::Ansi256] {
+        for (dash, place) in [(&card, "card"), (&full, "full board")] {
+            let buf = render_dash(&view, dash, 160, 50, depth);
+            let all = rows(&buf);
+            // Each line with tower's word: the card's or the header's, after its lead-in;
+            // on the full board also the list's row, left of its bar, with no lead-in.
+            let head = find_row_containing(&all, &stands);
+            let mut lines = vec![(head, all[head].find(&stands).unwrap(), true)];
+            if place == "full board" {
+                let list = (all.iter())
+                    .position(|r| r.split('│').next().unwrap().contains(word))
+                    .unwrap_or_else(|| panic!("{all:#?}"));
+                lines.push((list, all[list].find(word).unwrap(), false));
+            }
+            for (y, at, lead_in) in lines {
+                let x = all[y][..at].width();
+                let cell = |x: usize| buf[(x as u16, y as u16)].clone();
+                let from = if lead_in {
+                    // As the copy: only "where it stands" is dim.
+                    assert_eq!(cell(x).symbol(), "w", "{place} {all:#?}");
+                    assert_eq!(cell(x).fg, dim_colour(depth), "{place} {depth:?}");
+                    x + "where it stands ".width()
+                } else {
+                    x
+                };
+                // Tower's word in the text colour, as a person's plain words, where it
+                // had drawn dim.
+                for (i, c) in word.chars().enumerate() {
+                    let got = cell(from + i);
+                    assert_eq!(got.symbol(), c.to_string(), "{place} {all:#?}");
+                    assert_eq!(got.fg, Color::Reset, "{place} {lead_in} {depth:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn opening_a_folded_conversation_leaves_its_question_waiting() {
     let mut board = folded_fixture();
     // T9 (tower's, about #13) also asks the owner something.
@@ -9551,6 +9611,86 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
                 assert_eq!(got.fg, want.fg, "{text:?} {place} {depth:?}");
                 assert_eq!(bold(&got), bold_tag, "{text:?} {place} {depth:?}");
             }
+        }
+    }
+}
+
+#[test]
+fn a_task_detail_tones_its_doing_lines_leading_tag_as_its_bubble_does() {
+    // #14's doing post is T4's newest message, by cat-lead, starting with each leading tag
+    // in turn, with whether its tag is bold. Each round's message has its own id, as in
+    // the where-it-stands test.
+    let tags = [
+        (
+            "decision:",
+            "decision: the covers come from the second printer. @manager for your awareness",
+            true,
+        ),
+        (
+            "blocked:",
+            "blocked: the second printer is out of ink too",
+            true,
+        ),
+        (
+            "question:",
+            "question: the covers are late again. @manager can you call the printer?",
+            false,
+        ),
+        // The owner mentioned on a later line: for your awareness, as its bubble takes it.
+        (
+            "decision:",
+            "decision: the spine stays matte\n@manager for your awareness",
+            true,
+        ),
+        // Not for your awareness (no mention of the owner): plain, as its bubble.
+        ("decision:", "decision: the covers stay blue", false),
+    ];
+    for (id, (tag, text, bold_tag)) in (420..).zip(tags) {
+        let mut board = board_fixture();
+        let post = Message {
+            id,
+            author: "cat-lead".into(),
+            text: text.into(),
+            at: NOW - 5 * 60,
+        };
+        let t = (board.milestones[0].threads.iter_mut())
+            .find(|t| t.id == ThreadId(4))
+            .unwrap();
+        let mut messages = t.messages.clone();
+        messages.push(post.clone());
+        *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+        let task = (board.milestones[0].tasks.iter_mut())
+            .find(|t| t.id == TaskId(14))
+            .unwrap();
+        task.details.doing = Some(post);
+        with_alerts(&mut board, &[]);
+        let view: View = Ok(board);
+        let a = area(160, 50);
+        let mut detail = select(Item::Task(TaskId(14)));
+        detail.handle(&view, a, Input::Enter);
+        assert_eq!(detail.view(), ViewKind::TaskDetail);
+        let mut full = select(Item::Task(TaskId(14)));
+        full.handle(&view, a, Input::Char('b'));
+        let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
+        for depth in [Depth::TrueColor, Depth::Ansi256] {
+            // The cell where `needle` first starts on the screen, `skip` columns in.
+            let at = |dash: &Dash, needle: &str, skip: &str| {
+                let buf = render_dash(&view, dash, 160, 50, depth);
+                let all = rows(&buf);
+                let y = (all.iter())
+                    .rposition(|r| r.contains(needle))
+                    .unwrap_or_else(|| panic!("{needle:?} {all:#?}"));
+                let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
+                buf[(x as u16, y as u16)].clone()
+            };
+            // Its bubble line: the last with the tag, as the newest message is drawn last.
+            let want = at(&full, &format!("▌ {tag}"), "▌ ");
+            assert_eq!(bold(&want), bold_tag, "{text:?} bubble {depth:?}");
+            let got = at(&detail, &format!("doing      {tag}"), "doing      ");
+            assert_eq!(got.symbol(), &tag[..1], "{text:?} {depth:?}");
+            // As its bubble: in the bubble's colour, bold exactly when the round says.
+            assert_eq!(got.fg, want.fg, "{text:?} detail {depth:?}");
+            assert_eq!(bold(&got), bold_tag, "{text:?} detail {depth:?}");
         }
     }
 }

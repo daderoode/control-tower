@@ -31,8 +31,8 @@ use super::theme::{
 };
 use super::tree::{done_tally, lead_style, marked_done, split_line};
 use crate::board::{
-    Board, Lead, Milestone, MilestoneId, Repo, Stage, Talk, Task, TaskId, filled_cells,
-    no_lead_line, team,
+    Board, Lead, Milestone, MilestoneId, Repo, Stage, Talk, Task, TaskId, Tone, filled_cells,
+    no_lead_line, team, tone_of,
 };
 
 /// Columns the field labels take, "blocked by" being the longest, before a space.
@@ -134,9 +134,9 @@ impl Pen {
         }
     }
 
-    fn highlight(self, text: &str, start: bool) -> Vec<Span<'static>> {
+    fn highlight(self, text: &str, start: bool, awareness: bool) -> Vec<Span<'static>> {
         match self.0 {
-            Some(d) => message_board::highlight(text, start, false, d),
+            Some(d) => message_board::highlight(text, start, awareness, d),
             None => vec![Span::raw(text.to_string())],
         }
     }
@@ -827,19 +827,22 @@ fn task_lines(
         assigned.extend(names);
     }
     lines.push(field("assigned", assigned, w, pen));
-    // The latest progress post in full; the blocked flag has its own row below.
-    let doing = d.doing.as_ref().map(|post| post.text.clone());
-    match doing {
+    // The latest progress post in full; the blocked flag has its own row below. Its
+    // leading tag is toned as in its bubble, by the whole post's tone.
+    match &d.doing {
         None => lines.push(field(
             "doing",
             vec![Span::styled("nothing posted yet", pen.dim())],
             w,
             pen,
         )),
-        Some(text) => {
-            for (i, piece) in wrap(&text, w.saturating_sub(VALUE_X)).iter().enumerate() {
+        Some(post) => {
+            let awareness = tone_of(post) == Tone::Awareness;
+            let pieces = wrap(&post.text, w.saturating_sub(VALUE_X));
+            for (i, piece) in pieces.iter().enumerate() {
                 let label = if i == 0 { "doing" } else { "" };
-                lines.push(field(label, pen.highlight(piece, i == 0), w, pen));
+                let value = pen.highlight(piece, i == 0, awareness);
+                lines.push(field(label, value, w, pen));
             }
         }
     }
