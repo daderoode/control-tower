@@ -50,6 +50,13 @@ tag's date, and a new empty Unreleased goes above it.
   under one of your messages ended two columns short of the bubble's edge. It now hangs
   past the line's end, as the UI design does, so the line sits where the text before it
   does (#62).
+- **A wrapped ack fills each line, as the UI design does.** A wrapped ack kept room for
+  its ` · age` at the end of every line, so it broke earlier than the design's, as in
+  `↳ qa: copy,` / `testing the` / `thing now · 8m`. Its lines now fill to the ack's width,
+  `↳ qa: copy, testing` / `the thing now · 8m`, and a hash that fits a line is no longer
+  cut. Its age follows the last word where it fits; where only the `·` fits, the `·` ends
+  that line and the age starts the next. An ack's lines after its first now start where
+  the first does, under the arrow, no longer two columns further in (#75).
 
 ## [0.5.0] - 2026-11-20
 

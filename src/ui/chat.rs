@@ -35,8 +35,8 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    dropped, event_line_overflows, fold_spaces, highlight_marked, role_colour, units, wrap,
-    wrap_event_line, wrap_line_paths,
+    dropped, fold_spaces, highlight_marked, role_colour, units, wrap, wrap_event_line,
+    wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -266,8 +266,9 @@ pub enum Row {
         open: bool,
     },
     /// A line of an ack under the bubble it answers, on that bubble's side; the first
-    /// starts "↳ author:", the last ends with its age, or is only its age after a word, or
-    /// the last piece of one, too wide for a line (its `piece` empty).
+    /// starts "↳ author:", the last ends with its age, which its `piece` leaves out: "the
+    /// thing now · ", "· " after a piece too wide for a line, or empty when the age is
+    /// alone after a line ending " ·".
     Ack {
         msg: usize,
         bw: usize,
@@ -723,15 +724,24 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                 }
                 for msg in acks {
                     let m = &msgs[msg];
-                    let text = ack_text(m);
-                    // Room on every line for " · " and the age at the end of the last.
-                    let aw = bw.saturating_sub(2 + 3 + AGE_COLUMNS).max(1);
-                    let mut ps = wrap_event_line(&text, aw);
-                    // After a word, or the last piece of one, too wide for a line, which
-                    // overflows it in the copy, the age starts a line of its own.
-                    if event_line_overflows(&text, aw) {
-                        ps.push(String::new());
-                    }
+                    // The ack, " · " and its age as one run of words, as the copy lays its
+                    // `· age` out inline: each line filled to the ack's width, two in from
+                    // the bubble's edge, the age after the last word where it fits, else
+                    // `·` ends that line and the age starts the next, or after a piece too
+                    // wide for a line `· age` starts the next. The age as drawn at `now`; a
+                    // preview, planned without it, keeps room for the widest.
+                    let shown = shape
+                        .now
+                        .map_or_else(|| "0".repeat(AGE_COLUMNS), |now| age(m.at, now));
+                    let aw = bw.saturating_sub(2).max(shown.width());
+                    let mut ps = wrap_event_line(&format!("{} · {shown}", ack_text(m)), aw);
+                    // The age, a word no wider than a line, ends the last line; `line` draws
+                    // it as of its own `now`.
+                    let last = ps.last_mut().expect("wrapping leaves a line");
+                    let kept = (last.strip_suffix(shown.as_str()))
+                        .expect("an ack's age ends its last line")
+                        .len();
+                    last.truncate(kept);
                     let n = ps.len();
                     for (j, piece) in ps.into_iter().enumerate() {
                         rows.push(Row::Ack {
@@ -1164,21 +1174,16 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             let m = &msgs[*msg];
             let colour = Style::new().fg(people.colour(&m.author, depth));
             let lead_in = format!("↳ {}", m.author);
+            // Each line starts where the first does, as the copy's do.
             let mut s = match piece.strip_prefix(&lead_in).filter(|_| *first) {
                 Some(rest) => vec![
                     Span::styled(lead_in.clone(), colour),
                     Span::styled(rest.to_string(), dim(depth)),
                 ],
-                // A continuation sits under the text, past the arrow.
-                None => vec![Span::raw("  "), Span::styled(piece.clone(), dim(depth))],
+                None => vec![Span::styled(piece.clone(), dim(depth))],
             };
             if *last {
-                // On a line of its own, the age starts it, under the text.
-                let gap = if piece.is_empty() { "" } else { " " };
-                s.push(Span::styled(
-                    format!("{gap}· {}", age(m.at, now)),
-                    dim(depth),
-                ));
+                s.push(Span::styled(age(m.at, now), dim(depth)));
             }
             // The run of spaces ending the line hangs past its end (`unhung`), so an owner's
             // ack, at the right, ends at the edge with the text before it.
@@ -2385,7 +2390,7 @@ mod tests {
     }
 
     #[test]
-    fn a_long_ack_wraps_under_its_arrow_and_ends_with_its_age() {
+    fn a_long_ack_fills_each_line_from_its_arrow_and_ends_with_its_age() {
         let m = msgs(&[
             ("dev-1", &"word ".repeat(12), 0),
             ("senior", "copy, reviewing the layout and the docs", 60),
@@ -2393,23 +2398,81 @@ mod tests {
         let rows = drawn(&m, 30, 120, People::default());
         let at = rows.iter().position(|r| r.contains("↳ senior")).unwrap();
         let ack: Vec<&str> = rows[at..].iter().map(|r| r.trim()).collect();
+        // Headless Chrome on the copy's `.ack` 23 wide, as under a bubble 25 wide here: each
+        // line filled, and each starting where the first does.
         assert_eq!(
-            ack.join(" "),
-            "↳ senior: copy, reviewing the layout and the docs · 1m",
+            ack,
+            [
+                "↳ senior: copy,",
+                "reviewing the layout",
+                "and the docs · 1m"
+            ],
             "{rows:#?}"
         );
-        // Its lines after the first sit under the text, past the arrow.
-        assert!(rows[at + 1].starts_with("     reviewing"), "{rows:#?}");
+        assert!(rows[at..].iter().all(|r| start(r) == 3), "{rows:#?}");
+    }
+
+    #[test]
+    fn an_ack_fills_each_line_and_lays_its_age_out_after_its_last_word_as_the_copy_does() {
+        // Headless Chrome on the copy's `.ack`, `· age` inline after the text: the words fill
+        // each line to the ack's width; ` · age` follows the last word where it fits, else
+        // `·` ends that line where it fits and the age starts the next, else `· age` does.
+        // Each line of `ack` as (its first column, its last column + 1, its text).
+        let ack = |w: usize, bubble: &str, text: &str, now: i64| -> Vec<(usize, usize, String)> {
+            let m = msgs(&[(bubble, "Report", 0), ("qa", text, 0)]);
+            let rows = drawn(&m, w, now, People::default());
+            let at = rows.iter().position(|r| r.contains("↳ qa")).unwrap();
+            (rows[at..].iter())
+                .take_while(|r| !r.trim().is_empty())
+                .map(|r| (start(r), start(r) + r.trim().width(), r.trim().to_string()))
+                .collect()
+        };
+        let texts = |lines: &[(usize, usize, String)]| -> Vec<String> {
+            lines.iter().map(|(_, _, t)| t.clone()).collect()
+        };
+        // The issue's: lines 20 wide (a bubble of 22, in a chat of 26), then 15 (17, in 20).
+        let got = ack(26, "dev-1", "copy, testing the thing now", 8 * 60);
+        assert_eq!(texts(&got), ["↳ qa: copy, testing", "the thing now · 8m"]);
+        let got = ack(20, "dev-1", "copy senior-reviewer-2", 30);
+        assert_eq!(
+            texts(&got),
+            ["↳ qa: copy", "senior-", "reviewer-2 ·", "now"]
+        );
+        // A hash 26 to 32 wide at a bubble of 34, in a chat of 40: lines 32 wide. A hash that
+        // fits a line is not cut, and the age goes where Chrome puts it.
+        let hash = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6";
+        for (n, want) in [
+            (26, vec!["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a3 · 8m"]),
+            (
+                28,
+                vec!["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4 ·", "8m"],
+            ),
+            (
+                30,
+                vec!["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5 ·", "8m"],
+            ),
+            (32, vec!["↳ qa: copy", hash, "· 8m"]),
+        ] {
+            let text = format!("copy {}", &hash[..n]);
+            // Under someone else's bubble, at the left, each line starts at 3.
+            let got = ack(40, "dev-1", &text, 8 * 60);
+            assert_eq!(texts(&got), want, "{n}: {got:#?}");
+            assert!(got.iter().all(|&(at, _, _)| at == 3), "{n}: {got:#?}");
+            // Under the owner's, at the right, each line ends at the bubble's edge, 38.
+            let got = ack(40, "manager", &text, 8 * 60);
+            assert_eq!(texts(&got), want, "{n}: {got:#?}");
+            assert!(got.iter().all(|&(_, end, _)| end == 38), "{n}: {got:#?}");
+        }
     }
 
     #[test]
     fn an_acks_age_after_a_word_too_wide_for_a_line_starts_the_next_line() {
         // Headless Chrome on the copy's `.ack`: a word too wide for a line overflows it and
         // "· 8m" starts the next line, while a last word that fits keeps it ("ok · 8m").
-        // Under a bubble 34 wide, in a chat of 40, an ack's words get 25 columns.
+        // Under a bubble 25 wide, in a chat of 30, an ack's lines are 23 wide; the hash is 25.
         let ack = |text: &str| -> Vec<String> {
             let m = msgs(&[("dev-1", "Report", 0), ("qa", text, 0)]);
-            let rows = drawn(&m, 40, 8 * 60, People::default());
+            let rows = drawn(&m, 30, 8 * 60, People::default());
             let at = rows.iter().position(|r| r.contains("↳ qa")).unwrap();
             rows[at..]
                 .iter()
@@ -2419,36 +2482,32 @@ mod tests {
         let trimmed = |rows: &[String]| -> Vec<String> {
             rows.iter().map(|r| r.trim().to_string()).collect()
         };
+        let cut = "a1b2c3d4e5f6a7b8c9d0e1f";
         // A hash, and a word whose last piece after its `-` is one: the age on its own line,
-        // under the text as the line before it is.
+        // where the line before it starts.
         for (text, want) in [
             (
-                "copy a1b2c3d4e5f6a7b8c9d0e1f2a3",
-                ["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a", "3", "· 8m"],
+                "copy a1b2c3d4e5f6a7b8c9d0e1f2a",
+                ["↳ qa: copy", cut, "2a", "· 8m"],
             ),
             (
-                "copy senior-a1b2c3d4e5f6a7b8c9d0e1f2a3",
-                [
-                    "↳ qa: copy senior-",
-                    "a1b2c3d4e5f6a7b8c9d0e1f2a",
-                    "3",
-                    "· 8m",
-                ],
+                "copy senior-a1b2c3d4e5f6a7b8c9d0e1f2a",
+                ["↳ qa: copy senior-", cut, "2a", "· 8m"],
             ),
         ] {
             let rows = ack(text);
             assert_eq!(trimmed(&rows[..4]), want, "{rows:#?}");
-            assert_eq!(rows[2].find('3'), rows[3].find('·'), "{rows:#?}");
+            assert_eq!(rows[2].find('2'), rows[3].find('·'), "{rows:#?}");
         }
         // A word that fits after the cut one, or a last piece that fits, keeps the age.
         for (text, want) in [
             (
-                "copy a1b2c3d4e5f6a7b8c9d0e1f2a3 ok",
-                ["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a", "3", "ok · 8m"],
+                "copy a1b2c3d4e5f6a7b8c9d0e1f2a ok",
+                ["↳ qa: copy", cut, "2a", "ok · 8m"],
             ),
             (
-                "copy a1b2c3d4e5f6a7b8c9d0e1f2a3-ok",
-                ["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a", "3-", "ok · 8m"],
+                "copy a1b2c3d4e5f6a7b8c9d0e1f2a-ok",
+                ["↳ qa: copy", cut, "2a-", "ok · 8m"],
             ),
         ] {
             let rows = ack(text);
@@ -2820,39 +2879,39 @@ mod tests {
                 (3, "details".into()),
             ]
         );
-        // An owner's ack, its bubble 31 wide at the right of a chat of 37: Chrome ends each
-        // line's text at the bubble's edge, the first's before its U+3000.
+        // An owner's ack, its bubble 24 wide at the right of a chat of 29, its lines 22: Chrome
+        // ends each line's text at the bubble's edge, the first's before its U+3000.
         let m = msgs(&[
             ("manager", "go ahead", 0),
             ("dev-1", "ok 確認です　了解です", 60),
         ]);
-        let acks = drawn_rows(&m, 37, |r| matches!(r, Row::Ack { .. }));
+        let acks = drawn_rows(&m, 29, |r| matches!(r, Row::Ack { .. }));
         let ends: Vec<(String, usize)> = (acks.iter())
             .map(|l| (l.trim().to_string(), start(l) + l.trim().width()))
             .collect();
         assert_eq!(
             ends,
             [
-                ("↳ dev-1: ok 確認です".into(), 35),
-                ("了解です · 1m".into(), 35)
+                ("↳ dev-1: ok 確認です".into(), 27),
+                ("了解です · 1m".into(), 27)
             ]
         );
         // A space before the run hangs with it: a word that is only a U+3000, between two
         // spaces, fits at the end of the first line, and Chrome ends the text before the
-        // space at the edge. The bubble 34 wide in a chat of 40 ends at 38.
+        // space at the edge. The bubble 25 wide in a chat of 30, its lines 23, ends at 28.
         let m = msgs(&[
             ("manager", "check rollout 4", 0),
-            ("dev-1", "ok ああああ 　 いいいいいいいいいいいい", 60),
+            ("dev-1", "ok ああああ 　 いいいいいいいい", 60),
         ]);
-        let acks = drawn_rows(&m, 40, |r| matches!(r, Row::Ack { .. }));
+        let acks = drawn_rows(&m, 30, |r| matches!(r, Row::Ack { .. }));
         let ends: Vec<(String, usize)> = (acks.iter())
             .map(|l| (l.trim().to_string(), start(l) + l.trim().width()))
             .collect();
         assert_eq!(
             ends,
             [
-                ("↳ dev-1: ok ああああ".into(), 38),
-                ("いいいいいいいいいいいい · 1m".into(), 38)
+                ("↳ dev-1: ok ああああ".into(), 28),
+                ("いいいいいいいい · 1m".into(), 28)
             ]
         );
     }
@@ -2881,19 +2940,23 @@ mod tests {
             events(&m, 24),
             ["decision:", "ab", "a1b2c3d4e5f6a7b8c9d0", "e1f2", "cd"]
         );
-        // An ack under a bubble 34 wide, in a chat of 40: 25 columns for its words. Posted in
-        // the same minute as the message, so no hour line parts them.
+        // An ack under a bubble 25 wide, in a chat of 30: lines 23 wide, the last's piece
+        // without its age. Posted in the same minute as the message, so no hour line parts
+        // them.
         let m = msgs(&[
             ("dev-1", "Report", 0),
-            ("qa", "copy a1b2c3d4e5f6a7b8c9d0e1f2a3 ok", 0),
+            ("qa", "copy a1b2c3d4e5f6a7b8c9d0e1f2a ok", 0),
         ]);
-        let acks: Vec<String> = (rows(&m, 40).into_iter())
+        let acks: Vec<String> = (rows(&m, 30).into_iter())
             .filter_map(|r| match r {
                 Row::Ack { piece, .. } => Some(piece),
                 _ => None,
             })
             .collect();
-        assert_eq!(acks, ["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a", "3", "ok"]);
+        assert_eq!(
+            acks,
+            ["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f", "2a", "ok · "]
+        );
     }
 
     #[test]

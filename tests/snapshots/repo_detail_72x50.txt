@@ -43,8 +43,8 @@
                               │ │  ▌ I have done the shelf            │ 
                               │ │  ▌ grid. Please test while I        │ 
                               │ │  ▌ do the ribbon.                   │ 
-                              │ │    ↳ senior: copy,                  │ 
-                              │ │      reviewing the layout · 10m     │ 
+                              │ │    ↳ senior: copy, reviewing        │ 
+                              │ │    the layout · 10m                 │ 
                               │ │                                     │ 
 ────────────────────────────────────────────────────────────────────────
  ↑↓ select · esc back · b board · i inbox · n new lead · q quit         
