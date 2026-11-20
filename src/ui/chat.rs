@@ -35,8 +35,8 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    IDEOGRAPHIC_SPACE, dropped, event_line_overflows, fold_spaces, highlight_marked, role_colour,
-    units, wrap, wrap_event_line, wrap_line_paths,
+    dropped, event_line_overflows, fold_spaces, highlight_marked, role_colour, units, wrap,
+    wrap_event_line, wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -969,12 +969,13 @@ pub struct Ctx<'a> {
     pub selected: Option<usize>,
 }
 
-/// `spans`, a line of text, without the run of ideographic spaces (U+3000) ending it: the
-/// copy hangs one past a line's end whether it fits or not, so it is blank and never counts
-/// toward where a centred or right-aligned line sits.
+/// `spans`, a line of text, without the run of spaces and ideographic spaces (U+3000) ending
+/// it (`dropped`): the copy hangs such a run past a line's end, an ideographic space whether
+/// it fits or not, so it is blank and never counts toward where a centred or right-aligned
+/// line sits.
 fn unhung(mut spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
     while let Some(last) = spans.last_mut() {
-        let kept = last.content.trim_end_matches(IDEOGRAPHIC_SPACE);
+        let kept = last.content.trim_end_matches(dropped);
         if kept.len() < last.content.len() {
             last.content = kept.to_string().into();
         }
@@ -986,8 +987,8 @@ fn unhung(mut spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
     spans
 }
 
-/// `spans` centred in `w` columns, cut to fit, a run of ideographic spaces ending them
-/// left out (`unhung`).
+/// `spans` centred in `w` columns, cut to fit, the run of spaces ending them left out
+/// (`unhung`).
 fn centred(spans: Vec<Span<'static>>, w: usize) -> Line<'static> {
     let spans = unhung(spans);
     let used: usize = spans.iter().map(Span::width).sum();
@@ -1170,8 +1171,8 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
                     dim(depth),
                 ));
             }
-            // A run of ideographic spaces ending the line hangs past its end (`unhung`), so
-            // an owner's ack, at the right, ends at the edge with the text before it.
+            // The run of spaces ending the line hangs past its end (`unhung`), so an owner's
+            // ack, at the right, ends at the edge with the text before it.
             let mut s = unhung(s);
             let x = left(w, *owner, *bw);
             let used: usize = s.iter().map(Span::width).sum();
@@ -2786,6 +2787,24 @@ mod tests {
             [
                 ("↳ dev-1: ok 確認です".into(), 35),
                 ("了解です · 1m".into(), 35)
+            ]
+        );
+        // A space before the run hangs with it: a word that is only a U+3000, between two
+        // spaces, fits at the end of the first line, and Chrome ends the text before the
+        // space at the edge. The bubble 34 wide in a chat of 40 ends at 38.
+        let m = msgs(&[
+            ("manager", "check rollout 4", 0),
+            ("dev-1", "ok ああああ 　 いいいいいいいいいいいい", 60),
+        ]);
+        let acks = drawn_rows(&m, 40, |r| matches!(r, Row::Ack { .. }));
+        let ends: Vec<(String, usize)> = (acks.iter())
+            .map(|l| (l.trim().to_string(), start(l) + l.trim().width()))
+            .collect();
+        assert_eq!(
+            ends,
+            [
+                ("↳ dev-1: ok ああああ".into(), 38),
+                ("いいいいいいいいいいいい · 1m".into(), 38)
             ]
         );
     }
