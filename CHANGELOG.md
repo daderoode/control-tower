@@ -68,6 +68,10 @@ tag's date, and a new empty Unreleased goes above it.
   dashboard now goes by its minute, as the full board's chat did, so a message shows one
   age everywhere on the screen, where the alert line, the inbox and the full board's
   thread list could say a minute more than its bubble (#75).
+- **A selected inbox item's first line stays in view.** In an inbox list of four lines or
+  fewer, PgUp or PgDn across the gap between its sections could leave only the selected
+  item's second line in view. Paging there now goes on to the nearest item's first line, and
+  the selection to an item whose first line shows; the wheel still scrolls freely (#44).
 - **Every run of a chain of ideographic spaces stays where the UI design draws it.** In a
   title, goal, thread name, event, ack or inbox row, words that are only full-width spaces
   (U+3000), one after another, lost their second and later runs where they started a
