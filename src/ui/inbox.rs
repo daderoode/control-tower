@@ -83,26 +83,24 @@ pub(crate) fn alert_name(board: &Board, a: &Alert) -> String {
 }
 
 /// What an alert says, unstyled, as its inbox row shows it: its message on at most
-/// `MESSAGE_LINES` lines, each with the byte ranges in it to mark, and whether the message
-/// goes on past the last.
+/// `MESSAGE_LINES` lines, each with the byte ranges in it to mark in the row's red, and
+/// whether the message goes on past the last.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Said {
     lines: Vec<(String, Vec<Range<usize>>)>,
     more: bool,
-    /// A delivery failure's short form, "@manager delivery failed to X" (its full text is in
-    /// its thread), its mark the "@manager"; otherwise the message, its marks the owner's
-    /// mentions.
-    failure: bool,
 }
 
 /// The lead of a delivery failure's short form, marked in the row's red.
 const FAILURE_LEAD: &str = "@manager";
 
 impl Said {
-    /// What `a` says on lines `room` columns wide. As the copy's row (`.txt clamp2`,
-    /// `white-space: normal`) draws a message or a failure's short form: its line breaks and
-    /// tabs are spaces, each run of spaces one, wrapped as the copy's `.clamp2` wraps it
-    /// (`wrap_line`) and clamped to `MESSAGE_LINES` lines.
+    /// What `a` says on lines `room` columns wide: its message, its marks the owner's
+    /// mentions, or for a delivery failure its short form, "@manager delivery failed to X"
+    /// (its full text is in its thread), its mark the "@manager". As the copy's row (`.txt
+    /// clamp2`, `white-space: normal`) draws either: its line breaks and tabs are spaces,
+    /// each run of spaces one, wrapped as the copy's `.clamp2` wraps it (`wrap_line`) and
+    /// clamped to `MESSAGE_LINES` lines.
     fn of(a: &Alert, room: usize) -> Said {
         let text = &a.message.text;
         let failure = a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)
@@ -130,7 +128,6 @@ impl Said {
         Said {
             lines: lines.into_iter().zip(found).collect(),
             more,
-            failure,
         }
     }
 
@@ -143,32 +140,11 @@ impl Said {
     /// message goes on, right after its last word, or in place of its last character when
     /// the line is full, as the copy's clamp ends it.
     fn lines(&self, awareness: bool, room: usize, depth: Depth) -> Vec<Vec<Span<'static>>> {
-        let style = |piece: &str, marks: &[Range<usize>], first: bool| {
-            if !self.failure {
-                return highlight_marked(piece, marks, first, awareness, depth);
-            }
-            let mut spans = Vec::new();
-            let mut at = 0;
-            for r in marks {
-                if at < r.start {
-                    spans.push(Span::raw(piece[at..r.start].to_string()));
-                }
-                spans.push(Span::styled(
-                    piece[r.clone()].to_string(),
-                    bold().fg(bad(depth)),
-                ));
-                at = r.end;
-            }
-            if at < piece.len() {
-                spans.push(Span::raw(piece[at..].to_string()));
-            }
-            spans
-        };
         let n = self.lines.len();
         (self.lines.iter().enumerate())
             .map(|(k, (piece, marks))| {
                 if !(self.more && k + 1 == n) {
-                    return style(piece, marks, k == 0);
+                    return highlight_marked(piece, marks, k == 0, awareness, depth);
                 }
                 // The "…" in the row's text style, never a mark's: the piece is cut first, to
                 // leave it a column, and then styled.
@@ -177,7 +153,7 @@ impl Said {
                     .filter(|r| r.start < end)
                     .map(|r| r.start..r.end.min(end))
                     .collect();
-                let mut spans = style(&piece[..end], &marks, k == 0);
+                let mut spans = highlight_marked(&piece[..end], &marks, k == 0, awareness, depth);
                 spans.push(Span::raw("…"));
                 spans
             })
