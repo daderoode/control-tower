@@ -574,8 +574,9 @@ pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
 }
 
 /// `text` wrapped to `w` columns on at most `max` lines: past that, the last line carries
-/// the rest, for `fit` to cut with "…". The rest is the text as written from where the lines
-/// before it end, so a word broken across lines stays whole.
+/// the rest, for the caller to clamp (`clamp`) at the width it draws it. The rest is the
+/// text as written from where the lines before it end, so a word broken across lines stays
+/// whole.
 pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     let max = max.max(1);
     let mut pieces = wrap_line(text, w);
