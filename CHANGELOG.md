@@ -68,6 +68,10 @@ tag's date, and a new empty Unreleased goes above it.
   dashboard now goes by its minute, as the full board's chat did, so a message shows one
   age everywhere on the screen, where the alert line, the inbox and the full board's
   thread list could say a minute more than its bubble (#75).
+- **A selected inbox item's first line stays in view.** In an inbox list of four lines or
+  fewer, PgUp or PgDn across the gap between its sections could leave only the selected
+  item's second line in view. Paging there now goes on to the nearest item's first line, and
+  the selection to an item whose first line shows; the wheel still scrolls freely (#44).
 
 ## [0.5.0] - 2026-11-20
 
