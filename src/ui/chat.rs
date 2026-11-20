@@ -35,7 +35,8 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    fold_spaces, highlight_marked, role_colour, units, wrap, wrap_event_line, wrap_line_paths,
+    dropped, fold_spaces, highlight_marked, role_colour, units, wrap, wrap_event_line,
+    wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -402,8 +403,8 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// its own too wide for a line starts on a line of its own (`wrap_line_paths`). The line's
 /// leading spaces stay on its first line of text and its runs of spaces between words stay
 /// as written; a URL's line starts at the text's column, as the copy's block URL does.
-/// Spaces are all that is added or dropped, so `marked` can find the owner's mentions in
-/// the pieces.
+/// Spaces are all that is added, and what `dropped` names all that is dropped, so `marked`
+/// can find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -490,8 +491,8 @@ pub(crate) fn message_pieces(text: &str, w: usize) -> Vec<Piece> {
 }
 
 /// The owner's mentions `marks` (byte ranges of the whole text, its line `raw` starting at
-/// `base`) in each of `lines`, `raw` wrapped: wrapping adds or drops spaces only, so the
-/// lines' other characters are `raw`'s, in order.
+/// `base`) in each of `lines`, `raw` wrapped: wrapping adds spaces or drops them (`dropped`)
+/// only, so the lines' other characters are `raw`'s, in order.
 pub(crate) fn marked<'a>(
     raw: &str,
     base: usize,
@@ -499,11 +500,11 @@ pub(crate) fn marked<'a>(
     lines: impl Iterator<Item = &'a str>,
 ) -> Vec<Vec<Range<usize>>> {
     let mut out = Vec::new();
-    let mut chars = raw.char_indices().filter(|(_, c)| *c != ' ');
+    let mut chars = raw.char_indices().filter(|(_, c)| !dropped(*c));
     for piece in lines {
         let mut ranges: Vec<Range<usize>> = Vec::new();
         for (pi, pc) in piece.char_indices() {
-            if pc == ' ' {
+            if dropped(pc) {
                 continue;
             }
             let Some((ri, _)) = chars.next() else { break };
@@ -534,11 +535,11 @@ pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Ran
             // The first piece at its own width, then the rest of that line at `w`.
             let mut head = wrap_event_line(raw, first);
             let p0 = head.remove(0);
-            let mut left = p0.chars().filter(|c| *c != ' ').count();
+            let mut left = p0.chars().filter(|c| !dropped(*c)).count();
             let at = (raw.char_indices())
                 .find(|(_, c)| {
                     let past = left == 0;
-                    if *c != ' ' {
+                    if !dropped(*c) {
                         left = left.saturating_sub(1);
                     }
                     past
@@ -2020,6 +2021,27 @@ mod tests {
             got,
             [
                 ("ab x?", vec![]),
+                ("@manager", vec![(0, 8)]),
+                ("ok", vec![])
+            ]
+        );
+    }
+
+    #[test]
+    fn the_owners_mention_after_a_hung_ideographic_space_stays_marked() {
+        // The U+3000 at the first line's end hangs past it, left off the line, and the
+        // mention after it is marked where it is drawn.
+        let p = message_pieces("確認です　@manager ok", 8);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("確認です", vec![]),
                 ("@manager", vec![(0, 8)]),
                 ("ok", vec![])
             ]

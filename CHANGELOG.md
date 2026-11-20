@@ -11,6 +11,25 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A selected inbox item's first line stays in view.** In an inbox list of four lines or
+  fewer, PgUp or PgDn across the gap between its sections could leave only the selected
+  item's second line in view. Paging there now goes on to the nearest item's first line, and
+  the selection to an item whose first line shows; the wheel still scrolls freely (#44).
+
+## [0.5.0] - 2026-11-20
+
+### Changed
+
+- **The owner signs off the spec, and sees it beside the lead.** The lead skill follows the
+  front of the lifecycle for a new goal or milestone: the owner grills the idea, runs
+  `/to-spec` and signs off the spec, then runs `/to-tickets`, whose tickets in blocking
+  order are the plan. A ready-for-agent issue is a ticket in its own right. The lead asks the
+  owner to run both skills in its session instead of trying to run them itself, and when the
+  spec is posted it opens a copy in Neovim in a pane to the right of its own (in herdr or
+  Rex), or gives the spec's link elsewhere.
+
+### Fixed
+
 - **prefix+a brings an open dashboard into view.** With the dashboard already open in its
   own workspace, prefix+a left you where you were: herdr 0.9.5's `plugin pane focus` moves
   only the herdr server's focus, not what your terminal shows. `tower space` now also
@@ -90,10 +109,21 @@ tag's date, and a new empty Unreleased goes above it.
   is tower's, such as a delivery failure with herdr's error text, its line on the thread's
   header and in the thread list draws each run of spaces as one, as the UI design does,
   where it had kept them as written (#35).
-- **A selected inbox item's first line stays in view.** In an inbox list of four lines or
-  fewer, PgUp or PgDn across the gap between its sections could leave only the selected
-  item's second line in view. Paging there now goes on to the nearest item's first line, and
-  the selection to an item whose first line shows; the wheel still scrolls freely (#44).
+- **An ideographic space at a line's end no longer breaks the word before it.** In a
+  message, a delivery failure's opened details, and a title, goal, event, ack or inbox row,
+  a full-width space (U+3000) that ended a line counted toward its width, so the word before
+  it broke early, and a run of them could start the next line. It now hangs past the line's
+  end as in the UI design, so the word before it fits and the next line starts with the
+  word after it (a run after an ordinary space aside, #57); within a line it keeps its
+  width (#40).
+- **A task's doing line tones a leading `decision:`.** In a task's detail, a doing post
+  that starts with `decision:` and is for your awareness (its mention of you on any of its
+  lines) draws it bold in the info colour, as its bubble and where its thread stands do,
+  where it had drawn plain (#54).
+- **Where a thread stands draws tower's word in the text colour.** When the thread's newest
+  word is tower's, such as a delivery failure, its line on the thread's header (on the
+  message board and the full board) and in the thread list draws it in the text colour, as
+  the UI design does, where it had drawn dim; only "where it stands" stays dim (#60).
 
 ## [0.4.0] - 2026-11-16
 

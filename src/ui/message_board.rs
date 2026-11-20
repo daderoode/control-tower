@@ -581,14 +581,15 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     let mut pieces = wrap_line(text, w);
     if pieces.len() > max {
         pieces.truncate(max - 1);
-        // The lines kept are the text's first words, spaces aside: skip as many characters.
+        // The lines kept are the text's first words, what wrapping drops aside (`dropped`):
+        // skip as many characters.
         let mut left: usize = (pieces.iter())
-            .map(|p| p.chars().filter(|c| *c != ' ').count())
+            .map(|p| p.chars().filter(|c| !dropped(*c)).count())
             .sum();
         let at = (text.char_indices())
             .find(|(_, c)| {
                 let past = left == 0;
-                if *c != ' ' {
+                if !dropped(*c) {
                     left = left.saturating_sub(1);
                 }
                 past
@@ -616,6 +617,41 @@ pub(crate) fn wrap_event_line(text: &str, w: usize) -> Vec<String> {
 pub(crate) fn fold_spaces(text: &str) -> String {
     let words: Vec<&str> = text.split(' ').filter(|s| !s.is_empty()).collect();
     words.join(" ")
+}
+
+/// Whether wrapping may leave `c` out where a line breaks: a space, or an ideographic space
+/// (U+3000), which hangs past the line's end (`hang`). The wrapped lines hold every other
+/// character of the text, in order.
+pub(crate) fn dropped(c: char) -> bool {
+    c == ' ' || c == IDEOGRAPHIC_SPACE
+}
+
+const IDEOGRAPHIC_SPACE: char = '\u{3000}';
+
+/// `piece` as the part that must fit on a line and the run of ideographic spaces ending it,
+/// which the copy hangs past the line's end, as `pre-wrap` hangs a run of spaces, so the
+/// text before it is not broken for it. Mid-line, the run keeps its width. A piece that is
+/// only such a run, which starts a word, hangs nothing: the copy's folded text carries it to
+/// the next line with what follows.
+fn hang(piece: &str) -> (&str, &str) {
+    match piece.trim_end_matches(IDEOGRAPHIC_SPACE) {
+        "" => (piece, ""),
+        fits => (fits, &piece[fits.len()..]),
+    }
+}
+
+/// `hung`, the run of ideographic spaces after the text just put on `line`, onto it when it
+/// fits; otherwise it hangs past the line's end, left out as a run of spaces is at a break,
+/// and the line ends there, so the next line starts with what follows it.
+fn put_hung(line: &mut String, out: &mut Vec<String>, hung: &str, w: usize) {
+    if hung.is_empty() {
+        return;
+    }
+    if line.width() + hung.width() <= w {
+        line.push_str(hung);
+    } else {
+        out.push(std::mem::take(line));
+    }
 }
 
 /// `text` on lines at most `w` wide as the copy's message body breaks it (`Wrap::Body`).
@@ -866,7 +902,8 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
 /// next line as any other word does, leaving them alone on the first. Each run of spaces
 /// between words stays as written, and counts toward the line's width; a line that breaks
-/// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word.
+/// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
+/// ideographic spaces ending a word or a piece of one hangs the same way (`hang`).
 fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
@@ -892,9 +929,11 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             0
         };
         run = 1;
-        if line.width() + gap + word.width() <= w {
+        let (fits, hung) = hang(word);
+        if line.width() + gap + fits.width() <= w {
             line.push_str(&" ".repeat(gap));
-            line.push_str(word);
+            line.push_str(fits);
+            put_hung(&mut line, &mut out, hung, w);
             continue;
         }
         // A word with breaks of its own starts where the line is, rather than leaving it
@@ -904,25 +943,42 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         let own = own_breaks(word, how);
         let here = own.is_some();
         let pieces = own.unwrap_or_else(|| vec![word]);
-        if here && !line.is_empty() && line.width() + gap + pieces[0].width() <= w {
+        if here && !line.is_empty() && line.width() + gap + hang(pieces[0]).0.width() <= w {
             line.push_str(&" ".repeat(gap));
         } else if !line.is_empty() {
             out.push(std::mem::take(&mut line));
         }
         for unit in pieces {
+            let (unit, hung) = hang(unit);
             if !line.is_empty() && line.width() + unit.width() > w {
                 out.push(std::mem::take(&mut line));
             }
             let wide = unit.width() > w;
+            // Whether a run of ideographic spaces the line broke at hangs past its end.
+            let mut hanging = false;
             for c in unit.chars() {
+                if hanging && c == IDEOGRAPHIC_SPACE {
+                    continue;
+                }
+                hanging = false;
                 if !line.is_empty() && line.width() + c.width().unwrap_or(0) > w {
                     out.push(std::mem::take(&mut line));
+                    if c == IDEOGRAPHIC_SPACE {
+                        hanging = true;
+                        continue;
+                    }
                 }
                 line.push(c);
             }
             if wide && how == Wrap::Event {
-                out.push(std::mem::take(&mut line));
+                // Its last line ends with it, any run after it hanging there. A piece that
+                // is only a run hung past the line before, which leaves no line to end.
+                if !line.is_empty() {
+                    out.push(std::mem::take(&mut line));
+                }
+                continue;
             }
+            put_hung(&mut line, &mut out, hung, w);
         }
     }
     if !line.is_empty() || out.is_empty() {
@@ -1785,6 +1841,62 @@ mod tests {
         assert_eq!(
             wrap_line("sent what?why to qa", 10),
             ["sent what?", "why to qa"]
+        );
+    }
+
+    #[test]
+    fn an_ideographic_space_at_a_line_end_hangs_as_the_copys_does() {
+        // As headless Chrome draws the copy's message body, delivery-failure details,
+        // `.clamp2` and `.evt`: a run of U+3000 ending a line hangs past it, so the word before
+        // it is not broken for it and the run does not start the next line.
+        let all = |text: &str, w: usize| {
+            let lines = wrap_line_paths(text, w);
+            assert_eq!(wrap(text, w), lines, "details at {w}");
+            assert_eq!(wrap_line(text, w), lines, "folded at {w}");
+            assert_eq!(wrap_event_line(text, w), lines, "event at {w}");
+            lines
+        };
+        // The issue's text, in a full board's bubble (40) and a narrow one (25).
+        let text = "全角　スペース　を　含む　文章　です　全角　スペース　を　含む　文章　です　全角　スペース";
+        assert_eq!(
+            all(text, 40),
+            [
+                "全角　スペース　を　含む　文章　です　全",
+                "角　スペース　を　含む　文章　です　全角",
+                "スペース"
+            ]
+        );
+        assert_eq!(
+            all(text, 25),
+            [
+                "全角　スペース　を　含む",
+                "文章　です　全角　スペー",
+                "ス　を　含む　文章　です",
+                "全角　スペース"
+            ]
+        );
+        assert_eq!(all("中　中中", 3), ["中", "中", "中"]);
+        // Where it fits it keeps its width, at a line's end and mid-line.
+        assert_eq!(all("中　中中", 4), ["中　", "中中"]);
+        assert_eq!(all("中　中中", 6), ["中　中", "中"]);
+        // A run hangs whole, inside a piece broken where the line ends too.
+        let text = "abcd　　、ef";
+        for w in [3, 4] {
+            let lines = wrap_line_paths(text, w);
+            assert_eq!(wrap(text, w), lines, "details at {w}");
+            assert_eq!(wrap_line(text, w), lines, "folded at {w}");
+        }
+        assert_eq!(wrap_line_paths(text, 3), ["abc", "d　", "、", "ef"]);
+        assert_eq!(wrap_line_paths(text, 4), ["abcd", "、ef"]);
+        // In an event, a piece too wide for any line ends its last line, and a run after it
+        // hangs there, so the next line starts with the word after it; a run that is the
+        // whole piece leaves no empty line behind.
+        assert_eq!(wrap_event_line("abcdef　x", 4), ["abcd", "ef", "x"]);
+        assert_eq!(wrap_event_line("　　　　中", 3), ["　", "中"]);
+        // The rest past the last line starts after a run hung on the lines before it.
+        assert_eq!(
+            wrap_at_most("確認です　確認です　確認です　確認です", 8, 3),
+            ["確認です", "確認です", "確認です　確認です"]
         );
     }
 
