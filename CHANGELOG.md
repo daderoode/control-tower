@@ -11,6 +11,10 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **An inbox delivery failure wraps onto two lines.** An inbox row for a delivery failure,
+  "@manager delivery failed to X", stayed one line cut at the row's edge. It now wraps at
+  its words onto a second line and ends in "…" there when it goes on, as the UI design's
+  row does and as every other inbox row does (#51).
 - **A message that wraps takes the widest bubble.** A message whose text wraps had a
   bubble only as wide as its widest wrapped line, so it could be much narrower than the
   widest a bubble gets. It now takes that widest, on either side, as the UI design's
