@@ -807,4 +807,15 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn a_title_starting_with_a_chain_of_runs_keeps_the_run_its_second_line_starts_with() {
+        // Chrome's `.clamp2` at 5 draws "　 　ab cd" as "　" / "　ab" / "cd": the first word,
+        // one U+3000, is text there, so the second run goes to the next line with "ab". The
+        // second line starts so and is clamped after its last whole piece.
+        assert_eq!(
+            two_lines("　 　ab cd", 5, 5),
+            ("　".to_string(), Some("　ab…".to_string()))
+        );
+    }
 }

@@ -596,10 +596,16 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
 
 /// What of `text` comes after `kept`, the first lines its folded wrap gives, `next` the
 /// line after them: the text as written from where they end, so a word broken across lines
-/// stays whole, past what wrapping drops there (`dropped`) but the run of ideographic spaces
-/// `next` starts with (`carried`), so it starts as `next` does.
+/// stays whole, past what wrapping drops there (`dropped`), unless `next` starts with a run
+/// of ideographic spaces the copy carries (`carried`): then from the first ideographic
+/// space there that the lines kept do not show (a line of only such spaces shows its own),
+/// so it starts as `next` does, with every run of the lines after it.
 pub(crate) fn rest_after<'a>(text: &'a str, kept: &[String], next: &str) -> &'a str {
-    let run = (next.chars())
+    let carries = (next.chars())
+        .take_while(|c| dropped(*c))
+        .any(|c| c == IDEOGRAPHIC_SPACE);
+    let shown = (kept.iter().rev())
+        .flat_map(|p| p.chars().rev())
         .take_while(|c| dropped(*c))
         .filter(|c| *c == IDEOGRAPHIC_SPACE)
         .count();
@@ -617,16 +623,13 @@ pub(crate) fn rest_after<'a>(text: &'a str, kept: &[String], next: &str) -> &'a 
             past
         })
         .map_or(text.len(), |(i, _)| i);
-    // Then what wrapping drops before the next character, but the last `run` ideographic
-    // spaces of it.
+    // Then what wrapping drops before the next character, but from the ideographic space
+    // `next` starts with, the first after the `shown` ones.
     let rest = text[at..].trim_start_matches(dropped);
     let before = &text[at..text.len() - rest.len()];
-    let start = (run.checked_sub(1))
-        .and_then(|n| {
-            (before.char_indices())
-                .filter(|(_, c)| *c == IDEOGRAPHIC_SPACE)
-                .nth_back(n)
-        })
+    let start = (before.char_indices())
+        .filter(|(_, c)| carries && *c == IDEOGRAPHIC_SPACE)
+        .nth(shown)
         .map_or(before.len(), |(i, _)| i);
     &text[at + start..]
 }
@@ -738,6 +741,32 @@ fn carried<'a>(word: &'a str, next: impl Iterator<Item = &'a str>, how: Wrap) ->
         }
     }
     width
+}
+
+/// Whether a line `w` wide of folded text that starts with a word that is one ideographic
+/// space, `next` the words after it, takes that space as text, as Chrome draws the copy,
+/// so the runs after it carry from it (`carried`), each to the next line with what follows
+/// it, as after other text; otherwise they hang with it, as after a word ending with a run.
+/// Chrome takes it as text where text follows the chain of runs it starts, and the line is
+/// wider than the chain (its runs, and the one starting the word with the text) or than
+/// what the next run carries.
+fn chain_starts<'a>(next: impl Iterator<Item = &'a str> + Clone, w: usize, how: Wrap) -> bool {
+    let mut words = next.filter(|n| !n.is_empty());
+    let after = words.clone();
+    let mut chain = IDEOGRAPHIC_SPACE.width().unwrap_or(0);
+    for word in words.by_ref() {
+        let rest = word.trim_start_matches(IDEOGRAPHIC_SPACE);
+        let run = word[..word.len() - rest.len()].width();
+        if run > 0 {
+            chain += 1 + run;
+        }
+        if !rest.is_empty() {
+            let mut after = after;
+            let carries = after.next().map_or(0, |first| carried(first, after, how));
+            return w > chain || w > carries;
+        }
+    }
+    false
 }
 
 /// `text` on lines at most `w` wide as the copy's message body breaks it (`Wrap::Body`).
@@ -1009,8 +1038,10 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
 /// `pre_wrap` text, one starting a word after a space is part of the run before it, and one
 /// ending the text is drawn where it fits. In folded text, one starting a word after a word
-/// ending with one is part of the run before it too; any other does not end a line after
-/// other text, but goes to the next with what follows it (`carried`).
+/// ending with one is part of the run before it too (a word that is only such a run ends with
+/// one, but a single ideographic space starting a line may be text, `chain_starts`); any
+/// other does not end a line after other text, but goes to the next with what follows it
+/// (`carried`).
 fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
@@ -1054,7 +1085,6 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         } else {
             word
         };
-        after_run = ends_run;
         // In folded text, any other run of ideographic spaces starting a word does not end a
         // line after other text: the line breaks before it unless what the copy carries with
         // it (`carried`) fits there too.
@@ -1067,6 +1097,14 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         } else {
             after_text
         };
+        // A word that is one ideographic space, starting a line of folded text, is text the
+        // runs after it carry from, not a run they hang with, where Chrome takes it so
+        // (`chain_starts`).
+        let text_run = !how.pre_wrap()
+            && !after_text
+            && word.chars().eq([IDEOGRAPHIC_SPACE])
+            && chain_starts(words.clone(), w, how);
+        after_run = ends_run && !text_run;
         // No space between the indent and the first word, or at the start of a line.
         let gap = if after_text {
             std::mem::take(&mut run)
@@ -2234,6 +2272,107 @@ mod tests {
         for (text, last) in [("ab 　中文", "中文"), ("ab 　 cd", "cd")] {
             assert_eq!(wrap_line_paths(text, 5), ["ab", last], "body {text:?}");
             assert_eq!(wrap(text, 5), ["ab", last], "details {text:?}");
+        }
+    }
+
+    #[test]
+    fn a_chain_of_ideographic_runs_breaks_as_chrome_breaks_it_in_folded_text() {
+        // As headless Chrome draws the copy's `.clamp2` and `.evt`: a chain of words that are
+        // only U+3000s goes to the next line whole after other text (`carried`). Starting a
+        // line, a first word of one U+3000 is text where text follows the chain and the line
+        // is wider than the chain or than what the next run carries: each run after it then
+        // goes to the next line with what follows it. Otherwise the runs hang with it, as
+        // after a word ending with one. The expected lines are Chrome's, a line of U+3000s
+        // only being one of them.
+        let folded = |text: &str, w: usize| {
+            let lines = wrap_line(text, w);
+            assert_eq!(wrap_event_line(text, w), lines, "event at {w}");
+            lines
+        };
+        // The issue's events at 36, after a hash of 30, 31 and 34 characters.
+        let hash = "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5";
+        assert_eq!(
+            folded(&format!("build 　 　 {hash} ok"), 36),
+            ["build", &format!("　 　 {hash}"), "ok"]
+        );
+        assert_eq!(
+            folded(&format!("build 　 　 {hash}f ok"), 36),
+            ["build", "　", &format!("　 {hash}f"), "ok"]
+        );
+        assert_eq!(
+            folded(&format!("build 　 　 {hash}f0a1 ok"), 36),
+            ["build", "　", "　", &format!("{hash}f0a1"), "ok"]
+        );
+        // After text, the chain at every width that breaks it.
+        for w in 3..=5 {
+            assert_eq!(folded("ab 　 　 cd", w), ["ab", "　", "cd"], "at {w}");
+        }
+        for w in 6..=7 {
+            assert_eq!(folded("ab 　 　 cd", w), ["ab", "　", "　 cd"], "at {w}");
+        }
+        for w in 8..=10 {
+            assert_eq!(folded("ab 　 　 cd", w), ["ab", "　 　 cd"], "at {w}");
+        }
+        assert_eq!(folded("ab 　 　 cd", 11), ["ab 　 　 cd"]);
+        assert_eq!(folded("ab 　 　中文", 4), ["ab", "　", "中文"]);
+        assert_eq!(folded("ab 　 　中文", 5), ["ab", "　", "　中", "文"]);
+        assert_eq!(folded("ab 　 　中文", 6), ["ab", "　", "　中文"]);
+        assert_eq!(folded("ab 　 　中文", 7), ["ab", "　 　中", "文"]);
+        assert_eq!(
+            folded("配布 　 　 今日 了解", 5),
+            ["配布", "　", "今日", "了解"]
+        );
+        assert_eq!(
+            folded("配布 　 　 今日 了解", 6),
+            ["配布", "　", "　 今", "日 了", "解"]
+        );
+        assert_eq!(
+            folded("配布 　 　 今日 了解", 7),
+            ["配布", "　", "　 今日", "了解"]
+        );
+        assert_eq!(folded("ab 　 　 　 cd", 8), ["ab", "　", "cd"]);
+        for w in 9..=10 {
+            assert_eq!(
+                folded("ab 　 　 　 cd", w),
+                ["ab", "　", "　 　 cd"],
+                "at {w}"
+            );
+        }
+        assert_eq!(folded("ab 　 　 　 cd", 11), ["ab", "　 　 　 cd"]);
+        // A chain starting the text.
+        for w in 2..=4 {
+            assert_eq!(folded("　 　ab cd", w), ["　", "ab", "cd"], "at {w}");
+        }
+        for w in 5..=6 {
+            assert_eq!(folded("　 　ab cd", w), ["　", "　ab", "cd"], "at {w}");
+        }
+        assert_eq!(folded("　 　ab cd", 7), ["　 　ab", "cd"]);
+        assert_eq!(folded("　 　中文 次へ", 4), ["　", "中文", "次へ"]);
+        assert_eq!(folded("　 　中文 次へ", 5), ["　", "　中", "文 次", "へ"]);
+        assert_eq!(folded("　 　中文 次へ", 6), ["　", "　中文", "次へ"]);
+        // After a word ending with a run, the chain hangs with it at every width.
+        for w in 4..=12 {
+            assert_eq!(folded("ab　 　 　 cd", w), ["ab　", "cd"], "at {w}");
+        }
+        for w in 4..=11 {
+            assert_eq!(folded("ab　 　 　中文", w), ["ab　", "中文"], "at {w}");
+        }
+        // The rest past the last line starts with the whole chain the line before it does.
+        assert_eq!(wrap_at_most("ab 　 　 cd ef", 6, 2), ["ab", "　 　 cd ef"]);
+        assert_eq!(
+            wrap_at_most("ab 　 　 abcdefgh", 8, 3),
+            ["ab", "　", "　 abcdefgh"]
+        );
+        // `pre-wrap` text keeps hanging the chain with the space before it, as Chrome does.
+        for (text, last) in [("ab 　 　 cd", "cd"), ("ab 　 　中文", "中文")] {
+            for w in 5..=7 {
+                assert_eq!(
+                    wrap_line_paths(text, w),
+                    ["ab", last],
+                    "body {text:?} at {w}"
+                );
+                assert_eq!(wrap(text, w), ["ab", last], "details {text:?} at {w}");
+            }
         }
     }
 

@@ -68,6 +68,13 @@ tag's date, and a new empty Unreleased goes above it.
   dashboard now goes by its minute, as the full board's chat did, so a message shows one
   age everywhere on the screen, where the alert line, the inbox and the full board's
   thread list could say a minute more than its bubble (#75).
+- **Every run of a chain of ideographic spaces stays where the UI design draws it.** In a
+  title, goal, thread name, event, ack or inbox row, words that are only full-width spaces
+  (U+3000), one after another, lost their second and later runs where they started a
+  line, as in `build` / `　` / `a1b2c3... ok`. Where the design carries those runs to the
+  next line with the word after them, they now start that line too, `build` / `　` /
+  `　 a1b2c3...` / `ok`, and a tree title's second line keeps them; where the design hangs
+  them past the line's end, they still hang (#82).
 
 ## [0.5.0] - 2026-11-20
 
