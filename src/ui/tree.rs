@@ -414,9 +414,10 @@ fn blocked_mark(t: &Task, depth: Depth) -> Vec<Span<'static>> {
 }
 
 /// `text` on one line of `first` columns, or two: the first takes whole words while they
-/// fit (a word longer than the line is broken only when it is the first), and the rest
-/// goes on a second line of `second` columns, clamped there as the copy's `.clamp2` ends
-/// its last line (`clamp`).
+/// fit (a word longer than the line is broken only when it is the first), never ending
+/// after words that are only ideographic spaces the copy carries to the next line
+/// (`ends_carried`), and the rest goes on a second line of `second` columns, starting with
+/// any such run, clamped there as the copy's `.clamp2` ends its last line (`clamp`).
 fn two_lines(text: &str, first: usize, second: usize) -> (String, Option<String>) {
     if text.width() <= first {
         return (text.to_string(), None);
