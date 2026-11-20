@@ -186,17 +186,12 @@ impl Reader {
     }
 }
 
-/// Draws one frame, with the header's `clock` and message ages as of `now` (seconds since
-/// the Unix epoch). When the last refresh failed, its problem takes the body's place, so a
-/// broken or missing board is visible rather than shown as stale rows.
-pub fn draw(
-    frame: &mut Frame,
-    view: &View,
-    dash: &Dash,
-    clock: &str,
-    now: i64,
-    depth: Depth,
-) -> Vec<Link> {
+/// Draws one frame, with the header's `clock` and every message age as of the dashboard's
+/// minute (`Dash::minute`), the clock the layout uses, so a message shows one age wherever
+/// it is on the frame. When the last refresh failed, its problem takes the body's place, so
+/// a broken or missing board is visible rather than shown as stale rows.
+pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Depth) -> Vec<Link> {
+    let now = dash.minute();
     let area = frame.area();
     if area.width == 0 || area.height == 0 {
         return Vec::new();
@@ -298,26 +293,16 @@ pub fn draw(
                     layout::Over::Done(r) => overview::done_overview(board, r, rw, depth).lines,
                     layout::Over::Milestone(m) => overview(m, task, rw, depth).lines,
                 };
-                // Its ages, and so where its acks break, from the one clock the layout used.
-                let limits =
-                    message_board::Limits::of(dash.mode, dash.board_shown(sel), dash.minute());
+                let limits = message_board::Limits::of(dash.mode, dash.board_shown(sel), now);
                 urls = vec![None; lines.len()];
                 urls.extend(message_board::links(&talk, task, rw, limits));
                 lines.extend(message_board::lines(&talk, task, rw, limits, depth));
                 lines
             }
             (ViewKind::Overview, None) => Vec::new(),
-            (kind, _) => detail::detail(
-                board,
-                kind,
-                sel,
-                rw,
-                dash.board_shown(sel),
-                dash.minute(),
-                depth,
-            )
-            .map(|d| d.lines)
-            .unwrap_or_default(),
+            (kind, _) => detail::detail(board, kind, sel, rw, dash.board_shown(sel), now, depth)
+                .map(|d| d.lines)
+                .unwrap_or_default(),
         };
         let scroll = clamp_scroll(dash.right_scroll(), lines.len(), r.height);
         links = link::placed(&lines, &urls, scroll, r);
@@ -365,15 +350,13 @@ fn draw_board(
     let mut links = Vec::new();
     if let Some(t) = t {
         let (open, selected) = (dash.open_messages(), dash.board_message());
-        // Ages and separators from the one clock the layout used.
-        let minute = dash.minute();
         // Only the lines that show are styled.
         let top = b.conv_top(dash.board_anchor());
         let rows = top..top + usize::from(b.conv.height);
         // Above the list (a narrow pane), bubbles take the chat's whole width.
         let full = !b.beside;
-        let urls = full_board::conv_links(m, t, rw, full, open, minute, rows.clone());
-        let conv = full_board::conv_window(m, t, rw, full, open, selected, minute, depth, rows);
+        let urls = full_board::conv_links(m, t, rw, full, open, now, rows.clone());
+        let conv = full_board::conv_window(m, t, rw, full, open, selected, now, depth, rows);
         links = link::placed(&conv, &urls, 0, b.conv);
         render_scrolled(frame, conv, 0, b.conv);
         let draft = dash.draft(t.id);
