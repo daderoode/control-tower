@@ -8,8 +8,10 @@
 //! on the full board. With a task selected it shows only that task's threads.
 //!
 //! `plan` says what each line is without styling it, so the overview's height (for
-//! scrolling) and the lines drawn come from the same rows; `lines` styles them. The plan
-//! never depends on the time, so the height does not change as ages grow.
+//! scrolling) and the lines drawn come from the same rows; `lines` styles them. Both take
+//! the summary's one clock (`Limits::now`): the plan takes an ack's age at its real width
+//! as of it, so the height can grow by a line for an ack as its age widens, as the copy
+//! reflows.
 
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
@@ -42,6 +44,10 @@ pub struct Limits<'a> {
     pub threads: Option<usize>,
     pub open: usize,
     pub shown: Shown<'a>,
+    /// The clock its ages are reckoned at, in seconds since the Unix epoch: the dashboard's
+    /// minute (`Dash::minute`), as the full board's are. An ack's age is laid out at its
+    /// width as drawn, so the summary's layout takes the clock it is drawn at.
+    pub now: i64,
 }
 
 /// How the owner left a summary: the messages opened in full ("read more"), by id, and
@@ -54,18 +60,20 @@ pub struct Shown<'a> {
 
 impl<'a> Limits<'a> {
     /// Its own space: every open thread with its last three bubbles. The popup: three open
-    /// threads, their last two bubbles and the evidence.
-    pub fn of(mode: Mode, shown: Shown<'a>) -> Limits<'a> {
+    /// threads, their last two bubbles and the evidence. Its ages as of `now`.
+    pub fn of(mode: Mode, shown: Shown<'a>, now: i64) -> Limits<'a> {
         match mode {
             Mode::Space => Limits {
                 threads: None,
                 open: 3,
                 shown,
+                now,
             },
             Mode::Popup => Limits {
                 threads: Some(3),
                 open: 2,
                 shown,
+                now,
             },
         }
     }
@@ -145,7 +153,8 @@ fn plan<'a>(talk: &Talk<'a>, task: Option<TaskId>, w: usize, limits: Limits) -> 
         let shape = chat::Shape {
             clip: PREVIEW_CLIP,
             open: limits.shown.opened,
-            now: None,
+            // A preview has no hour lines (`chat::plan`): the clock is its acks' ages.
+            now: limits.now,
             preview: Some((limits.open, PREVIEW_SEGS)),
             people: talk.people(),
             full: false,
@@ -198,10 +207,9 @@ pub fn boxes(
     task: Option<TaskId>,
     w: usize,
     limits: Limits,
-    now: i64,
     depth: Depth,
 ) -> Vec<Line<'static>> {
-    let mut all = lines(talk, task, w, limits, now, depth);
+    let mut all = lines(talk, task, w, limits, depth);
     // Every plan starts with the blank line and the title.
     all.drain(..2);
     all
@@ -310,16 +318,16 @@ pub fn links(talk: &Talk, task: Option<TaskId>, w: usize, limits: Limits) -> Vec
         .collect()
 }
 
-/// The summary's lines in a pane `w` wide, each exactly `w` columns, with ages as of `now`
-/// (seconds since the Unix epoch).
+/// The summary's lines in a pane `w` wide, each exactly `w` columns, with ages as of its
+/// clock (`Limits::now`).
 pub fn lines(
     talk: &Talk,
     task: Option<TaskId>,
     w: usize,
     limits: Limits,
-    now: i64,
     depth: Depth,
 ) -> Vec<Line<'static>> {
+    let now = limits.now;
     let Plan { rows } = plan(talk, task, w, limits);
     let content = w.saturating_sub(6);
     let needs = needs_of(talk, task);
@@ -566,38 +574,92 @@ pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
 }
 
 /// `text` in pieces at most `w` columns wide, a piece per line of it (a blank line stays
-/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Plain`).
+/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Preserved`).
 pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
     text.split('\n')
-        .flat_map(|line| wrap_line_by(line, w, Wrap::Plain))
+        .flat_map(|line| wrap_line_by(line, w, Wrap::Preserved))
         .collect()
 }
 
 /// `text` wrapped to `w` columns on at most `max` lines: past that, the last line carries
-/// the rest, for `fit` to cut with "…". The rest is the text as written from where the lines
-/// before it end, so a word broken across lines stays whole.
+/// the rest (`rest_after`), for the caller to clamp (`clamp`) at the width it draws it.
 pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     let max = max.max(1);
     let mut pieces = wrap_line(text, w);
     if pieces.len() > max {
+        let rest = rest_after(text, &pieces[..max - 1], &pieces[max - 1]).to_string();
         pieces.truncate(max - 1);
-        // The lines kept are the text's first words, what wrapping drops aside (`dropped`):
-        // skip as many characters.
-        let mut left: usize = (pieces.iter())
-            .map(|p| p.chars().filter(|c| !dropped(*c)).count())
-            .sum();
-        let at = (text.char_indices())
-            .find(|(_, c)| {
-                let past = left == 0;
-                if !dropped(*c) {
-                    left = left.saturating_sub(1);
-                }
-                past
-            })
-            .map_or(text.len(), |(i, _)| i);
-        pieces.push(text[at..].trim_start().to_string());
+        pieces.push(rest);
     }
     pieces
+}
+
+/// What of `text` comes after `kept`, the first lines its folded wrap gives, `next` the
+/// line after them: the text as written from where they end, so a word broken across lines
+/// stays whole, past what wrapping drops there (`dropped`) but the run of ideographic spaces
+/// `next` starts with (`carried`), so it starts as `next` does.
+pub(crate) fn rest_after<'a>(text: &'a str, kept: &[String], next: &str) -> &'a str {
+    let run = (next.chars())
+        .take_while(|c| dropped(*c))
+        .filter(|c| *c == IDEOGRAPHIC_SPACE)
+        .count();
+    // The lines kept are the text's first characters, what wrapping drops aside: skip as
+    // many.
+    let mut left: usize = (kept.iter())
+        .map(|p| p.chars().filter(|c| !dropped(*c)).count())
+        .sum();
+    let at = (text.char_indices())
+        .find(|(_, c)| {
+            let past = left == 0;
+            if !dropped(*c) {
+                left = left.saturating_sub(1);
+            }
+            past
+        })
+        .map_or(text.len(), |(i, _)| i);
+    // Then what wrapping drops before the next character, but the last `run` ideographic
+    // spaces of it.
+    let rest = text[at..].trim_start_matches(dropped);
+    let before = &text[at..text.len() - rest.len()];
+    let start = (run.checked_sub(1))
+        .and_then(|n| {
+            (before.char_indices())
+                .filter(|(_, c)| *c == IDEOGRAPHIC_SPACE)
+                .nth_back(n)
+        })
+        .map_or(before.len(), |(i, _)| i);
+    &text[at + start..]
+}
+
+/// `text` on at most `max` lines `w` wide, as the copy's `.clamp2` draws it: wrapped as
+/// `wrap_line` wraps it and, past `max` lines, the last ends in "…" after its last whole
+/// piece (`clamp_end`).
+pub(crate) fn clamp(text: &str, w: usize, max: usize) -> Vec<String> {
+    let max = max.max(1);
+    let mut lines = wrap_line(text, w);
+    if lines.len() > max {
+        lines.truncate(max);
+        let last = &mut lines[max - 1];
+        last.truncate(clamp_end(last, w));
+        last.push('…');
+    }
+    lines
+}
+
+/// Where a clamped text's last line, `line` (a line `w` wide), is cut to leave its "…" a
+/// column, as the copy's line clamp ends it: the whole line when it leaves one, so the "…"
+/// comes right after its last piece, or else short of its last characters. A byte index.
+pub(crate) fn clamp_end(line: &str, w: usize) -> usize {
+    let mut end = 0;
+    let mut used = 0;
+    for (at, c) in line.char_indices() {
+        used += c.width().unwrap_or(0);
+        if used + 1 > w {
+            break;
+        }
+        end = at + c.len_utf8();
+    }
+    end
 }
 
 /// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
@@ -626,7 +688,7 @@ pub(crate) fn dropped(c: char) -> bool {
     c == ' ' || c == IDEOGRAPHIC_SPACE
 }
 
-const IDEOGRAPHIC_SPACE: char = '\u{3000}';
+pub(crate) const IDEOGRAPHIC_SPACE: char = '\u{3000}';
 
 /// `piece` as the part that must fit on a line and the run of ideographic spaces ending it,
 /// which the copy hangs past the line's end, as `pre-wrap` hangs a run of spaces, so the
@@ -654,6 +716,30 @@ fn put_hung(line: &mut String, out: &mut Vec<String>, hung: &str, w: usize) {
     }
 }
 
+/// The width of what the copy's folded text keeps on one line with a run of ideographic
+/// spaces starting `word`, a word after a space, `next` the words after it: the run and the
+/// first piece of the rest of the word (`own_breaks`). For a word that is only a run, that
+/// is the next word's, after a space, the runs of the words that are only runs counted on
+/// to the first with more. Chrome breaks after such a run at a line's start only, so after
+/// other text the run goes to the next line with that piece. 0 for a word not starting
+/// with a run.
+fn carried<'a>(word: &'a str, next: impl Iterator<Item = &'a str>, how: Wrap) -> usize {
+    if !word.starts_with(IDEOGRAPHIC_SPACE) {
+        return 0;
+    }
+    let mut width = 0;
+    let words = std::iter::once(word).chain(next.filter(|n| !n.is_empty()));
+    for (i, word) in words.enumerate() {
+        let rest = word.trim_start_matches(IDEOGRAPHIC_SPACE);
+        width += usize::from(i > 0) + word[..word.len() - rest.len()].width();
+        if !rest.is_empty() {
+            let first = own_breaks(rest, how).map_or(rest, |pieces| pieces[0]);
+            return width + hang(first).0.width();
+        }
+    }
+    width
+}
+
 /// `text` on lines at most `w` wide as the copy's message body breaks it (`Wrap::Body`).
 pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
     wrap_line_by(text, w, Wrap::Body)
@@ -663,23 +749,38 @@ pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wrap {
     /// Text the copy breaks with `overflow-wrap: anywhere` and marks no paths in, so a path
-    /// is a word like any other: a delivery failure's opened details (`.evtdetail`) and,
-    /// their spaces folded (`fold_spaces`), titles, goals, thread names and inbox rows
-    /// (`.clamp2`). The details' `white-space: pre-wrap` keeps a line's leading spaces on
-    /// its first line and each run between words as written; `overflow-wrap: anywhere`
-    /// breaks at the space before a word with no break of its own, such as a long hash, too
-    /// wide for a line, so it starts on a line of its own; a word breaks inside where Chrome
-    /// does (`break_units`), such as after a `-` or between two ideographs.
+    /// is a word like any other, its spaces folded (`fold_spaces`): titles, goals, thread
+    /// names and inbox rows (`.clamp2`). `overflow-wrap: anywhere` breaks at the space
+    /// before a word with no break of its own, such as a long hash, too wide for a line, so
+    /// it starts on a line of its own; a word breaks inside where Chrome does
+    /// (`break_units`), such as after a `-` or between two ideographs.
     Plain,
+    /// A delivery failure's opened details (`.evtdetail`): as `Plain`, but `white-space:
+    /// pre-wrap` keeps a line's leading spaces on its first line and each run between words
+    /// as written, and takes a run of ideographic spaces starting a word into the run of
+    /// spaces before it (`pre_wrap`).
+    Preserved,
     /// Events, a delivery failure's line and acks (`.evt`, `.ack`), their spaces folded: as
     /// `Plain`, but the copy leaves `overflow-wrap` normal there, so a piece of a word too
     /// wide for any line (`own_breaks`) overflows its line in Chrome, and what follows it
     /// starts the next. Here it breaks where its lines end, and its last line ends with it.
     Event,
-    /// A message body (`.seg .body`): as `Plain`, and a path the copy marks (`paths`),
+    /// A message body (`.seg .body`): as `Preserved`, and a path the copy marks (`paths`),
     /// alone or joined to other text, breaks only after each `/`, as the copy's `<wbr>`
     /// breaks one; the text joined to it breaks as any other.
     Body,
+}
+
+impl Wrap {
+    /// Whether the copy's element keeps spaces as written (`white-space: pre-wrap`). There a
+    /// run of ideographic spaces starting a word goes with the spaces before it, and Chrome
+    /// breaks after the run whatever follows it, even a mark a line cannot start with such
+    /// as `」` or `!`: a line that breaks there hangs the whole run, and the next line starts
+    /// with what follows it. In folded text the line breaks after the spaces, so the run
+    /// starts the next line with its word.
+    fn pre_wrap(self) -> bool {
+        matches!(self, Wrap::Preserved | Wrap::Body)
+    }
 }
 
 /// `word` in the pieces `how` may break it between, short of breaking it anywhere, or
@@ -687,7 +788,7 @@ enum Wrap {
 /// only after each `/`.
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
-        Wrap::Plain | Wrap::Event => break_units(word, &[]),
+        Wrap::Plain | Wrap::Preserved | Wrap::Event => break_units(word, &[]),
         Wrap::Body => break_units(word, &paths(word)),
     };
     (pieces.len() > 1).then_some(pieces)
@@ -741,11 +842,13 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 /// `icu_segmenter` at CSS `line-break: auto`'s strictness (`Normal`, so a small kana or a
 /// `ー` may start a line). So:
 /// - between two ASCII characters, as Blink's table does, a break only after a `-` or a
-///   `?`: after a `-` unless before a character a line cannot start with
-///   (`. , ; : ! ? ) ] } / $`) or before a digit after a minus sign (a `-` with no ASCII
-///   letter or digit before it), each `-` of a run breaking too; after a `?` unless before
-///   one of `! " ' ) , . / : ; ? ] }`, so a run of `?` keeps together and breaks after its
-///   last;
+///   `?`, or before an opening bracket after a punctuation mark: after a `-` unless before
+///   a character a line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after
+///   a minus sign (a `-` with no ASCII letter or digit before it), each `-` of a run
+///   breaking too; after a `?` unless before one of `! " ' ) , . / : ; ? ] }`, so a run of
+///   `?` keeps together and breaks after its last; before a `(`, `[`, `{` or `<` after one
+///   of `! " # % & ) * + , . : ; = > \ ] | } ~`, not after a letter, a digit, an opening
+///   bracket, one of `$ ' / @ ^ _` or a backquote;
 /// - between any other two, a break where `icu_segmenter` finds one: between two
 ///   ideographs, kana or hangul, between one and a letter or digit, but not before a
 ///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
@@ -765,7 +868,7 @@ fn breaks_between(
         return match c {
             '-' => !minus && !".,;:!?)]}/$".contains(next),
             '?' => !"!\"'),./:;?]}".contains(next),
-            _ => false,
+            _ => "([{<".contains(next) && "!\"#%&)*+,.:;=>\\]|}~".contains(c),
         };
     }
     let class = |c: char| CodePointMapData::<LineBreak>::new().get(c);
@@ -903,7 +1006,11 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// next line as any other word does, leaving them alone on the first. Each run of spaces
 /// between words stays as written, and counts toward the line's width; a line that breaks
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
-/// ideographic spaces ending a word or a piece of one hangs the same way (`hang`).
+/// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
+/// `pre_wrap` text, one starting a word after a space is part of the run before it, and one
+/// ending the text is drawn where it fits. In folded text, one starting a word after a word
+/// ending with one is part of the run before it too; any other does not end a line after
+/// other text, but goes to the next with what follows it (`carried`).
 fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
@@ -914,24 +1021,63 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     } else {
         " ".repeat(indent)
     };
-    // The run of spaces before the next word: the one after the last word, and one more for
-    // each empty piece `split` leaves after it.
-    let mut run = 0;
-    for word in body.split(' ') {
+    // The run of spaces before the next word, as written: the one after the last word, one
+    // more for each empty piece `split` leaves after it, and in `pre_wrap` text a run of
+    // ideographic spaces starting a word after it.
+    let mut run = String::new();
+    // Whether a word is down yet, so a run before the next one is between words.
+    let mut placed = false;
+    // Whether the word before ended with a run of ideographic spaces.
+    let mut after_run = false;
+    let mut words = body.split(' ');
+    while let Some(word) = words.next() {
         if word.is_empty() {
-            run += 1;
+            run.push(' ');
             continue;
         }
-        // No space between the indent and the first word, or at the start of a line.
-        let gap = if line.bytes().any(|b| b != b' ') {
-            run
+        let after_text = line.bytes().any(|b| b != b' ');
+        let ends_run = word.ends_with(IDEOGRAPHIC_SPACE);
+        // In `pre_wrap` text, after a word and a space, the run of ideographic spaces
+        // starting the word goes with the run before it, also where the word before hung its
+        // own run and ended the line (`put_hung`). Folded text does so after a word ending
+        // with such a run.
+        let word = if (how.pre_wrap() || after_run) && placed {
+            let rest = word.trim_start_matches(IDEOGRAPHIC_SPACE);
+            run.push_str(&word[..word.len() - rest.len()]);
+            if rest.is_empty() {
+                // A word that is only such a run: the space `split` took after it goes on
+                // the run too.
+                run.push(' ');
+                continue;
+            }
+            rest
         } else {
-            0
+            word
         };
-        run = 1;
+        after_run = ends_run;
+        // In folded text, any other run of ideographic spaces starting a word does not end a
+        // line after other text: the line breaks before it unless what the copy carries with
+        // it (`carried`) fits there too.
+        let after_text = if !how.pre_wrap()
+            && after_text
+            && line.width() + run.width() + carried(word, words.clone(), how) > w
+        {
+            out.push(std::mem::take(&mut line));
+            false
+        } else {
+            after_text
+        };
+        // No space between the indent and the first word, or at the start of a line.
+        let gap = if after_text {
+            std::mem::take(&mut run)
+        } else {
+            String::new()
+        };
+        run = " ".to_string();
+        placed = true;
         let (fits, hung) = hang(word);
-        if line.width() + gap + fits.width() <= w {
-            line.push_str(&" ".repeat(gap));
+        if line.width() + gap.width() + fits.width() <= w {
+            line.push_str(&gap);
             line.push_str(fits);
             put_hung(&mut line, &mut out, hung, w);
             continue;
@@ -943,8 +1089,8 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         let own = own_breaks(word, how);
         let here = own.is_some();
         let pieces = own.unwrap_or_else(|| vec![word]);
-        if here && !line.is_empty() && line.width() + gap + hang(pieces[0]).0.width() <= w {
-            line.push_str(&" ".repeat(gap));
+        if here && !line.is_empty() && line.width() + gap.width() + hang(pieces[0]).0.width() <= w {
+            line.push_str(&gap);
         } else if !line.is_empty() {
             out.push(std::mem::take(&mut line));
         }
@@ -981,6 +1127,16 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             put_hung(&mut line, &mut out, hung, w);
         }
     }
+    // A run of ideographic spaces ending the text after a space is drawn where it fits on
+    // the line, as the copy's is, and otherwise hangs past its end; the spaces after it are
+    // the text's trailing ones. Only `pre_wrap` text joins one to the run.
+    let tail = run.trim_end_matches(' ');
+    if tail.contains(IDEOGRAPHIC_SPACE)
+        && line.bytes().any(|b| b != b' ')
+        && line.width() + tail.width() <= w
+    {
+        line.push_str(tail);
+    }
     if !line.is_empty() || out.is_empty() {
         out.push(line);
     }
@@ -1004,6 +1160,7 @@ mod tests {
         threads: None,
         open: 3,
         shown: FOLDED,
+        now: NOW,
     };
     const MIN: i64 = 60;
 
@@ -1114,7 +1271,7 @@ mod tests {
     }
 
     fn text(m: &Milestone, task: Option<TaskId>, w: usize) -> Vec<String> {
-        lines(&talk_of(m), task, w, SPACE, NOW, Depth::TrueColor)
+        lines(&talk_of(m), task, w, SPACE, Depth::TrueColor)
             .iter()
             .map(|l| l.to_string())
             .collect()
@@ -1252,12 +1409,11 @@ mod tests {
 
     #[test]
     fn the_popup_previews_three_open_threads_with_their_last_two_bubbles_and_links_the_rest() {
-        let popup = Limits::of(Mode::Popup, FOLDED);
+        let popup = Limits::of(Mode::Popup, FOLDED, NOW);
         let m = golden();
-        let rows: Vec<String> = (lines(&talk_of(&m), None, 80, popup, NOW, Depth::TrueColor)
-            .iter())
-        .map(|l| l.to_string())
-        .collect();
+        let rows: Vec<String> = (lines(&talk_of(&m), None, 80, popup, Depth::TrueColor).iter())
+            .map(|l| l.to_string())
+            .collect();
         let at = |needle: &str| rows.iter().position(|r| r.contains(needle));
         // T3 has two bubbles, both shown, so nothing is counted as earlier.
         let head = at("[open] thread 3").unwrap() + 2;
@@ -1277,10 +1433,9 @@ mod tests {
                 .collect(),
         );
         (five.threads).push(thread(6, ThreadStatus::Resolved, None, &[("qa", "ok", 9)]));
-        let rows: Vec<String> = (lines(&talk_of(&five), None, 80, popup, NOW, Depth::Ansi256)
-            .iter())
-        .map(|l| l.to_string())
-        .collect();
+        let rows: Vec<String> = (lines(&talk_of(&five), None, 80, popup, Depth::Ansi256).iter())
+            .map(|l| l.to_string())
+            .collect();
         let n = rows.len();
         assert_eq!(
             rows[n - 2].trim_end(),
@@ -1308,7 +1463,7 @@ mod tests {
             },
             ..SPACE
         };
-        let all = lines(&talk, None, 80, unfolded, NOW, Depth::TrueColor);
+        let all = lines(&talk, None, 80, unfolded, Depth::TrueColor);
         let rows: Vec<String> = all.iter().map(|l| l.to_string()).collect();
         let row = rows
             .iter()
@@ -1390,10 +1545,10 @@ mod tests {
         }
         assert_eq!(loaded.threads[4].messages.len(), 12);
         assert_eq!(text(&loaded, None, 80), text(&whole, None, 80));
-        let popup = Limits::of(Mode::Popup, FOLDED);
+        let popup = Limits::of(Mode::Popup, FOLDED, NOW);
         assert_eq!(
-            lines(&talk_of(&loaded), None, 80, popup, NOW, Depth::Ansi256),
-            lines(&talk_of(&whole), None, 80, popup, NOW, Depth::Ansi256)
+            lines(&talk_of(&loaded), None, 80, popup, Depth::Ansi256),
+            lines(&talk_of(&whole), None, 80, popup, Depth::Ansi256)
         );
     }
 
@@ -1414,7 +1569,7 @@ mod tests {
             Some(13),
             &[("qa", "cases pass", 30), ("qa", "4 of 4 pass", 5)],
         );
-        let all = lines(&talk_of(&m), None, 80, SPACE, NOW, Depth::TrueColor);
+        let all = lines(&talk_of(&m), None, 80, SPACE, Depth::TrueColor);
         let colour_of = |name: &str| {
             all.iter()
                 .flat_map(|l| &l.spans)
@@ -1432,7 +1587,7 @@ mod tests {
             None,
             &[("cat-lead", "go", 1)],
         )]);
-        let all = lines(&talk_of(&lead_msg), None, 80, SPACE, NOW, Depth::TrueColor);
+        let all = lines(&talk_of(&lead_msg), None, 80, SPACE, Depth::TrueColor);
         let lead = all
             .iter()
             .flat_map(|l| &l.spans)
@@ -1478,7 +1633,7 @@ mod tests {
         let shape = chat::Shape {
             clip: 4,
             open: &none,
-            now: Some(NOW),
+            now: NOW,
             preview: None,
             people: talk.people(),
             full: false,
@@ -1547,7 +1702,7 @@ mod tests {
         ] {
             let one = milestone(vec![thread(1, Open, None, &[("dev-1", text, 1)])]);
             for w in [80, 30] {
-                let all = lines(&talk_of(&one), None, w, SPACE, NOW, d);
+                let all = lines(&talk_of(&one), None, w, SPACE, d);
                 let tags: Vec<&Span> = (all.iter().flat_map(|l| &l.spans))
                     .filter(|s| ["needs you", "decision", "blocked"].contains(&&*s.content))
                     .collect();
@@ -1590,7 +1745,7 @@ mod tests {
                 &[("dev-1", text, 1)],
             )]);
             // In the bubble only: the header's where-it-stands line repeats the text.
-            (lines(&talk_of(&one), None, 80, SPACE, NOW, d).iter())
+            (lines(&talk_of(&one), None, 80, SPACE, d).iter())
                 .filter(|l| l.to_string().contains('▌'))
                 .flat_map(|l| l.spans.clone())
                 .filter(|s| s.style.fg == Some(bad(d)) && s.content.starts_with('@'))
@@ -1733,7 +1888,7 @@ mod tests {
         // Under the strip and the thread's three-line header.
         assert!(rows[9].contains("▌ Plan:"), "{}", rows[9]);
         assert!(rows[10].contains("▌ 1. shelf grid"), "{}", rows[10]);
-        let drawn = lines(&talk_of(&m), None, 60, SPACE, NOW, Depth::TrueColor);
+        let drawn = lines(&talk_of(&m), None, 60, SPACE, Depth::TrueColor);
         let author = (drawn[8].spans.iter())
             .find(|s| s.content == "qa-2")
             .unwrap();
@@ -1750,7 +1905,7 @@ mod tests {
         for m in [golden(), long, milestone(Vec::new())] {
             for task in [None, Some(TaskId(13)), Some(TaskId(99))] {
                 for w in 0..=130 {
-                    let drawn = lines(&talk_of(&m), task, w, SPACE, NOW, Depth::Ansi256);
+                    let drawn = lines(&talk_of(&m), task, w, SPACE, Depth::Ansi256);
                     assert_eq!(drawn.len(), height(&talk_of(&m), task, w, SPACE), "w={w}");
                     for line in drawn {
                         assert_eq!(line.width(), w, "w={w} {line:?}");
@@ -1761,13 +1916,53 @@ mod tests {
     }
 
     #[test]
-    fn the_height_does_not_change_as_ages_grow() {
-        let m = golden();
-        for later in [0, 59, 3600 * 30, 86_400 * 500] {
-            assert_eq!(
-                lines(&talk_of(&m), None, 60, SPACE, NOW + later, Depth::Ansi256).len(),
-                height(&talk_of(&m), None, 60, SPACE)
-            );
+    fn the_height_matches_the_drawn_lines_at_its_clock_as_an_acks_age_grows() {
+        // A preview lays an ack's age out at its width as drawn, as the copy's inline
+        // `· age`: at 9m the ack fills its line 43 wide (a bubble of 45, in a pane of 60);
+        // at 10m only its `·` fits there, and Chrome starts the next line with the age.
+        let m = milestone(vec![thread(
+            1,
+            ThreadStatus::Open,
+            None,
+            &[
+                ("dev-1", "Report", 10),
+                ("qa", "copy, testing the grid on phones", 9),
+            ],
+        )]);
+        let at = |later: i64| Limits {
+            now: NOW + later,
+            ..SPACE
+        };
+        let drawn = |later: i64| -> Vec<String> {
+            (lines(&talk_of(&m), None, 60, at(later), Depth::Ansi256).iter())
+                .map(|l| l.to_string())
+                .collect()
+        };
+        // An ack's lines as drawn, between the box's borders.
+        let acks = |later: i64| -> Vec<String> {
+            let rows = drawn(later);
+            let k = rows.iter().position(|r| r.contains("↳ qa")).unwrap();
+            (rows[k..].iter())
+                .map(|r| r.trim_matches(|c| c == ' ' || c == '│').to_string())
+                .take_while(|r| !r.is_empty() && !r.contains("open chat"))
+                .collect()
+        };
+        let ack = "↳ qa: copy, testing the grid on phones";
+        assert_eq!(acks(0), [format!("{ack} · 9m")]);
+        assert_eq!(acks(MIN), [format!("{ack} ·"), "10m".into()]);
+        assert_eq!(
+            height(&talk_of(&m), None, 60, at(MIN)),
+            height(&talk_of(&m), None, 60, at(0)) + 1
+        );
+        // Whatever the clock, the layout's height is the drawn one's.
+        for m in [golden(), m.clone()] {
+            for later in [0, 59, MIN, 3600 * 30, 86_400 * 500] {
+                assert_eq!(
+                    lines(&talk_of(&m), None, 60, at(later), Depth::Ansi256).len(),
+                    height(&talk_of(&m), None, 60, at(later)),
+                    "{later}"
+                );
+            }
         }
     }
 
@@ -1845,6 +2040,15 @@ mod tests {
     }
 
     #[test]
+    fn folded_text_breaks_before_an_opening_bracket_after_punctuation_where_the_copy_does() {
+        // As headless Chrome draws the copy's `.evt` and `.clamp2`: the bracket rule a
+        // message's word breaks by (`breaks_between`) holds for events, acks and titles too.
+        let title = "sent abc.[defg] to qa";
+        assert_eq!(wrap_event_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
+        assert_eq!(wrap_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
+    }
+
+    #[test]
     fn an_ideographic_space_at_a_line_end_hangs_as_the_copys_does() {
         // As headless Chrome draws the copy's message body, delivery-failure details,
         // `.clamp2` and `.evt`: a run of U+3000 ending a line hangs past it, so the word before
@@ -1901,6 +2105,139 @@ mod tests {
     }
 
     #[test]
+    fn an_ideographic_run_after_a_space_hangs_in_pre_wrap_text_only() {
+        // As headless Chrome draws the copy: in a message body and a delivery failure's
+        // details (`pre-wrap`) a run of U+3000 starting a word after a space goes with the
+        // spaces before it, so a line that breaks there hangs the whole run and the next
+        // starts with the word after it.
+        let pre = |text: &str, w: usize| {
+            let lines = wrap_line_paths(text, w);
+            assert_eq!(wrap(text, w), lines, "details at {w}");
+            lines
+        };
+        assert_eq!(pre("ab cd 　ef", 4), ["ab", "cd", "ef"]);
+        assert_eq!(pre("ab cd 　ef", 5), ["ab cd", "ef"]);
+        assert_eq!(pre("ab 　　 cd", 2), ["ab", "cd"]);
+        assert_eq!(pre("ab　 　ef", 4), ["ab　", "ef"]);
+        // Chrome draws a run that fits before a word that does not; it is blank, and is
+        // dropped here as a run of spaces is where a line breaks.
+        assert_eq!(pre("ab 　ef", 5), ["ab", "ef"]);
+        // Where the word or its first piece fits after it, the run keeps its width.
+        assert_eq!(pre("ab 　ef", 7), ["ab 　ef"]);
+        assert_eq!(pre("ab 　中文", 7), ["ab 　中", "文"]);
+        // Mid-line, each space around a word that is only a run stays as written.
+        assert_eq!(pre("ab 　　 cd", 20), ["ab 　　 cd"]);
+        assert_eq!(pre("ab 　 　cd", 20), ["ab 　 　cd"]);
+        // After a word whose own run hung and ended the line, the run hangs too.
+        assert_eq!(pre("abc　 　ef", 4), ["abc", "ef"]);
+        assert_eq!(pre("確認 済み　 　次へ", 9), ["確認 済み", "次へ"]);
+        let a = "a".repeat(34);
+        assert_eq!(pre(&format!("{a}　 　next"), 35), [a.as_str(), "next"]);
+        // A run ending the text is drawn where it fits, and hangs where it does not.
+        assert_eq!(pre("ab 　", 20), ["ab 　"]);
+        assert_eq!(pre("ab 　", 3), ["ab"]);
+        // At the text's start, after its indent or not, a run is the first word's.
+        assert_eq!(pre("　ab cd", 20), ["　ab cd"]);
+        assert_eq!(pre("  　ab", 20), ["  　ab"]);
+        // The run hangs before a mark a line cannot start with too, and where it fits it
+        // keeps its width there.
+        assert_eq!(pre("ab cd 　」ef", 5), ["ab cd", "」ef"]);
+        assert_eq!(pre("done 　!", 5), ["done", "!"]);
+        let a = "a".repeat(33);
+        assert_eq!(pre(&format!("{a} 　!next"), 35), [a.as_str(), "!next"]);
+        assert_eq!(pre("ab 　!x", 20), ["ab 　!x"]);
+        assert_eq!(pre("ab 　」x", 20), ["ab 　」x"]);
+        for text in [
+            "A: ab 　 　cd end",
+            "B: ab 　　 cd end",
+            "C: 確認 　 　 　完了 です",
+            "D: plain 　 word",
+            "E: ab 　 　cd 　　 ef",
+        ] {
+            assert_eq!(pre(text, 40), [text]);
+        }
+        // Folded text (`.clamp2`, `.evt`) breaks after the spaces, so the run starts the
+        // next line with its word.
+        let folded = |text: &str, w: usize| {
+            let lines = wrap_line(text, w);
+            assert_eq!(wrap_event_line(text, w), lines, "event at {w}");
+            lines
+        };
+        assert_eq!(folded("ab cd 　ef", 4), ["ab", "cd", "　ef"]);
+        assert_eq!(folded("ab cd 　ef", 5), ["ab cd", "　ef"]);
+        assert_eq!(folded("ab 　　 cd", 2), ["ab", "　", "cd"]);
+    }
+
+    #[test]
+    fn an_ideographic_run_after_a_space_goes_to_the_next_line_with_what_follows_in_folded_text() {
+        // As headless Chrome draws the copy's `.clamp2` and `.evt`: a run of U+3000 starting
+        // a word after a space does not end a line after other text, but starts the next
+        // with the first piece of its word, or for a word that is only a run, with the next
+        // word. The expected lines are Chrome's.
+        let folded = |text: &str, w: usize| {
+            let lines = wrap_line(text, w);
+            assert_eq!(wrap_event_line(text, w), lines, "event at {w}");
+            lines
+        };
+        // The issue's event, ack and title, where the line breaks before the run.
+        let event = "@manager dev-1 is waiting on a prompt: 配布 　今日 　　明日 ...";
+        for w in [43, 47] {
+            assert_eq!(
+                folded(event, w),
+                [
+                    "@manager dev-1 is waiting on a prompt: 配布",
+                    "　今日 　　明日 ..."
+                ],
+                "at {w}"
+            );
+        }
+        for w in [26, 29] {
+            assert_eq!(
+                folded("ok 　確認 　　了解 　中文 　好的", w),
+                ["ok 　確認 　　了解 　中文", "　好的"],
+                "at {w}"
+            );
+        }
+        for w in [28, 32] {
+            assert_eq!(
+                folded("表示確認 　全角空白 　　行末 　折り返し 测试 　中文", w),
+                ["表示確認 　全角空白 　　行末", "　折り返し 测试 　中文"],
+                "at {w}"
+            );
+        }
+        // The run goes with the first piece of its word; where the two do not fit on a line
+        // together, the line breaks after the run, in an event too.
+        assert_eq!(folded("ab 　中文", 3), ["ab", "　", "中", "文"]);
+        assert_eq!(folded("ab 　中文", 5), ["ab", "　中", "文"]);
+        assert_eq!(folded("ab 　中文", 6), ["ab", "　中文"]);
+        assert_eq!(folded("ab 　中文", 7), ["ab 　中", "文"]);
+        assert_eq!(folded("ab 　　中文", 5), ["ab", "　　", "中文"]);
+        // A word that is only a run goes whole with the word after it.
+        assert_eq!(folded("ab 　 cd", 4), ["ab", "　", "cd"]);
+        assert_eq!(folded("ab 　 cd", 5), ["ab", "　 cd"]);
+        assert_eq!(folded("ab 　 cd", 8), ["ab 　 cd"]);
+        assert_eq!(folded("ab 　　 cd", 7), ["ab", "　　 cd"]);
+        // After a word ending with a run, the run hangs with it, as in `pre-wrap` text.
+        assert_eq!(folded("ab　 　中文", 4), ["ab　", "中文"]);
+        assert_eq!(folded("ab　 　中文", 6), ["ab　", "中文"]);
+        assert_eq!(
+            folded("了解　 中 ab　 　　　了解", 11),
+            ["了解　 中", "ab　", "了解"]
+        );
+        // The rest past the last line starts with the run it carries.
+        assert_eq!(
+            wrap_at_most("確認 　今日 了解 確認 中文", 5, 2),
+            ["確認", "　今日 了解 確認 中文"]
+        );
+        assert_eq!(wrap_at_most("ab 　 cd ef gh", 5, 2), ["ab", "　 cd ef gh"]);
+        // `pre-wrap` text keeps hanging the run with the space before it.
+        for (text, last) in [("ab 　中文", "中文"), ("ab 　 cd", "cd")] {
+            assert_eq!(wrap_line_paths(text, 5), ["ab", last], "body {text:?}");
+            assert_eq!(wrap(text, 5), ["ab", last], "details {text:?}");
+        }
+    }
+
+    #[test]
     fn wrap_breaks_at_spaces_and_splits_only_words_too_wide() {
         assert_eq!(wrap("copy, go", 20), vec!["copy, go"]);
         assert_eq!(wrap("one two three", 7), vec!["one two", "three"]);
@@ -1943,6 +2280,37 @@ mod tests {
         assert_eq!(wrap("ab abc?defg", 8), ["ab abc?", "defg"]);
         assert_eq!(wrap("ab abc??defg", 8), ["ab abc??", "defg"]);
         assert_eq!(wrap("ab abc?!defg", 8), ["ab", "abc?!def", "g"]);
+    }
+
+    #[test]
+    fn a_delivery_failures_details_break_before_an_opening_bracket_after_punctuation() {
+        // As Chrome breaks the copy's `.evtdetail`: before the bracket after a `,` or a `~`,
+        // and not after a `$`.
+        assert_eq!(wrap("ab abc,[defg]", 8), ["ab abc,", "[defg]"]);
+        assert_eq!(wrap("ab abc~{defg}", 8), ["ab abc~", "{defg}"]);
+        assert_eq!(wrap("ab abc$[defg]", 8), ["ab", "abc$[def", "g]"]);
+    }
+
+    #[test]
+    fn the_bracket_row_breaks_after_exactly_the_marks_chrome_does() {
+        // As headless Chrome breaks the copy's `.seg .body`, `.evtdetail` and `.clamp2`,
+        // whatever comes before the mark (a letter, a digit or nothing) and after the
+        // bracket (a letter, a digit or a closing mark): before each opening bracket after
+        // each of these 19 marks, and never after the other 11 marks that are not `-` or `?`.
+        for bracket in "([{<".chars() {
+            for before in [Some('a'), Some('1'), None] {
+                for after in ['d', '5', ')'] {
+                    for c in "!\"#%&)*+,.:;=>\\]|}~".chars() {
+                        let broken = breaks_between(before, c, bracket, Some(after), false);
+                        assert!(broken, "{before:?} {c} {bracket} {after}");
+                    }
+                    for c in "$'/@^_`([{<".chars() {
+                        let broken = breaks_between(before, c, bracket, Some(after), false);
+                        assert!(!broken, "{before:?} {c} {bracket} {after}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -2047,5 +2415,33 @@ mod tests {
         assert_eq!(wrap_at_most("abcdefghij", 4, 2), vec!["abcd", "efghij"]);
         assert_eq!(wrap_at_most("abcdefghij", 4, 1), vec!["abcdefghij"]);
         assert_eq!(wrap_at_most("日本語です", 4, 2), vec!["日本", "語です"]);
+    }
+
+    #[test]
+    fn clamp_ends_its_last_line_after_its_last_whole_piece() {
+        // As headless Chrome draws the copy's `.clamp2` (#50): the last line kept ends in
+        // "…" right after its last piece, here a `-`, where carrying the rest onto it and
+        // cutting that drew "shed-lead-senior-r…".
+        let text = "the long garden-shed-lead-senior-reviewer";
+        assert_eq!(
+            clamp(text, 18, 2),
+            ["the long garden-", "shed-lead-senior-…"]
+        );
+        // A full last line leaves the "…" no column: it takes its last character's place.
+        assert_eq!(
+            clamp(text, 17, 2),
+            ["the long garden-", "shed-lead-senior…"]
+        );
+        assert_eq!(
+            clamp("its cover, newest first, with a link", 31, 1),
+            ["its cover, newest first, with …"]
+        );
+        // Its spaces fold as the copy's do.
+        assert_eq!(clamp("Search by author  now", 19, 1), ["Search by author…"]);
+        // Text that fits its lines is drawn as wrapped, with no "…".
+        assert_eq!(
+            clamp(text, 21, 2),
+            ["the long garden-shed-", "lead-senior-reviewer"]
+        );
     }
 }

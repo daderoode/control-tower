@@ -5,7 +5,7 @@
      ✓ Bookmarks page                no ticket │ checkout   /src/catalogue                                                                  
      ● New book shelf                     #113 │ tracker    https://github.com/example/catalogue                                            
      ○ Show each book's reviews      no ticket │ work       1 active milestone · 0 standalone tasks · 0 Done milestones                     
-       under its cover, newest first, with a l…│                                                                                            
+       under its cover, newest first, with a…  │                                                                                            
 ───────────────────────────────────────────────│ MILESTONES                                                                                 
                                                │ ● M1 First shop pages                                                      ███░░░░░░░  33% 
  ▾ checkout                                    │                                                                                            

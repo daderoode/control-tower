@@ -5,7 +5,7 @@
      ✓ Bookmarks page                no ticket │  ✓ M4 0.1.6: dashboard workspace                                          2/2 · 13/01/2027 
      ● New book shelf                     #113 │  ✓ M5 0.1.5: lead skill                                            1/1 · date not recorded 
      ○ Show each book's reviews      no ticket │                                                                                            
-       under its cover, newest first, with a l…│ MESSAGE BOARD · Done milestones Catalogue Lead                       open full board (b) ▶ 
+       under its cover, newest first, with a…  │ MESSAGE BOARD · Done milestones Catalogue Lead                       open full board (b) ▶ 
                                                │ ⚠ Needs you · 1                                                                            
    ▸ Done  3 milestones                  ⚠1 ⓘ1 │   cat-lead question: @manager 0.1.6 is out. Do you want to t…  in Is 0.1.6 ready to mark D…
 ───────────────────────────────────────────────│ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 

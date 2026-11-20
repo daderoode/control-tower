@@ -11,6 +11,63 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A message that wraps takes the widest bubble.** A message whose text wraps had a
+  bubble only as wide as its widest wrapped line, so it could be much narrower than the
+  widest a bubble gets. It now takes that widest, on either side, as the UI design's
+  does; a message that fits keeps its width, counting a line "read more" hides (#77).
+- **A clamped title, goal or thread name ends after a whole piece.** A milestone's or
+  task's title in the tree, a milestone's goal, or a thread's name (and its own title) in
+  the thread list too long for its two lines was cut mid-word, as in "shed-lead-senior-r…".
+  It now ends in "…" right after the last piece that fits, "shed-lead-senior-…", or in
+  place of the line's last character when the line is full, as the UI design's clamp and
+  the inbox row do. A tree title's second line now folds each run of spaces to one, as
+  the design does (#50).
+- **Where a thread stands keeps tower's `question:`.** When where a thread stands is
+  tower's question for you (a thread holding only tower's words, such as a worker waiting on
+  a herdr prompt), that line on the thread's header (on the message board and the full
+  board) and in the thread list keeps its leading `question:`, as the UI design does, where
+  it had dropped it; the chat's line still drops it after its "needs you" tag (#68).
+- **A word breaks before an opening bracket after a punctuation mark.** In a message, a
+  delivery failure's opened details, and a title, goal, event, ack or inbox row, a word
+  with a `(`, `[`, `{` or `<` after a mark such as `!`, `.`, `,` or `)`, such as
+  `f(x),(y)`, moved to the next line whole, or broke only where a line ended. It now breaks
+  before the bracket where the UI design does; not after a letter, a digit, another
+  opening bracket, or one of `$ ' / @ ^ _` and a backquote (#45).
+- **An ideographic space after a space hangs at a message line's end.** In a message and a
+  delivery failure's opened details, a run of full-width spaces (U+3000) starting a word
+  after an ordinary space, where a line ended, started the next line. It now hangs past the
+  line's end with the spaces before it, as the UI design does, so the next line starts with
+  the word after it. Titles, goals, events, acks and inbox rows still carry it to the next
+  line with its word, as the design does there (#57).
+- **An ack's age after a word, or the last piece of one, too wide for a line starts the
+  next line.** An ack ending in a word, or the last piece of one, too wide for its line,
+  such as a long hash, drew its age after the word's last piece, as in `5d6e7f8 · 8m`. Its
+  `· 8m` now starts the next line, under the text, as the UI design draws it; an ack whose
+  last word, or the last piece of it after a `-`, fits keeps its age on its last line (#52).
+- **An ideographic space ending a line no longer moves a centred or right-aligned line.**
+  A full-width space (U+3000) that fit at the end of an event's or a delivery failure's
+  line counted toward its width, so that line sat a column left of the others, and an ack
+  under one of your messages ended two columns short of the bubble's edge. It now hangs
+  past the line's end, as the UI design does, so the line sits where the text before it
+  does (#62).
+- **An ideographic space before a word stays with it in a title, event or ack.** In a
+  title, goal, thread name, event, ack or inbox row, a run of full-width spaces (U+3000)
+  starting a word after an ordinary space, where a line broke before the word, was left at
+  the end of the line before, out of sight, or dropped from a tree title's second line.
+  It now starts the next line with the word, as the UI design does; a run that is a word
+  of its own goes with the word after it, and one after a word ending in U+3000 hangs past
+  the line's end with that word's (#74).
+- **A wrapped ack fills each line, as the UI design does.** A wrapped ack kept room for
+  its ` · age` at the end of every line, so it broke earlier than the design's, as in
+  `↳ qa: copy,` / `testing the` / `thing now · 8m`. Its lines now fill to the ack's width,
+  `↳ qa: copy, testing` / `the thing now · 8m`, and a hash that fits a line is no longer
+  cut. Its age follows the last word where it fits; where only the `·` fits, the `·` ends
+  that line and the age starts the next, at the age's own width on the message board too,
+  where it had kept room for the widest age. An ack's lines after its first now start where
+  the first does, under the arrow, no longer two columns further in. Every age on the
+  dashboard now goes by its minute, as the full board's chat did, so a message shows one
+  age everywhere on the screen, where the alert line, the inbox and the full board's
+  thread list could say a minute more than its bubble (#75).
 - **A selected inbox item's first line stays in view.** In an inbox list of four lines or
   fewer, PgUp or PgDn across the gap between its sections could leave only the selected
   item's second line in view. Paging there now goes on to the nearest item's first line, and

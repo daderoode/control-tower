@@ -399,7 +399,7 @@ fn conv_plan(
     let shape = chat::Shape {
         clip: CLIP,
         open,
-        now: Some(now),
+        now,
         preview: None,
         people: talk.people(),
         full,
@@ -655,18 +655,18 @@ fn name_room(w: usize) -> usize {
 
 /// Thread `t`'s name, and its own title, on at most two list lines `w` wide, styled
 /// (the name bold, its own title dim), without the mark and age. It wraps as the copy's
-/// `.clamp2` does (`wrap_line`); past two lines the second is cut with "…", but never into
-/// the own title:
+/// `.clamp2` does (`wrap_line`); past two lines the second ends in "…" after its last whole
+/// piece, as the copy's clamp ends it (`clamp_end`), but is never cut into the own title:
 /// then, as in a one-line row, the name is cut first and its own title keeps all but
-/// `NAME_KEEPS` columns of the second line.
+/// `NAME_KEEPS` columns of the second line, each cut after its last whole piece too.
 fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'static>>> {
     let room = name_room(w).max(1);
     let name = talk.name(t);
     let own = talk.also(t).map(|o| format!(" · {o}"));
     let text = format!("{name}{}", own.as_deref().unwrap_or_default());
-    let pieces = message_board::wrap_at_most(&text, room, 2);
-    let fits = pieces.last().is_none_or(|p| p.width() <= room);
-    if let (Some(own), false) = (&own, fits) {
+    let mut pieces = message_board::wrap_line(&text, room);
+    let more = pieces.len() > 2;
+    if let (Some(own), true) = (&own, more) {
         let first = message_board::wrap_at_most(&name, room, 2);
         let rest = first.get(1).cloned().unwrap_or_default();
         // A name that fits its first line leaves the second to its own title.
@@ -677,7 +677,11 @@ fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'s
         };
         let keeps = if rest.is_empty() { 0 } else { NAME_KEEPS };
         let sw = own.width().min(room.saturating_sub(keeps));
+        let rest = clamp_to("", &rest, room - sw);
         let nw = rest.width().min(room - sw);
+        // Its " · " stays whole before its text, which is clamped alone.
+        let (sep, said) = own.split_at(own.find('·').map_or(0, |i| i + '·'.len_utf8()));
+        let own = clamp_to(sep, said, room - nw);
         let sw = own.width().min(room - nw);
         let mut second = Vec::new();
         if nw > 0 {
@@ -688,10 +692,14 @@ fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'s
         }
         return vec![vec![Span::styled(first[0].clone(), bold())], second];
     }
+    pieces.truncate(2);
+    if let (true, Some(last)) = (more, pieces.last_mut()) {
+        last.truncate(message_board::clamp_end(last, room));
+    }
     // Where each piece starts in the text, so the name and its own title keep their styles
     // across the break.
     let mut at = 0;
-    (pieces.iter())
+    let mut rows: Vec<Vec<Span<'static>>> = (pieces.iter())
         .map(|p| {
             let from = text[at..].find(p.as_str()).map_or(at, |i| at + i);
             at = from + p.len();
@@ -709,7 +717,28 @@ fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'s
             }
             spans
         })
-        .collect()
+        .collect();
+    // Only a name with no own title goes on past two lines here: its "…" is the name's.
+    if let (true, Some(last)) = (more, rows.last_mut()) {
+        last.push(Span::styled("…", bold()));
+    }
+    rows
+}
+
+/// `lead` and `text`, a part of a thread's second list line (the name's rest, or " · " and
+/// its own title), in at most `w` columns: whole when it fits, else `lead` whole and `text`
+/// on one line ending in "…" after its last whole piece (`message_board::clamp`), a first
+/// piece too wide for the line cut by character. Too narrow for that, as written, for `fit`
+/// to cut.
+fn clamp_to(lead: &str, text: &str, w: usize) -> String {
+    let part = format!("{lead}{text}");
+    let text = text.trim_start();
+    let lead = &part[..part.len() - text.len()];
+    if part.width() <= w || w <= lead.width() + 1 {
+        return part;
+    }
+    let cut = message_board::clamp(text, w - lead.width(), 1);
+    format!("{lead}{}", cut.into_iter().next().unwrap_or_default())
 }
 
 /// Line `k` of thread `t`'s name wrapped to two lines `w` wide (`name_rows`): the first

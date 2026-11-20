@@ -5,13 +5,13 @@
      ✓ Bookmarks page         no ticket │ doing      Starting the reading reminders with the sample catalogue.          
      ● New book shelf              #113 │ blocked    printer has not sent the covers                                    
      ○ Show each book's     ! no ticket │ blocked by nothing                                                            
-       reviews under its cover, newest …│ MR         none yet                                                           
+       reviews under its cover, newest… │ MR         none yet                                                           
 ────────────────────────────────────────│ context    none                                                               
                                         │ ticket     no ticket                                                          
  ▾ checkout                             │ tracker    none                                                               
    Checkout Lead with a name long enoug…│                                                                               
    ▾ M2 Checkout with a   ████████ 100% │ DESCRIPTION                                                                   
-     title long enough to be cut in a n…│ no description yet                                                            
+     title long enough to be cut in a…  │ no description yet                                                            
      ✓ Shelf layout           no ticket │                                                                               
      ✓ 日本語のタスク名と絵文 no ticket │ ACCEPTANCE CRITERIA 0/0                                                       
        字です                           │ none                                                                          

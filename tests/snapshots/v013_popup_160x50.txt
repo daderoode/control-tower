@@ -5,13 +5,13 @@
      ✓ Bookmarks page            no ticket │ [in progress] ███████░░░░░░░░░░░░░░░░░ 33% 1/3 tasks done                                                          
      ● New book shelf                 #113 │ ┌────────────────────────────────────┬────────────────────────────────────┬──────────────────────────────────────┐ 
      ○ Let a reader save a       no ticket │ │ WAITING 1                          │ IN PROGRESS 1                      │ DONE 1                               │ 
-       basket for later and pick it up on …│ ├────────────────────────────────────┼────────────────────────────────────┼──────────────────────────────────────┤ 
+       basket for later and pick it up on… │ ├────────────────────────────────────┼────────────────────────────────────┼──────────────────────────────────────┤ 
 ───────────────────────────────────────────│ │ unassigned                         │ #113 unassigned                    │ done by lead                         │ 
                                            │ └────────────────────────────────────┴────────────────────────────────────┴──────────────────────────────────────┘ 
  ▾ checkout                                │                                                                                                                    
    Checkout Lead with a name long enough t…│ MESSAGE BOARD · M1 and its tasks Catalogue Lead                                              open full board (b) ▶ 
    ▾ M2 Checkout with a      ████████ 100% │ ⚠ Needs you · 1                                                                                                    
-     title long enough to be cut in a narr…│   cat-lead question: the covers are late again. @manager can you call the pr…  in Let a reader save a basket for l…
+     title long enough to be cut in a…     │   cat-lead question: the covers are late again. @manager can you call the pr…  in Let a reader save a basket for l…
      ✓ Shelf layout              no ticket │ ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐ 
      ✓ 日本語のタスク名と絵文字  no ticket │ │ [open] New book shelf                                                                  T3 · 7 messages ·   8m  │ 
        です                                │ │ in progress · unassigned · started by cat-lead                                                                 │ 

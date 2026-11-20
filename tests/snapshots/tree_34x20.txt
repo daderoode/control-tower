@@ -6,13 +6,13 @@
      ✓ Bookmarks page   no ticket 
      ● New book shelf        #113 
      ○ Show each book's no ticket 
-       reviews under its cover, n…
+       reviews under its cover,…  
 ──────────────────────────────────
                                   
  ▾ checkout                       
    no lead yet: n starts one      
    ▾ M2 Checkout    ████████ 100% 
-     with a title long enough to …
+     with a title long enough to… 
      ✓ Shelf layout     no ticket 
      ✓ 日本語のタスク名 no ticket 
        と絵文字です               

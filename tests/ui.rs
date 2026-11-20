@@ -333,7 +333,7 @@ fn render_dash(view: &View, dash: &Dash, w: u16, h: u16, depth: Depth) -> Buffer
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     terminal
         .draw(|f| {
-            draw(f, view, &dash, "14:32", NOW, depth);
+            draw(f, view, &dash, "14:32", depth);
         })
         .unwrap();
     terminal.backend().buffer().clone()
@@ -732,7 +732,7 @@ fn a_milestone_shows_its_bar_and_percentage_at_the_right_edge() {
         .iter()
         .position(|l| l.starts_with("   ▾ M2 "))
         .unwrap();
-    assert_eq!(lines[at + 1], "     title long enough to be cut in a n…");
+    assert_eq!(lines[at + 1], "     title long enough to be cut in a…  ");
     // No tasks: an empty bar at 0%, even with a Done mark stored.
     let (_, _, row) = milestone_row(&board, "M3", 40);
     assert_eq!(row, "   ▾ M3 Search by author  ░░░░░░░░   0% ");
@@ -1770,6 +1770,7 @@ fn detail_views_show_the_real_message_board_and_the_tasks_thread() {
             Item::Milestone(m.id),
             w,
             FOLDED,
+            NOW,
         )
         .unwrap();
         assert_eq!(
@@ -1785,6 +1786,7 @@ fn detail_views_show_the_real_message_board_and_the_tasks_thread() {
             Item::Task(TaskId(13)),
             w,
             FOLDED,
+            NOW,
         )
         .unwrap();
         let td = task_detail(board, Some(m), &m.tasks[1], w, NOW, Depth::Ansi256);
@@ -2305,6 +2307,7 @@ fn the_detail_layout_needs_no_colour_depth_and_matches_what_is_drawn() {
             Item::Milestone(m.id),
             w,
             FOLDED,
+            NOW,
         );
         let tl = detail_layout(
             &board,
@@ -2312,6 +2315,7 @@ fn the_detail_layout_needs_no_colour_depth_and_matches_what_is_drawn() {
             Item::Task(TaskId(13)),
             w,
             FOLDED,
+            NOW,
         );
         for depth in [Depth::TrueColor, Depth::Ansi256] {
             let md = milestone_detail(&board, m, w, NOW, depth);
@@ -2329,7 +2333,8 @@ fn the_detail_layout_needs_no_colour_depth_and_matches_what_is_drawn() {
             ViewKind::Overview,
             Item::Milestone(m.id),
             80,
-            FOLDED
+            FOLDED,
+            NOW
         ),
         None
     );
@@ -3714,8 +3719,47 @@ fn a_long_thread_name_wraps_to_two_lines_beside_the_conversation() {
     assert_eq!(
         seconds,
         [
-            "   its cover, newe… · Review stars",
-            "   its cover, n… · Delivery failed"
+            "   its cover,… · Review stars",
+            "   its cover,… · Delivery failed"
+        ],
+        "{all:#?}"
+    );
+}
+
+/// An own title whose first word is too wide for the room it keeps on a thread's second
+/// list line is cut by character after its " · ", as a lone piece is, never down to "·…",
+/// so two threads on one task still read apart (#50).
+#[test]
+fn an_own_title_too_long_for_its_room_keeps_its_start_after_the_dot() {
+    let list = |r: &String| r.chars().take(40).collect::<String>();
+    let mut board = board_fixture();
+    board.milestones[0].threads.push(Thread::whole(
+        ThreadId(9),
+        "Shelfgridribbonalignmentcheck notes".into(),
+        Some(TaskId(14)),
+        None,
+        vec![Message {
+            id: 900,
+            author: "dev-1".into(),
+            text: "the grid lines up on the second try".into(),
+            at: NOW - 30 * 60,
+        }],
+    ));
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(120, 30);
+    let mut dash = select(Item::Milestone(MilestoneId(1)));
+    dash.handle(&view, a, Input::Char('b'));
+    let all = rows(&render_dash(&view, &dash, 120, 30, Depth::TrueColor));
+    let seconds: Vec<String> = (all.iter().enumerate())
+        .filter(|(_, r)| list(r).contains(" Show each book's reviews "))
+        .map(|(y, _)| list(&all[y + 1]).trim_end().to_string())
+        .collect();
+    assert_eq!(
+        seconds,
+        [
+            "   its cover,… · Review stars",
+            "   its cover,… · Shelfgridribbona…"
         ],
         "{all:#?}"
     );
@@ -4544,7 +4588,7 @@ fn composer_snapshot(w: u16, h: u16, lines: u16) {
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     terminal
         .draw(|f| {
-            draw(f, &view, &dash, "14:32", NOW, Depth::TrueColor);
+            draw(f, &view, &dash, "14:32", Depth::TrueColor);
         })
         .unwrap();
     let buf = terminal.backend().buffer().clone();
@@ -4592,7 +4636,7 @@ fn caret(view: &View, dash: &Dash, w: u16, h: u16) -> (u16, u16) {
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     terminal
         .draw(|f| {
-            draw(f, view, dash, "14:32", NOW, Depth::TrueColor);
+            draw(f, view, dash, "14:32", Depth::TrueColor);
         })
         .unwrap();
     let at = terminal.get_cursor_position().unwrap();
@@ -5073,6 +5117,59 @@ fn alerts_fixture() -> Board {
     ];
     with_alerts(&mut board, &[500]);
     board
+}
+
+#[test]
+fn a_frame_drawn_mid_minute_shows_each_message_at_one_age() {
+    // Drawn 45 s into a minute, the alert line, the inbox and the full board's list reckoned
+    // a message's age at that second while the bubbles reckoned it at the minute, so
+    // "newest: cat-lead ... · 15m" sat over "cat-lead · needs you · 14m". Every age on a
+    // frame goes by the dashboard's minute, so the frame is the one drawn on the minute.
+    let mut board = alerts_fixture();
+    // Each message posted at second 30 of its minute, the alerts taken again from them.
+    for t in board
+        .milestones
+        .iter_mut()
+        .flat_map(|m| m.threads.iter_mut())
+    {
+        for m in &mut t.messages {
+            m.at += 30;
+        }
+    }
+    with_alerts(&mut board, &[500]);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let frame = |dash: &Dash, at: i64| -> Vec<String> {
+        let mut dash = dash.clone();
+        dash.set_now(at);
+        let mut terminal = Terminal::new(TestBackend::new(a.width, a.height)).unwrap();
+        terminal
+            .draw(|f| {
+                draw(f, &view, &dash, "14:32", Depth::TrueColor);
+            })
+            .unwrap();
+        rows(terminal.backend().buffer())
+    };
+    let overview = select(Item::Milestone(MilestoneId(1)));
+    let on = frame(&overview, NOW);
+    assert!(
+        on[0].contains("newest: cat-lead") && on[0].contains(" · 14m "),
+        "{}",
+        on[0]
+    );
+    let mut inbox = overview.clone();
+    inbox.handle(&view, a, Input::Char('i'));
+    assert_eq!(inbox.view(), ViewKind::Inbox);
+    let mut full = overview.clone();
+    full.handle(&view, a, Input::Char('b'));
+    assert!(layout(&view, &full, a).board.is_some());
+    for (name, dash) in [
+        ("overview", &overview),
+        ("inbox", &inbox),
+        ("full board", &full),
+    ] {
+        assert_eq!(frame(dash, NOW + 45), frame(dash, NOW), "{name}");
+    }
 }
 
 #[test]
@@ -6597,6 +6694,18 @@ fn cards_are_one_line_and_always_show_the_assignee() {
 }
 
 #[test]
+fn a_clamped_goal_ends_after_its_last_whole_piece() {
+    // As the copy's `.goal clamp2` ends it in Chrome (#50): after "shed-lead-senior-", the
+    // last piece that fits, not cut inside "reviewer".
+    let mut board = reference_fixture();
+    board.milestones[0].goal = "the long garden-shed-lead-senior-reviewer keeps it".into();
+    let o = overview(&board.milestones[0], None, 24, Depth::Ansi256);
+    let text: Vec<String> = o.lines.iter().map(|l| l.to_string()).collect();
+    assert_eq!(text[1], " goal the long garden-  ");
+    assert_eq!(text[2], "      shed-lead-senior-…");
+}
+
+#[test]
 fn a_done_card_with_no_assignee_says_done_by_lead_only_when_the_lead_finished_it() {
     let board = reference_fixture();
     let m = &board.milestones[0];
@@ -6948,7 +7057,7 @@ fn a_word_the_first_line_breaks_stays_whole_on_the_second() {
         .collect();
     let m3 = find_row(&lines, "   ▾ M3");
     assert_eq!(lines[m3], "   ▾ M3   ░░░░░░░░   0%", "{lines:#?}");
-    assert_eq!(lines[m3 + 1], "     Search by author  …", "{lines:#?}");
+    assert_eq!(lines[m3 + 1], "     Search by author…", "{lines:#?}");
 }
 
 #[test]
@@ -8562,6 +8671,48 @@ fn where_it_stands_draws_tower_s_word_in_the_text_colour_with_only_its_lead_in_d
 }
 
 #[test]
+fn where_it_stands_keeps_the_question_word_of_tower_s_question() {
+    let mut board = board_fixture();
+    // T4 (task #14, no progress post) holds only tower's question for the owner, so where
+    // it stands is tower's word.
+    let t = &mut board.milestones[0].threads[2];
+    let question = Message {
+        id: 498,
+        author: "system".into(),
+        text: "question: @manager dev-1 on #14 is waiting on a prompt in herdr that only you \
+               can answer."
+            .into(),
+        at: NOW - 30,
+    };
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, vec![question]);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let word = "question: @manager dev-1 on #14";
+    // The milestone's message board, with T4's card; the full board on T4, its header
+    // beside the list.
+    let card = select(Item::Milestone(MilestoneId(1)));
+    let mut full = select(Item::Task(TaskId(14)));
+    full.handle(&view, a, Input::Char('b'));
+    for (dash, place) in [(&card, "card"), (&full, "full board")] {
+        let all = screen(&view, dash, a);
+        // As the copy: no "needs you" tag on where it stands says it, so the word stays.
+        find_row_containing(&all, &format!("where it stands {word}"));
+        if place == "full board" {
+            // The thread list's row too, left of its bar, with no lead-in (the Needs you
+            // strip's row starts with "system", the header's with "where it stands").
+            assert!(
+                (all.iter()).any(|r| r.split('│').next().unwrap().trim_start().starts_with(word)),
+                "{all:#?}"
+            );
+            // The chat's event line keeps its tag and drops the word, as built: the tag
+            // right before "@manager" leaves no room for "question:".
+            find_row_containing(&all, "needs you @manager dev-1 on #14");
+        }
+    }
+}
+
+#[test]
 fn opening_a_folded_conversation_leaves_its_question_waiting() {
     let mut board = folded_fixture();
     // T9 (tower's, about #13) also asks the owner something.
@@ -9908,7 +10059,7 @@ fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() 
         let mut plain = None;
         terminal
             .draw(|f| {
-                let links = draw(f, &view, &dash, "14:32", NOW, Depth::TrueColor);
+                let links = draw(f, &view, &dash, "14:32", Depth::TrueColor);
                 plain = Some(f.buffer_mut().clone());
                 hyperlink(f.buffer_mut(), &links);
             })
@@ -9985,7 +10136,7 @@ fn each_url_links_exactly_the_cells_it_was_drawn_in() {
     let mut plain = None;
     terminal
         .draw(|f| {
-            let links = draw(f, &view, &dash, "14:32", NOW, Depth::TrueColor);
+            let links = draw(f, &view, &dash, "14:32", Depth::TrueColor);
             plain = Some(f.buffer_mut().clone());
             hyperlink(f.buffer_mut(), &links);
         })

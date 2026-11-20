@@ -7,13 +7,13 @@
        page                   │ │ WAITING 1                           │ 
      ● New book shelf    #113 │ ├─────────────────────────────────────┤ 
      ○ Show each    no ticket │ │ unassigned                          │ 
-       book's reviews under i…│ └─────────────────────────────────────┘ 
+       book's reviews under…  │ └─────────────────────────────────────┘ 
 ──────────────────────────────│ ┌─────────────────────────────────────┐ 
                               │ │ IN PROGRESS 1                       │ 
  ▾ checkout                   │ ├─────────────────────────────────────┤ 
    Checkout Lead with a name …│ │ #113 unassigned                     │ 
    ▾ M2         ████████ 100% │ └─────────────────────────────────────┘ 
-     Checkout with a title lo…│ ┌─────────────────────────────────────┐ 
+     Checkout with a title…   │ ┌─────────────────────────────────────┐ 
      ✓ Shelf layout no ticket │ │ DONE 1                              │ 
      ✓ 日本語のタス no ticket │ ├─────────────────────────────────────┤ 
        ク名と絵文字です       │ │ unassigned                          │ 
@@ -38,8 +38,8 @@
                               │ │  ▌ I have done the shelf            │ 
                               │ │  ▌ grid. Please test while I        │ 
                               │ │  ▌ do the ribbon.                   │ 
-                              │ │    ↳ senior: copy,                  │ 
-                              │ │      reviewing the layout · 10m     │ 
+                              │ │    ↳ senior: copy, reviewing        │ 
+                              │ │    the layout · 10m                 │ 
                               │ │                                     │ 
                               │ │   qa · tester · 8m                  │ 
                               │ │  ▌ copy, testing: phone and         │ 
