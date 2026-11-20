@@ -78,8 +78,9 @@ pub fn head(
     out
 }
 
-/// Where thread `t` stands on one line `w` wide after `lead_in` (dim): a person's line after
-/// their name in their colour, or tower's in the chat's words for it with no name.
+/// Where thread `t` stands on one line `w` wide after `lead_in` (dim): a person's line,
+/// after their name in their colour when it has one, or tower's in the chat's words for it
+/// with no name.
 pub fn stands(
     talk: &Talk,
     t: &Thread,
