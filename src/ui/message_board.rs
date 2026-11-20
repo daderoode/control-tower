@@ -718,12 +718,12 @@ enum Wrap {
 }
 
 impl Wrap {
-    /// Whether the copy's element keeps spaces as written (`white-space: pre-wrap`). There,
-    /// after a run of spaces, Chrome breaks as if the run were not there, and no line breaks
-    /// before an ideographic space (UAX #14's LB21), so a run of them starting a word goes
-    /// with the spaces before it: a line that breaks there hangs the whole run, and the next
-    /// line starts with the word after it. In folded text the line breaks after the spaces,
-    /// so the run starts the next line with its word.
+    /// Whether the copy's element keeps spaces as written (`white-space: pre-wrap`). There a
+    /// run of ideographic spaces starting a word goes with the spaces before it, and Chrome
+    /// breaks after the run whatever follows it, even a mark a line cannot start with such
+    /// as `」` or `!`: a line that breaks there hangs the whole run, and the next line starts
+    /// with what follows it. In folded text the line breaks after the spaces, so the run
+    /// starts the next line with its word.
     fn pre_wrap(self) -> bool {
         matches!(self, Wrap::Preserved | Wrap::Body)
     }
@@ -977,25 +977,19 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             continue;
         }
         let after_text = line.bytes().any(|b| b != b' ');
-        // In `pre_wrap` text, after a word and a space, a run of ideographic spaces starting
-        // the word, up to its first break (or the whole word), goes with the run before it,
-        // also where the word before hung its own run and ended the line (`put_hung`).
+        // In `pre_wrap` text, after a word and a space, the run of ideographic spaces
+        // starting the word goes with the run before it, also where the word before hung its
+        // own run and ended the line (`put_hung`).
         let word = if how.pre_wrap() && placed {
-            let first = own_breaks(word, how).map_or(word, |p| p[0]);
-            if first.chars().all(|c| c == IDEOGRAPHIC_SPACE) {
-                run.push_str(first);
-                match &word[first.len()..] {
-                    // A word that is only such a run: the space `split` took after it
-                    // goes on the run too.
-                    "" => {
-                        run.push(' ');
-                        continue;
-                    }
-                    rest => rest,
-                }
-            } else {
-                word
+            let rest = word.trim_start_matches(IDEOGRAPHIC_SPACE);
+            run.push_str(&word[..word.len() - rest.len()]);
+            if rest.is_empty() {
+                // A word that is only such a run: the space `split` took after it goes on
+                // the run too.
+                run.push(' ');
+                continue;
             }
+            rest
         } else {
             word
         };
@@ -2032,6 +2026,14 @@ mod tests {
         // At the text's start, after its indent or not, a run is the first word's.
         assert_eq!(pre("　ab cd", 20), ["　ab cd"]);
         assert_eq!(pre("  　ab", 20), ["  　ab"]);
+        // The run hangs before a mark a line cannot start with too, and where it fits it
+        // keeps its width there.
+        assert_eq!(pre("ab cd 　」ef", 5), ["ab cd", "」ef"]);
+        assert_eq!(pre("done 　!", 5), ["done", "!"]);
+        let a = "a".repeat(33);
+        assert_eq!(pre(&format!("{a} 　!next"), 35), [a.as_str(), "!next"]);
+        assert_eq!(pre("ab 　!x", 20), ["ab 　!x"]);
+        assert_eq!(pre("ab 　」x", 20), ["ab 　」x"]);
         for text in [
             "A: ab 　 　cd end",
             "B: ab 　　 cd end",
