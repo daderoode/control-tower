@@ -2837,12 +2837,13 @@ mod tests {
                 ("了解です · 1m".into(), 35)
             ]
         );
-        // A space before the run hangs with it: a word that is only a U+3000, between two
-        // spaces, fits at the end of the first line, and Chrome ends the text before the
-        // space at the edge. The bubble 34 wide in a chat of 40 ends at 38.
+        // Spaces around the run hang with it: after a word ending with a U+3000, a word that
+        // is only one, between two spaces, hangs past the first line's end with them, and
+        // Chrome ends the text before them at the edge. The bubble 34 wide in a chat of 40
+        // ends at 38.
         let m = msgs(&[
             ("manager", "check rollout 4", 0),
-            ("dev-1", "ok ああああ 　 いいいいいいいいいいいい", 60),
+            ("dev-1", "ok ああああ　 　 いいいいいいいいいいいい", 60),
         ]);
         let acks = drawn_rows(&m, 40, |r| matches!(r, Row::Ack { .. }));
         let ends: Vec<(String, usize)> = (acks.iter())

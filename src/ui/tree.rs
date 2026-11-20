@@ -34,7 +34,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use super::dash::Item;
-use super::message_board::{clamp, wrap_at_most};
+use super::message_board::{IDEOGRAPHIC_SPACE, clamp, wrap_at_most};
 use super::theme::{Depth, accent, bad, bar, bold, dim, fit, ok, stage_mark, warn};
 use crate::board::{Board, Milestone, MilestoneId, Repo, RepoId, Stage, Task, TaskId};
 
@@ -426,16 +426,37 @@ fn two_lines(text: &str, first: usize, second: usize) -> (String, Option<String>
         if text[..at].trim_end().width() > first {
             break;
         }
-        end = at;
+        if !ends_carried(&text[..at]) {
+            end = at;
+        }
     }
     if text[..end].trim().is_empty() {
         let mut lines = wrap_at_most(text, first.max(1), 2).into_iter();
         let head = lines.next().unwrap_or_default();
         return (head, lines.next().map(|rest| clamp_line(&rest, second)));
     }
-    let rest = text[end..].trim_start();
-    let head = text[..end].trim_end().to_string();
+    // A run of ideographic spaces starting the rest goes to the second line with it, as the
+    // copy's folded text carries it, unless the head ends with one, which it hangs with.
+    let head = text[..end].trim_end_matches(' ');
+    let rest = text[end..].trim_start_matches(' ');
+    let rest = if head.ends_with(IDEOGRAPHIC_SPACE) {
+        rest.trim_start()
+    } else {
+        rest
+    };
+    let head = head.trim_end().to_string();
     (head, (!rest.is_empty()).then(|| clamp_line(rest, second)))
+}
+
+/// Whether `head` ends with a word that is only ideographic spaces after a word that does
+/// not end with one, which the copy's folded text does not end a line with: it carries the
+/// run to the next line with what follows it (`message_board::wrap_line`).
+fn ends_carried(head: &str) -> bool {
+    let head = head.trim_end_matches(' ');
+    let (before, word) = head.rsplit_once(' ').unwrap_or(("", head));
+    !word.is_empty()
+        && word.chars().all(|c| c == IDEOGRAPHIC_SPACE)
+        && (before.trim_end_matches(' ').chars().last()).is_some_and(|c| c != IDEOGRAPHIC_SPACE)
 }
 
 /// `rest` on one line `w` wide, as the copy's `.clamp2` ends its last line (`clamp`).
@@ -734,4 +755,32 @@ fn milestone_lines(m: &Milestone, w: usize, depth: Depth) -> Vec<Line<'static>> 
         lines.push(fit(vec![Span::raw(" ".repeat(at)), Span::raw(rest)], w));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_title_s_second_line_starts_with_the_run_of_ideographic_spaces_it_carries() {
+        // As headless Chrome draws the copy's `.clamp2` title: a run of U+3000 starting a
+        // word after a space goes to the next line with it, and a word that is only a run
+        // goes with the word after it; after a word ending with a run, it hangs.
+        let text = "表示確認 　全角空白 　　行末 　折り返し 测试 　中文";
+        assert_eq!(
+            two_lines(text, 30, 30),
+            (
+                "表示確認 　全角空白 　　行末".to_string(),
+                Some("　折り返し 测试 　中文".to_string())
+            )
+        );
+        assert_eq!(
+            two_lines("ab 　 cd", 5, 5),
+            ("ab".to_string(), Some("　 cd".to_string()))
+        );
+        assert_eq!(
+            two_lines("ab　 　cd", 5, 5),
+            ("ab".to_string(), Some("cd".to_string()))
+        );
+    }
 }
