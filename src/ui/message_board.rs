@@ -574,46 +574,53 @@ pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
 }
 
 /// `text` wrapped to `w` columns on at most `max` lines: past that, the last line carries
-/// the rest, for the caller to clamp (`clamp`) at the width it draws it. The rest is the
-/// text as written from where the lines before it end, so a word broken across lines stays
-/// whole, and starts as the next line does, with any run of ideographic spaces it carries.
+/// the rest (`rest_after`), for the caller to clamp (`clamp`) at the width it draws it.
 pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     let max = max.max(1);
     let mut pieces = wrap_line(text, w);
     if pieces.len() > max {
-        // The ideographic spaces the next line carries before its first other character
-        // (`carried`): the last as many of those before it in the text.
-        let run = (pieces[max - 1].chars())
-            .take_while(|c| dropped(*c))
-            .filter(|c| *c == IDEOGRAPHIC_SPACE)
-            .count();
+        let rest = rest_after(text, &pieces[..max - 1], &pieces[max - 1]).to_string();
         pieces.truncate(max - 1);
-        // The lines kept are the text's first words, what wrapping drops aside (`dropped`):
-        // skip as many characters.
-        let mut left: usize = (pieces.iter())
-            .map(|p| p.chars().filter(|c| !dropped(*c)).count())
-            .sum();
-        let at = (text.char_indices())
-            .find(|(_, c)| {
-                let past = left == 0;
-                if !dropped(*c) {
-                    left = left.saturating_sub(1);
-                }
-                past
-            })
-            .map_or(text.len(), |(i, _)| i);
-        let rest = text[at..].trim_start_matches(dropped);
-        let before = &text[at..text.len() - rest.len()];
-        let start = (run.checked_sub(1))
-            .and_then(|n| {
-                (before.char_indices())
-                    .filter(|(_, c)| *c == IDEOGRAPHIC_SPACE)
-                    .nth_back(n)
-            })
-            .map_or(before.len(), |(i, _)| i);
-        pieces.push(before[start..].to_string() + rest);
+        pieces.push(rest);
     }
     pieces
+}
+
+/// What of `text` comes after `kept`, the first lines its folded wrap gives, `next` the
+/// line after them: the text as written from where they end, so a word broken across lines
+/// stays whole, past what wrapping drops there (`dropped`) but the run of ideographic spaces
+/// `next` starts with (`carried`), so it starts as `next` does.
+pub(crate) fn rest_after<'a>(text: &'a str, kept: &[String], next: &str) -> &'a str {
+    let run = (next.chars())
+        .take_while(|c| dropped(*c))
+        .filter(|c| *c == IDEOGRAPHIC_SPACE)
+        .count();
+    // The lines kept are the text's first characters, what wrapping drops aside: skip as
+    // many.
+    let mut left: usize = (kept.iter())
+        .map(|p| p.chars().filter(|c| !dropped(*c)).count())
+        .sum();
+    let at = (text.char_indices())
+        .find(|(_, c)| {
+            let past = left == 0;
+            if !dropped(*c) {
+                left = left.saturating_sub(1);
+            }
+            past
+        })
+        .map_or(text.len(), |(i, _)| i);
+    // Then what wrapping drops before the next character, but the last `run` ideographic
+    // spaces of it.
+    let rest = text[at..].trim_start_matches(dropped);
+    let before = &text[at..text.len() - rest.len()];
+    let start = (run.checked_sub(1))
+        .and_then(|n| {
+            (before.char_indices())
+                .filter(|(_, c)| *c == IDEOGRAPHIC_SPACE)
+                .nth_back(n)
+        })
+        .map_or(before.len(), |(i, _)| i);
+    &text[at + start..]
 }
 
 /// `text` on at most `max` lines `w` wide, as the copy's `.clamp2` draws it: wrapped as
@@ -1003,7 +1010,9 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
 /// `pre_wrap` text, one starting a word after a space is part of the run before it, and one
-/// ending the text is drawn where it fits.
+/// ending the text is drawn where it fits. In folded text, one starting a word after a word
+/// ending with one is part of the run before it too; any other does not end a line after
+/// other text, but goes to the next with what follows it (`carried`).
 fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
