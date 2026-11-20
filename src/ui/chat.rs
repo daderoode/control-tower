@@ -20,9 +20,11 @@
 //! The terminal has one font size, so the copy's smaller type is dim colour here.
 //!
 //! `plan` says what each line is without styling it, so a layout (heights, where each
-//! message starts, what a click toggles) and the lines drawn come from the same rows. Only
-//! the separators depend on the time, as of the `now` a plan is made for; a preview has
-//! none, so its height never changes as ages grow (an age is planned at its widest).
+//! message starts, what a click toggles) and the lines drawn come from the same rows. The
+//! time a plan is made for (`Shape::now`) decides its separators, which a preview has none
+//! of, and an ack's age, which a plan takes at its real width as drawn: so a chat's height,
+//! a preview's too, can grow by a line for an ack as its age widens (9m to 10m), as the
+//! copy reflows.
 //!
 //! A bubble fits its text as if no width limited it, and its name line, from `BUBBLE_MIN`
 //! columns up to `widest`: 85% of the chat's width, with at most `TEXT_MAX` columns of text.

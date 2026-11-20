@@ -8,8 +8,10 @@
 //! on the full board. With a task selected it shows only that task's threads.
 //!
 //! `plan` says what each line is without styling it, so the overview's height (for
-//! scrolling) and the lines drawn come from the same rows; `lines` styles them. The plan
-//! never depends on the time, so the height does not change as ages grow.
+//! scrolling) and the lines drawn come from the same rows; `lines` styles them. Both take
+//! the summary's one clock (`Limits::now`): the plan takes an ack's age at its real width
+//! as of it, so the height can grow by a line for an ack as its age widens, as the copy
+//! reflows.
 
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;

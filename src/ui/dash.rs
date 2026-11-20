@@ -681,7 +681,7 @@ impl Dash {
     /// would read as "now", so it panics instead.
     pub fn minute(&self) -> i64 {
         self.minute
-            .expect("Dash::set_now runs before the full board is laid out")
+            .expect("Dash::set_now runs before the full board, the message board or a detail view is laid out")
     }
 
     /// The messages open in full in the chat, by id.
