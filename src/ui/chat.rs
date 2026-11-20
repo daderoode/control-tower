@@ -35,8 +35,8 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    dropped, fold_spaces, highlight_marked, role_colour, units, wrap, wrap_event_line,
-    wrap_line_paths,
+    IDEOGRAPHIC_SPACE, dropped, fold_spaces, highlight_marked, role_colour, units, wrap,
+    wrap_event_line, wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -963,8 +963,27 @@ pub struct Ctx<'a> {
     pub selected: Option<usize>,
 }
 
-/// `spans` centred in `w` columns, cut to fit.
+/// `spans`, a line of text, without the run of ideographic spaces (U+3000) ending it: the
+/// copy hangs one past a line's end whether it fits or not, so it is blank and never counts
+/// toward where a centred or right-aligned line sits.
+fn unhung(mut spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
+    while let Some(last) = spans.last_mut() {
+        let kept = last.content.trim_end_matches(IDEOGRAPHIC_SPACE);
+        if kept.len() < last.content.len() {
+            last.content = kept.to_string().into();
+        }
+        if !last.content.is_empty() {
+            break;
+        }
+        spans.pop();
+    }
+    spans
+}
+
+/// `spans` centred in `w` columns, cut to fit, a run of ideographic spaces ending them
+/// left out (`unhung`).
 fn centred(spans: Vec<Span<'static>>, w: usize) -> Line<'static> {
+    let spans = unhung(spans);
     let used: usize = spans.iter().map(Span::width).sum();
     let pad = w.saturating_sub(used) / 2;
     let mut s = vec![Span::raw(" ".repeat(pad))];
@@ -1140,6 +1159,9 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             if *last {
                 s.push(Span::styled(format!(" · {}", age(m.at, now)), dim(depth)));
             }
+            // A run of ideographic spaces ending the line hangs past its end (`unhung`), so
+            // an owner's ack, at the right, ends at the edge with the text before it.
+            let mut s = unhung(s);
             let x = left(w, *owner, *bw);
             let used: usize = s.iter().map(Span::width).sum();
             let at = if *owner {
@@ -2637,6 +2659,69 @@ mod tests {
             .map(|r| line(r, w, &ctx).to_string())
             .map(|l| (start(&l), l.trim().to_string()))
             .collect()
+    }
+
+    #[test]
+    fn an_ideographic_space_ending_a_line_never_moves_a_centred_or_right_aligned_line() {
+        // As headless Chrome draws the copy's `.evt` and an owner's `.ack`, a U+3000 two
+        // columns wide: one ending a line hangs past its end whether it fits or not, so the
+        // line sits where the text before it alone would.
+        let none = BTreeSet::new();
+        let drawn_rows = |m: &[Message], w: usize, keep: fn(&Row) -> bool| -> Vec<String> {
+            let rows = plan(m, 0, w, shape(&none, 120, People::default()));
+            let ctx = Ctx {
+                msgs: m,
+                people: People::default(),
+                now: 120,
+                depth: Depth::Ansi256,
+                selected: None,
+            };
+            (rows.iter())
+                .filter(|r| keep(r))
+                .map(|r| line(r, w, &ctx).to_string())
+                .collect()
+        };
+        let at = |l: &String| (start(l), l.trim().to_string());
+        let event = |r: &Row| matches!(r, Row::Event { .. });
+        // An event in a 10-column box, in a chat of 14: Chrome puts both lines at 1.
+        let m = msgs(&[("system", "確認です　了解です", 0)]);
+        let got: Vec<(usize, String)> = drawn_rows(&m, 14, event).iter().map(at).collect();
+        assert_eq!(got, [(3, "確認です".into()), (3, "了解です".into())]);
+        // The issue's, in a 47-column box, in a chat of 51: Chrome puts both at 1.5.
+        let (a, i) = ("あ".repeat(22), "い".repeat(22));
+        let m = msgs(&[("system", &format!("{a}　{i}"), 0)]);
+        let got: Vec<(usize, String)> = drawn_rows(&m, 51, event).iter().map(at).collect();
+        assert_eq!(got, [(3, a), (3, i)]);
+        // A delivery failure's line: Chrome puts the line ending in one at 1, as the
+        // text before it alone; its lines in a chat `ew + 4` wide.
+        let failed = "@manager could not deliver to 確認です　了解です: gone.";
+        assert_eq!(
+            failure_lines(failed, false, 10),
+            [
+                (3, "delivery".into()),
+                (2, "failed to".into()),
+                (3, "確認です".into()),
+                (2, "了解です ·".into()),
+                (3, "details".into()),
+            ]
+        );
+        // An owner's ack, its bubble 31 wide at the right of a chat of 37: Chrome ends each
+        // line's text at the bubble's edge, the first's before its U+3000.
+        let m = msgs(&[
+            ("manager", "go ahead", 0),
+            ("dev-1", "ok 確認です　了解です", 60),
+        ]);
+        let acks = drawn_rows(&m, 37, |r| matches!(r, Row::Ack { .. }));
+        let ends: Vec<(String, usize)> = (acks.iter())
+            .map(|l| (l.trim().to_string(), start(l) + l.trim().width()))
+            .collect();
+        assert_eq!(
+            ends,
+            [
+                ("↳ dev-1: ok 確認です".into(), 35),
+                ("了解です · 1m".into(), 35)
+            ]
+        );
     }
 
     #[test]

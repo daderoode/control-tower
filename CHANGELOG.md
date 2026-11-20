@@ -35,6 +35,12 @@ tag's date, and a new empty Unreleased goes above it.
   line's end with the spaces before it, as the UI design does, so the next line starts with
   the word after it. Titles, goals, events, acks and inbox rows still carry it to the next
   line with its word, as the design does there (#57).
+- **An ideographic space ending a line no longer moves a centred or right-aligned line.**
+  A full-width space (U+3000) that fit at the end of an event's or a delivery failure's
+  line counted toward its width, so that line sat a column left of the others, and an ack
+  under one of your messages ended two columns short of the bubble's edge. It now hangs
+  past the line's end, as the UI design does, so the line sits where the text before it
+  does (#62).
 
 ## [0.5.0] - 2026-11-20
 

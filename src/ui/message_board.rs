@@ -658,7 +658,7 @@ pub(crate) fn dropped(c: char) -> bool {
     c == ' ' || c == IDEOGRAPHIC_SPACE
 }
 
-const IDEOGRAPHIC_SPACE: char = '\u{3000}';
+pub(crate) const IDEOGRAPHIC_SPACE: char = '\u{3000}';
 
 /// `piece` as the part that must fit on a line and the run of ideographic spaces ending it,
 /// which the copy hangs past the line's end, as `pre-wrap` hangs a run of spaces, so the
