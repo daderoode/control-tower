@@ -14,7 +14,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use super::control::{Control, ControlAt, with_control};
-use super::message_board::wrap_at_most;
+use super::message_board::clamp;
 use super::theme::{
     Depth, accent, bar, bold, dim, fit, goal, selected_bg, stage_glyph, stage_style, warn,
 };
@@ -433,7 +433,7 @@ pub fn overview(m: &Milestone, selected: Option<TaskId>, w: usize, depth: Depth)
 /// The goal's text in pieces beside " goal ", on at most `GOAL_LINES` lines.
 fn goal_pieces(m: &Milestone, w: usize) -> Vec<String> {
     let room = w.saturating_sub(GOAL_LABEL.width()).max(1);
-    wrap_at_most(&m.goal, room, GOAL_LINES)
+    clamp(&m.goal, room, GOAL_LINES)
 }
 
 /// " [in progress] ████████░░░░  33% 1/3 tasks done": the stage as a pill in its colour, the

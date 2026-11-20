@@ -11,6 +11,12 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A clamped title, goal or thread name ends after a whole piece.** A milestone's or
+  task's title in the tree, a milestone's goal, or a thread's name (and its own title) in
+  the thread list too long for its two lines was cut mid-word, as in "shed-lead-senior-r…".
+  It now ends in "…" right after the last piece that fits, "shed-lead-senior-…", or in
+  place of the line's last character when the line is full, as the UI design's clamp and
+  the inbox row do (#50).
 - **Where a thread stands keeps tower's `question:`.** When where a thread stands is
   tower's question for you (a thread holding only tower's words, such as a worker waiting on
   a herdr prompt), that line on the thread's header (on the message board and the full

@@ -34,7 +34,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use super::dash::Item;
-use super::message_board::wrap_at_most;
+use super::message_board::{clamp, wrap_at_most};
 use super::theme::{Depth, accent, bad, bar, bold, dim, fit, ok, stage_mark, warn};
 use crate::board::{Board, Milestone, MilestoneId, Repo, RepoId, Stage, Task, TaskId};
 
@@ -384,6 +384,7 @@ fn done_lines(m: &Milestone, w: usize, depth: Depth) -> Vec<Line<'static>> {
     let (head, rest) = two_lines(
         &format!("{} {}", m.id, m.title),
         w.saturating_sub(TASK_INDENT + right_w),
+        w.saturating_sub(TASK_INDENT),
     );
     let left = vec![
         Span::raw(" ".repeat(TASK_AT)),
@@ -414,8 +415,9 @@ fn blocked_mark(t: &Task, depth: Depth) -> Vec<Span<'static>> {
 
 /// `text` on one line of `first` columns, or two: the first takes whole words while they
 /// fit (a word longer than the line is broken only when it is the first), and the rest
-/// goes on a second line, which `fit` cuts with "…" when it is wider than its room.
-fn two_lines(text: &str, first: usize) -> (String, Option<String>) {
+/// goes on a second line of `second` columns, clamped there as the copy's `.clamp2` ends
+/// its last line (`clamp`).
+fn two_lines(text: &str, first: usize, second: usize) -> (String, Option<String>) {
     if text.width() <= first {
         return (text.to_string(), None);
     }
@@ -428,11 +430,20 @@ fn two_lines(text: &str, first: usize) -> (String, Option<String>) {
     }
     if text[..end].trim().is_empty() {
         let mut lines = wrap_at_most(text, first.max(1), 2).into_iter();
-        return (lines.next().unwrap_or_default(), lines.next());
+        let head = lines.next().unwrap_or_default();
+        return (head, lines.next().map(|rest| clamp_line(&rest, second)));
     }
     let rest = text[end..].trim_start();
     let head = text[..end].trim_end().to_string();
-    (head, (!rest.is_empty()).then(|| rest.to_string()))
+    (head, (!rest.is_empty()).then(|| clamp_line(rest, second)))
+}
+
+/// `rest` on one line `w` wide, as the copy's `.clamp2` ends its last line (`clamp`).
+fn clamp_line(rest: &str, w: usize) -> String {
+    clamp(rest, w.max(1), 1)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
 }
 
 /// "     ○ title" with `right` at the right edge (dropped when the pane is too narrow to
@@ -455,7 +466,7 @@ fn task_lines(
     };
     let right_w: usize = right.iter().map(|s| s.width()).sum();
     let room = w.saturating_sub(TASK_INDENT + right_w);
-    let (head, rest) = two_lines(&t.title, room);
+    let (head, rest) = two_lines(&t.title, room, w.saturating_sub(TASK_INDENT));
     // Quiet: only an in-progress task's title, or the selected one, in normal text.
     let title = match t.stage {
         _ if selected => Style::new(),
@@ -706,6 +717,7 @@ fn milestone_lines(m: &Milestone, w: usize, depth: Depth) -> Vec<Line<'static>> 
     let (head, rest) = two_lines(
         &format!("{} {}", m.id, m.title),
         w.saturating_sub(at + right_w),
+        w.saturating_sub(at),
     );
     let mark = if m.folded { "▸ " } else { "▾ " };
     let left = vec![
