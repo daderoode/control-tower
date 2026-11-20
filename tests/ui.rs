@@ -1770,6 +1770,7 @@ fn detail_views_show_the_real_message_board_and_the_tasks_thread() {
             Item::Milestone(m.id),
             w,
             FOLDED,
+            NOW,
         )
         .unwrap();
         assert_eq!(
@@ -1785,6 +1786,7 @@ fn detail_views_show_the_real_message_board_and_the_tasks_thread() {
             Item::Task(TaskId(13)),
             w,
             FOLDED,
+            NOW,
         )
         .unwrap();
         let td = task_detail(board, Some(m), &m.tasks[1], w, NOW, Depth::Ansi256);
@@ -2305,6 +2307,7 @@ fn the_detail_layout_needs_no_colour_depth_and_matches_what_is_drawn() {
             Item::Milestone(m.id),
             w,
             FOLDED,
+            NOW,
         );
         let tl = detail_layout(
             &board,
@@ -2312,6 +2315,7 @@ fn the_detail_layout_needs_no_colour_depth_and_matches_what_is_drawn() {
             Item::Task(TaskId(13)),
             w,
             FOLDED,
+            NOW,
         );
         for depth in [Depth::TrueColor, Depth::Ansi256] {
             let md = milestone_detail(&board, m, w, NOW, depth);
@@ -2329,7 +2333,8 @@ fn the_detail_layout_needs_no_colour_depth_and_matches_what_is_drawn() {
             ViewKind::Overview,
             Item::Milestone(m.id),
             80,
-            FOLDED
+            FOLDED,
+            NOW
         ),
         None
     );

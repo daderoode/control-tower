@@ -298,16 +298,26 @@ pub fn draw(
                     layout::Over::Done(r) => overview::done_overview(board, r, rw, depth).lines,
                     layout::Over::Milestone(m) => overview(m, task, rw, depth).lines,
                 };
-                let limits = message_board::Limits::of(dash.mode, dash.board_shown(sel));
+                // Its ages, and so where its acks break, from the one clock the layout used.
+                let limits =
+                    message_board::Limits::of(dash.mode, dash.board_shown(sel), dash.minute());
                 urls = vec![None; lines.len()];
                 urls.extend(message_board::links(&talk, task, rw, limits));
-                lines.extend(message_board::lines(&talk, task, rw, limits, now, depth));
+                lines.extend(message_board::lines(&talk, task, rw, limits, depth));
                 lines
             }
             (ViewKind::Overview, None) => Vec::new(),
-            (kind, _) => detail::detail(board, kind, sel, rw, dash.board_shown(sel), now, depth)
-                .map(|d| d.lines)
-                .unwrap_or_default(),
+            (kind, _) => detail::detail(
+                board,
+                kind,
+                sel,
+                rw,
+                dash.board_shown(sel),
+                dash.minute(),
+                depth,
+            )
+            .map(|d| d.lines)
+            .unwrap_or_default(),
         };
         let scroll = clamp_scroll(dash.right_scroll(), lines.len(), r.height);
         links = link::placed(&lines, &urls, scroll, r);

@@ -42,6 +42,10 @@ pub struct Limits<'a> {
     pub threads: Option<usize>,
     pub open: usize,
     pub shown: Shown<'a>,
+    /// The clock its ages are reckoned at, in seconds since the Unix epoch: the dashboard's
+    /// minute (`Dash::minute`), as the full board's are. An ack's age is laid out at its
+    /// width as drawn, so the summary's layout takes the clock it is drawn at.
+    pub now: i64,
 }
 
 /// How the owner left a summary: the messages opened in full ("read more"), by id, and
@@ -54,18 +58,20 @@ pub struct Shown<'a> {
 
 impl<'a> Limits<'a> {
     /// Its own space: every open thread with its last three bubbles. The popup: three open
-    /// threads, their last two bubbles and the evidence.
-    pub fn of(mode: Mode, shown: Shown<'a>) -> Limits<'a> {
+    /// threads, their last two bubbles and the evidence. Its ages as of `now`.
+    pub fn of(mode: Mode, shown: Shown<'a>, now: i64) -> Limits<'a> {
         match mode {
             Mode::Space => Limits {
                 threads: None,
                 open: 3,
                 shown,
+                now,
             },
             Mode::Popup => Limits {
                 threads: Some(3),
                 open: 2,
                 shown,
+                now,
             },
         }
     }
@@ -145,7 +151,8 @@ fn plan<'a>(talk: &Talk<'a>, task: Option<TaskId>, w: usize, limits: Limits) -> 
         let shape = chat::Shape {
             clip: PREVIEW_CLIP,
             open: limits.shown.opened,
-            now: None,
+            // A preview has no hour lines (`chat::plan`): the clock is its acks' ages.
+            now: limits.now,
             preview: Some((limits.open, PREVIEW_SEGS)),
             people: talk.people(),
             full: false,
@@ -198,10 +205,9 @@ pub fn boxes(
     task: Option<TaskId>,
     w: usize,
     limits: Limits,
-    now: i64,
     depth: Depth,
 ) -> Vec<Line<'static>> {
-    let mut all = lines(talk, task, w, limits, now, depth);
+    let mut all = lines(talk, task, w, limits, depth);
     // Every plan starts with the blank line and the title.
     all.drain(..2);
     all
@@ -310,16 +316,16 @@ pub fn links(talk: &Talk, task: Option<TaskId>, w: usize, limits: Limits) -> Vec
         .collect()
 }
 
-/// The summary's lines in a pane `w` wide, each exactly `w` columns, with ages as of `now`
-/// (seconds since the Unix epoch).
+/// The summary's lines in a pane `w` wide, each exactly `w` columns, with ages as of its
+/// clock (`Limits::now`).
 pub fn lines(
     talk: &Talk,
     task: Option<TaskId>,
     w: usize,
     limits: Limits,
-    now: i64,
     depth: Depth,
 ) -> Vec<Line<'static>> {
+    let now = limits.now;
     let Plan { rows } = plan(talk, task, w, limits);
     let content = w.saturating_sub(6);
     let needs = needs_of(talk, task);
@@ -1086,6 +1092,7 @@ mod tests {
         threads: None,
         open: 3,
         shown: FOLDED,
+        now: NOW,
     };
     const MIN: i64 = 60;
 
@@ -1196,7 +1203,7 @@ mod tests {
     }
 
     fn text(m: &Milestone, task: Option<TaskId>, w: usize) -> Vec<String> {
-        lines(&talk_of(m), task, w, SPACE, NOW, Depth::TrueColor)
+        lines(&talk_of(m), task, w, SPACE, Depth::TrueColor)
             .iter()
             .map(|l| l.to_string())
             .collect()
@@ -1334,12 +1341,11 @@ mod tests {
 
     #[test]
     fn the_popup_previews_three_open_threads_with_their_last_two_bubbles_and_links_the_rest() {
-        let popup = Limits::of(Mode::Popup, FOLDED);
+        let popup = Limits::of(Mode::Popup, FOLDED, NOW);
         let m = golden();
-        let rows: Vec<String> = (lines(&talk_of(&m), None, 80, popup, NOW, Depth::TrueColor)
-            .iter())
-        .map(|l| l.to_string())
-        .collect();
+        let rows: Vec<String> = (lines(&talk_of(&m), None, 80, popup, Depth::TrueColor).iter())
+            .map(|l| l.to_string())
+            .collect();
         let at = |needle: &str| rows.iter().position(|r| r.contains(needle));
         // T3 has two bubbles, both shown, so nothing is counted as earlier.
         let head = at("[open] thread 3").unwrap() + 2;
@@ -1359,10 +1365,9 @@ mod tests {
                 .collect(),
         );
         (five.threads).push(thread(6, ThreadStatus::Resolved, None, &[("qa", "ok", 9)]));
-        let rows: Vec<String> = (lines(&talk_of(&five), None, 80, popup, NOW, Depth::Ansi256)
-            .iter())
-        .map(|l| l.to_string())
-        .collect();
+        let rows: Vec<String> = (lines(&talk_of(&five), None, 80, popup, Depth::Ansi256).iter())
+            .map(|l| l.to_string())
+            .collect();
         let n = rows.len();
         assert_eq!(
             rows[n - 2].trim_end(),
@@ -1390,7 +1395,7 @@ mod tests {
             },
             ..SPACE
         };
-        let all = lines(&talk, None, 80, unfolded, NOW, Depth::TrueColor);
+        let all = lines(&talk, None, 80, unfolded, Depth::TrueColor);
         let rows: Vec<String> = all.iter().map(|l| l.to_string()).collect();
         let row = rows
             .iter()
@@ -1472,10 +1477,10 @@ mod tests {
         }
         assert_eq!(loaded.threads[4].messages.len(), 12);
         assert_eq!(text(&loaded, None, 80), text(&whole, None, 80));
-        let popup = Limits::of(Mode::Popup, FOLDED);
+        let popup = Limits::of(Mode::Popup, FOLDED, NOW);
         assert_eq!(
-            lines(&talk_of(&loaded), None, 80, popup, NOW, Depth::Ansi256),
-            lines(&talk_of(&whole), None, 80, popup, NOW, Depth::Ansi256)
+            lines(&talk_of(&loaded), None, 80, popup, Depth::Ansi256),
+            lines(&talk_of(&whole), None, 80, popup, Depth::Ansi256)
         );
     }
 
@@ -1496,7 +1501,7 @@ mod tests {
             Some(13),
             &[("qa", "cases pass", 30), ("qa", "4 of 4 pass", 5)],
         );
-        let all = lines(&talk_of(&m), None, 80, SPACE, NOW, Depth::TrueColor);
+        let all = lines(&talk_of(&m), None, 80, SPACE, Depth::TrueColor);
         let colour_of = |name: &str| {
             all.iter()
                 .flat_map(|l| &l.spans)
@@ -1514,7 +1519,7 @@ mod tests {
             None,
             &[("cat-lead", "go", 1)],
         )]);
-        let all = lines(&talk_of(&lead_msg), None, 80, SPACE, NOW, Depth::TrueColor);
+        let all = lines(&talk_of(&lead_msg), None, 80, SPACE, Depth::TrueColor);
         let lead = all
             .iter()
             .flat_map(|l| &l.spans)
@@ -1560,7 +1565,7 @@ mod tests {
         let shape = chat::Shape {
             clip: 4,
             open: &none,
-            now: Some(NOW),
+            now: NOW,
             preview: None,
             people: talk.people(),
             full: false,
@@ -1629,7 +1634,7 @@ mod tests {
         ] {
             let one = milestone(vec![thread(1, Open, None, &[("dev-1", text, 1)])]);
             for w in [80, 30] {
-                let all = lines(&talk_of(&one), None, w, SPACE, NOW, d);
+                let all = lines(&talk_of(&one), None, w, SPACE, d);
                 let tags: Vec<&Span> = (all.iter().flat_map(|l| &l.spans))
                     .filter(|s| ["needs you", "decision", "blocked"].contains(&&*s.content))
                     .collect();
@@ -1672,7 +1677,7 @@ mod tests {
                 &[("dev-1", text, 1)],
             )]);
             // In the bubble only: the header's where-it-stands line repeats the text.
-            (lines(&talk_of(&one), None, 80, SPACE, NOW, d).iter())
+            (lines(&talk_of(&one), None, 80, SPACE, d).iter())
                 .filter(|l| l.to_string().contains('▌'))
                 .flat_map(|l| l.spans.clone())
                 .filter(|s| s.style.fg == Some(bad(d)) && s.content.starts_with('@'))
@@ -1815,7 +1820,7 @@ mod tests {
         // Under the strip and the thread's three-line header.
         assert!(rows[9].contains("▌ Plan:"), "{}", rows[9]);
         assert!(rows[10].contains("▌ 1. shelf grid"), "{}", rows[10]);
-        let drawn = lines(&talk_of(&m), None, 60, SPACE, NOW, Depth::TrueColor);
+        let drawn = lines(&talk_of(&m), None, 60, SPACE, Depth::TrueColor);
         let author = (drawn[8].spans.iter())
             .find(|s| s.content == "qa-2")
             .unwrap();
@@ -1832,7 +1837,7 @@ mod tests {
         for m in [golden(), long, milestone(Vec::new())] {
             for task in [None, Some(TaskId(13)), Some(TaskId(99))] {
                 for w in 0..=130 {
-                    let drawn = lines(&talk_of(&m), task, w, SPACE, NOW, Depth::Ansi256);
+                    let drawn = lines(&talk_of(&m), task, w, SPACE, Depth::Ansi256);
                     assert_eq!(drawn.len(), height(&talk_of(&m), task, w, SPACE), "w={w}");
                     for line in drawn {
                         assert_eq!(line.width(), w, "w={w} {line:?}");
@@ -1843,13 +1848,53 @@ mod tests {
     }
 
     #[test]
-    fn the_height_does_not_change_as_ages_grow() {
-        let m = golden();
-        for later in [0, 59, 3600 * 30, 86_400 * 500] {
-            assert_eq!(
-                lines(&talk_of(&m), None, 60, SPACE, NOW + later, Depth::Ansi256).len(),
-                height(&talk_of(&m), None, 60, SPACE)
-            );
+    fn the_height_matches_the_drawn_lines_at_its_clock_as_an_acks_age_grows() {
+        // A preview lays an ack's age out at its width as drawn, as the copy's inline
+        // `· age`: at 9m the ack fills its line 43 wide (a bubble of 45, in a pane of 60);
+        // at 10m only its `·` fits there, and Chrome starts the next line with the age.
+        let m = milestone(vec![thread(
+            1,
+            ThreadStatus::Open,
+            None,
+            &[
+                ("dev-1", "Report", 10),
+                ("qa", "copy, testing the grid on phones", 9),
+            ],
+        )]);
+        let at = |later: i64| Limits {
+            now: NOW + later,
+            ..SPACE
+        };
+        let drawn = |later: i64| -> Vec<String> {
+            (lines(&talk_of(&m), None, 60, at(later), Depth::Ansi256).iter())
+                .map(|l| l.to_string())
+                .collect()
+        };
+        // An ack's lines as drawn, between the box's borders.
+        let acks = |later: i64| -> Vec<String> {
+            let rows = drawn(later);
+            let k = rows.iter().position(|r| r.contains("↳ qa")).unwrap();
+            (rows[k..].iter())
+                .map(|r| r.trim_matches(|c| c == ' ' || c == '│').to_string())
+                .take_while(|r| !r.is_empty() && !r.contains("open chat"))
+                .collect()
+        };
+        let ack = "↳ qa: copy, testing the grid on phones";
+        assert_eq!(acks(0), [format!("{ack} · 9m")]);
+        assert_eq!(acks(MIN), [format!("{ack} ·"), "10m".into()]);
+        assert_eq!(
+            height(&talk_of(&m), None, 60, at(MIN)),
+            height(&talk_of(&m), None, 60, at(0)) + 1
+        );
+        // Whatever the clock, the layout's height is the drawn one's.
+        for m in [golden(), m.clone()] {
+            for later in [0, 59, MIN, 3600 * 30, 86_400 * 500] {
+                assert_eq!(
+                    lines(&talk_of(&m), None, 60, at(later), Depth::Ansi256).len(),
+                    height(&talk_of(&m), None, 60, at(later)),
+                    "{later}"
+                );
+            }
         }
     }
 

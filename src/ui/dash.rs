@@ -669,15 +669,16 @@ impl Dash {
         self.top().board.anchor
     }
 
-    /// Sets the clock the full board's chat is reckoned at, to the minute: its separators
-    /// and its ages both, so they agree, and its layout holds for the whole minute. The
-    /// edge sets it before each frame and input.
+    /// Sets the clock the full board's chat, the message board and a detail view's boards
+    /// are reckoned at, to the minute: their separators and ages both, so they agree, and
+    /// their layout holds for the whole minute. The edge sets it before each frame and input.
     pub fn set_now(&mut self, now: i64) {
         self.minute = Some(now - now.rem_euclid(60));
     }
 
-    /// The clock the full board's chat is reckoned at. The edge sets it before the board
-    /// is laid out; without it every message would read as "now", so it panics instead.
+    /// The clock the full board's chat, the message board and a detail view's boards are
+    /// reckoned at. The edge sets it before anything is laid out; without it every message
+    /// would read as "now", so it panics instead.
     pub fn minute(&self) -> i64 {
         self.minute
             .expect("Dash::set_now runs before the full board is laid out")

@@ -212,14 +212,14 @@ pub fn items(msgs: &[Message], now: Option<i64>, skip: usize) -> Vec<Item> {
 }
 
 /// What a chat shows: how many lines of a long message (`clip`), which messages are open
-/// in full (by id), separators by how long ago as of `now` when given, who posts (for role
-/// words), and for a preview the last `bubbles` bubbles, each with its last `segs`
-/// messages, and no separators.
+/// in full (by id), its acks' ages and separators by how long ago as of `now`, who posts
+/// (for role words), and for a preview the last `bubbles` bubbles, each with its last
+/// `segs` messages, and no separators.
 #[derive(Debug, Clone, Copy)]
 pub struct Shape<'a> {
     pub clip: usize,
     pub open: &'a BTreeSet<i64>,
-    pub now: Option<i64>,
+    pub now: i64,
     pub preview: Option<(usize, usize)>,
     pub people: People<'a>,
     /// Bubbles may take the chat's whole width, less a column at each edge: the full board
@@ -585,7 +585,7 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
         Some(_) if missing > 0 && leading < msgs.len() => leading,
         _ => 0,
     };
-    let mut all = items(msgs, shape.now.filter(|_| shape.preview.is_none()), skip);
+    let mut all = items(msgs, shape.preview.is_none().then_some(shape.now), skip);
     if let Some((bubbles, segs)) = shape.preview {
         if all.iter().any(|it| matches!(it, Item::Bubble { .. })) {
             all.retain(|it| matches!(it, Item::Bubble { .. }));
@@ -728,11 +728,8 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                     // `· age` out inline: each line filled to the ack's width, two in from
                     // the bubble's edge, the age after the last word where it fits, else
                     // `·` ends that line and the age starts the next, or after a piece too
-                    // wide for a line `· age` starts the next. The age as drawn at `now`; a
-                    // preview, planned without it, keeps room for the widest.
-                    let shown = shape
-                        .now
-                        .map_or_else(|| "0".repeat(AGE_COLUMNS), |now| age(m.at, now));
+                    // wide for a line `· age` starts the next. The age as drawn at `now`.
+                    let shown = age(m.at, shape.now);
                     let aw = bw.saturating_sub(2).max(shown.width());
                     let mut ps = wrap_event_line(&format!("{} · {shown}", ack_text(m)), aw);
                     // The age, a word no wider than a line, ends the last line; `line` draws
@@ -1298,7 +1295,7 @@ mod tests {
         Shape {
             clip: 4,
             open,
-            now: Some(now),
+            now,
             preview: None,
             people,
             full: false,
@@ -2523,7 +2520,7 @@ mod tests {
             let s = Shape {
                 clip: 2,
                 open: &none,
-                now: None,
+                now: 60,
                 preview: Some((3, 2)),
                 people: People::default(),
                 full: false,
@@ -2589,7 +2586,7 @@ mod tests {
             let s = Shape {
                 clip: 2,
                 open: &none,
-                now: None,
+                now: 180,
                 preview: Some((1, 2)),
                 people: People::default(),
                 full: false,
@@ -2896,12 +2893,12 @@ mod tests {
                 ("了解です · 1m".into(), 27)
             ]
         );
-        // A space before the run hangs with it: a word that is only a U+3000, between two
-        // spaces, fits at the end of the first line, and Chrome ends the text before the
-        // space at the edge. The bubble 25 wide in a chat of 30, its lines 23, ends at 28.
+        // A space after the run hangs with it: a word ending with a U+3000, then a space, fits
+        // at the end of the first line, and Chrome ends the text before the run at the edge.
+        // The bubble 25 wide in a chat of 30, its lines 23, ends at 28.
         let m = msgs(&[
             ("manager", "check rollout 4", 0),
-            ("dev-1", "ok ああああ 　 いいいいいいいい", 60),
+            ("dev-1", "ok ああああ　 いいいいいいいい", 60),
         ]);
         let acks = drawn_rows(&m, 30, |r| matches!(r, Row::Ack { .. }));
         let ends: Vec<(String, usize)> = (acks.iter())

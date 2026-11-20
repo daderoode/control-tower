@@ -399,7 +399,7 @@ fn conv_plan(
     let shape = chat::Shape {
         clip: CLIP,
         open,
-        now: Some(now),
+        now,
         preview: None,
         people: talk.people(),
         full,
