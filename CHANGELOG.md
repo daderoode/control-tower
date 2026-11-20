@@ -101,6 +101,10 @@ tag's date, and a new empty Unreleased goes above it.
   that starts with `decision:` and is for your awareness (its mention of you on any of its
   lines) draws it bold in the info colour, as its bubble and where its thread stands do,
   where it had drawn plain (#54).
+- **Where a thread stands draws tower's word in the text colour.** When the thread's newest
+  word is tower's, such as a delivery failure, its line on the thread's header (on the
+  message board and the full board) and in the thread list draws it in the text colour, as
+  the UI design does, where it had drawn dim; only "where it stands" stays dim (#60).
 - **Thai, Lao, Khmer and Burmese break between words.** In a message, a delivery failure's
   opened details, and a title, goal, event, ack or inbox row, text in these scripts, which
   puts no spaces between words, moved to the next line whole or broke only where a line

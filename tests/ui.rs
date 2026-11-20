@@ -8502,6 +8502,66 @@ fn where_it_stands_folds_the_runs_of_spaces_in_tower_s_word() {
 }
 
 #[test]
+fn where_it_stands_draws_tower_s_word_in_the_text_colour_with_only_its_lead_in_dim() {
+    let mut board = board_fixture();
+    // T4 (task #14, no progress post) holds only a delivery failure, so where it stands is
+    // tower's word.
+    let t = &mut board.milestones[0].threads[2];
+    let failure = Message {
+        id: 497,
+        author: "system".into(),
+        text: "@manager could not deliver to dev-1: herdr has no agent named dev-1.".into(),
+        at: NOW - 30,
+    };
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, vec![failure]);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let word = "@manager could not deliver to dev-1";
+    let stands = format!("where it stands {word}");
+    // The milestone's message board, with T4's card; the full board on T4, its header
+    // beside the list.
+    let card = select(Item::Milestone(MilestoneId(1)));
+    let mut full = select(Item::Task(TaskId(14)));
+    full.handle(&view, a, Input::Char('b'));
+    for depth in [Depth::TrueColor, Depth::Ansi256] {
+        for (dash, place) in [(&card, "card"), (&full, "full board")] {
+            let buf = render_dash(&view, dash, 160, 50, depth);
+            let all = rows(&buf);
+            // Each line with tower's word: the card's or the header's, after its lead-in;
+            // on the full board also the list's row, left of its bar, with no lead-in.
+            let head = find_row_containing(&all, &stands);
+            let mut lines = vec![(head, all[head].find(&stands).unwrap(), true)];
+            if place == "full board" {
+                let list = (all.iter())
+                    .position(|r| r.split('│').next().unwrap().contains(word))
+                    .unwrap_or_else(|| panic!("{all:#?}"));
+                lines.push((list, all[list].find(word).unwrap(), false));
+            }
+            for (y, at, lead_in) in lines {
+                let x = all[y][..at].width();
+                let cell = |x: usize| buf[(x as u16, y as u16)].clone();
+                let from = if lead_in {
+                    // As the copy: only "where it stands" is dim.
+                    assert_eq!(cell(x).symbol(), "w", "{place} {all:#?}");
+                    assert_eq!(cell(x).fg, dim_colour(depth), "{place} {depth:?}");
+                    x + "where it stands ".width()
+                } else {
+                    x
+                };
+                // Tower's word in the text colour, as a person's plain words, where it
+                // had drawn dim.
+                for (i, c) in word.chars().enumerate() {
+                    let got = cell(from + i);
+                    assert_eq!(got.symbol(), c.to_string(), "{place} {all:#?}");
+                    assert_eq!(got.fg, Color::Reset, "{place} {lead_in} {depth:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn opening_a_folded_conversation_leaves_its_question_waiting() {
     let mut board = folded_fixture();
     // T9 (tower's, about #13) also asks the owner something.
