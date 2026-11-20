@@ -13,6 +13,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
+use std::sync::LazyLock;
 
 use icu_properties::CodePointMapData;
 use icu_properties::props::{EastAsianWidth, GeneralCategory, LineBreak};
@@ -697,11 +698,13 @@ fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
 /// inside one of `paths`, byte ranges of `word`, only after each `/`, where the copy puts a
 /// `<wbr>`, and the last `/` of a path breaks from what follows it too.
 fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
-    static SEGMENTER: LineSegmenterBorrowed<'static> = {
+    // With the dictionaries for Thai, Lao, Khmer and Burmese, which put no spaces between
+    // words: Chrome breaks them at word boundaries with ICU's.
+    static SEGMENTER: LazyLock<LineSegmenterBorrowed<'static>> = LazyLock::new(|| {
         let mut options = LineBreakOptions::default();
         options.strictness = Some(LineBreakStrictness::Normal);
-        LineSegmenter::new_for_non_complex_scripts(options)
-    };
+        LineSegmenter::new_dictionary(options)
+    });
     let found: Vec<usize> = if word.is_ascii() {
         Vec::new()
     } else {
@@ -747,12 +750,15 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 ///   one of `! " ' ) , . / : ; ? ] }`, so a run of `?` keeps together and breaks after its
 ///   last;
 /// - between any other two, a break where `icu_segmenter` finds one: between two
-///   ideographs, kana or hangul, between one and a letter or digit, but not before a
-///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
-///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
-///   hyphen that starts the word (nothing or a no-break space before it) before a letter
-///   (UAX #14's LB20a), and a break before an opening `“` or `‘` between two East Asian
-///   characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
+///   ideographs, kana or hangul, between one and a letter or digit, at a word boundary in
+///   Thai, Lao, Khmer or Burmese, found with its dictionaries as Chrome finds them with
+///   ICU's, but not before a closing mark such as `。` `、` `」` nor after an opening one
+///   such as `「`. Three rules Chrome's ICU has and `icu_segmenter` (2.4) does not apply are
+///   added: no break before Thai `ๆ` or Khmer `ៗ`, which repeat the word before them (Lao
+///   `ໆ` breaks from it in Chrome, as here); no break after a hyphen that starts the word
+///   (nothing or a no-break space before it) before a letter (UAX #14's LB20a); and a break
+///   before an opening `“` or `‘` between two East Asian characters, and after a closing
+///   `”` or `’` between two, as in `中“文”中` (LB19a).
 fn breaks_between(
     before: Option<char>,
     c: char,
@@ -778,6 +784,10 @@ fn breaks_between(
             )
         })
     };
+    // Thai MAIYAMOK and Khmer LEK TOO.
+    if matches!(next, '\u{0E46}' | '\u{17D7}') {
+        return false;
+    }
     // LB20a: a letter is what UAX #14 takes as AL (AI and XX resolve to it) or HL.
     if matches!(class(c), LineBreak::HY | LineBreak::HH)
         && before.is_none_or(|c| c == '\u{a0}')
@@ -1934,6 +1944,56 @@ mod tests {
             ]
         );
         assert_eq!(wrap("中文。字字", 4), ["中", "文。", "字字"]);
+    }
+
+    #[test]
+    fn thai_lao_khmer_and_burmese_break_at_word_boundaries_where_chrome_does() {
+        // The pieces headless Chrome 157 breaks each text into, with the copy's font and
+        // `white-space: pre-wrap`, at width 0 so that every break it has ends a line.
+        let chrome = |pieces: &[&str]| {
+            assert_eq!(break_units(&pieces.concat(), &[]), pieces);
+        };
+        chrome(&[
+            "ทีม",
+            "งาน",
+            "กำลัง",
+            "ทดสอบ",
+            "การ",
+            "แสดง",
+            "ผล",
+            "ข้อความ",
+            "บน",
+            "กระดาน",
+            "งาน",
+        ]);
+        chrome(&[
+            "ພາສາ",
+            "ລາວ",
+            "ບໍ່ມີ",
+            "ຍະ",
+            "ຫວ່າງ",
+            "ລະຫວ່າງ",
+            "ຄຳສັບ",
+            "ໃນ",
+            "ປະໂຫຍກ",
+        ]);
+        chrome(&["យើង", "នឹង", "ប្រជុំ", "អំពី", "ផែនការ", "ការងារ", "ថ្មី"]);
+        chrome(&[
+            "အဖွဲ့",
+            "သည်",
+            "ဘုတ်",
+            "ပေါ်",
+            "ရှိ",
+            "စာ",
+            "များ",
+            "ကို",
+            "စမ်းသပ်",
+            "နေသည်",
+        ]);
+        // Thai `ๆ` and Khmer `ៗ` stay with the word they repeat; Lao `ໆ` breaks from it.
+        chrome(&["เด็กๆ", "ชอบ", "เล่น"]);
+        chrome(&["ក្មេងៗ", "លេង"]);
+        chrome(&["ເດັກ", "ໆ", "ຫຼິ້ນ"]);
     }
 
     #[test]

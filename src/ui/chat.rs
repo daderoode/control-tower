@@ -2128,6 +2128,32 @@ mod tests {
     }
 
     #[test]
+    fn thai_and_burmese_text_breaks_at_word_boundaries_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // At the word boundaries Chrome finds with its dictionaries, each line as full as
+        // its words let it be, where the text had broken only where a line ended.
+        assert_eq!(
+            wrapped("ทีมงานกำลังทดสอบการแสดงผลข้อความบนกระดานงาน", 12),
+            ["ทีมงานกำลัง", "ทดสอบการแสดง", "ผลข้อความบน", "กระดานงาน"]
+        );
+        assert_eq!(
+            wrapped("အဖွဲ့သည်ဘုတ်ပေါ်ရှိစာများကိုစမ်းသပ်နေသည်", 12),
+            ["အဖွဲ့သည်ဘုတ်ပေါ်ရှိစာ", "များကိုစမ်းသပ်", "နေသည်"]
+        );
+        // A repetition mark stays with the word before it in Thai and Khmer, not in Lao.
+        assert_eq!(wrapped("ab เด็กๆชอบเล่น", 6), ["ab", "เด็กๆ", "ชอบเล่น"]);
+        assert_eq!(wrapped("ab ក្មេងៗលេង", 6), ["ab", "ក្មេងៗ", "លេង"]);
+        assert_eq!(wrapped("ab ເດັກໆຫຼິ້ນ", 6), ["ab ເດັກ", "ໆຫຼິ້ນ"]);
+    }
+
+    #[test]
     fn a_path_joined_to_cjk_text_breaks_after_a_slash_and_the_text_around_it_as_any_other() {
         let wrapped = |t: &str, w: usize| -> Vec<String> {
             (wrap_message_line(t, w).into_iter())

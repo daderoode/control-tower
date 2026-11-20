@@ -97,6 +97,12 @@ tag's date, and a new empty Unreleased goes above it.
   end as in the UI design, so the word before it fits and the next line starts with the
   word after it (a run after an ordinary space aside, #57); within a line it keeps its
   width (#40).
+- **Thai, Lao, Khmer and Burmese break between words.** In a message, a delivery failure's
+  opened details, and a title, goal, event, ack or inbox row, text in these scripts, which
+  puts no spaces between words, moved to the next line whole or broke only where a line
+  ended. It now breaks at word boundaries, found with a dictionary as the UI design's are:
+  Thai and Burmese where the design breaks them, with Thai `ๆ` and Khmer `ៗ` kept with the
+  word before them; Lao and Khmer mostly so (the rest is #64) (#43).
 
 ## [0.4.0] - 2026-11-16
 
