@@ -5355,7 +5355,10 @@ fn at_volume_the_inbox_lists_no_read_items() {
     let all = rows(&buf);
     assert!(!all.iter().any(|r| r.contains("READ")), "{all:#?}");
     let ib = layout(&view, &dash, a).inbox.unwrap();
-    assert_eq!(ib.rows.iter().flatten().count(), 2 + 12);
+    // An item on each of its lines: a message that wraps takes two.
+    let mut listed: Vec<i64> = ib.rows.iter().flatten().copied().collect();
+    listed.dedup();
+    assert_eq!(listed.len(), 2 + 12);
 }
 
 /// The full board of the volume fixture's M1 in `a`.
@@ -5500,11 +5503,13 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
         .map(|r| r.trim_end().to_string())
         .collect();
     // Each item: its author (the column as wide as the longest), the message, and at the
-    // right its repo, its thread in words (cut so the repo and age stay) and its age.
+    // right its repo, its thread in words (cut so the repo and age stay) and its age. A
+    // message too long for its line goes on in a second one, under its first.
     let item = |author: &str, text: &str, meta: &str| {
         let left = format!("   {author:<13}  {text}");
         format!("{left:<w$}{meta}", w = 120 - meta.chars().count() - 1)
     };
+    let more = |text: &str| format!("{:18}{text}", "");
     assert_eq!(
         body,
         [
@@ -5512,9 +5517,10 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
             " ⚠ 2 NEED YOU".into(),
             item(
                 "cat-lead",
-                "question: the covers are late again. @manager can you call th…",
+                "question: the covers are late again. @manager can you call the",
                 " catalogue · Show each book's re… · 15m"
             ),
+            more("printer?"),
             item(
                 "dev-1",
                 "question: @manager which book goes first?",
@@ -5529,11 +5535,10 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
             ),
             item(
                 "cat-lead",
-                "decision: books out of print also leave the shelf. @manager for your…",
+                "decision: books out of print also leave the shelf. @manager for",
                 " catalogue · New book shelf · 7m"
             ),
-            String::new(),
-            String::new(),
+            more("your awareness"),
             String::new(),
             String::new(),
             String::new(),
@@ -5550,7 +5555,7 @@ fn the_inbox_lists_need_you_then_awareness_newest_first_and_no_read_section() {
     let buf = render_dash(&view, &dash, 120, 30, Depth::TrueColor);
     assert_eq!(buf[(3, 2)].fg, accent(Depth::TrueColor));
     assert_eq!(
-        buf[(3, 3)].fg,
+        buf[(3, 4)].fg,
         control_tower::ui::role_colour("dev-1", None, Depth::TrueColor)
     );
     // The first item is selected, and the keys line says what works here: r clears a
@@ -5614,8 +5619,8 @@ fn clicks_open_the_inbox_from_the_alert_line_and_a_thread_from_an_item() {
     let mut dash = clocked();
     dash.handle(&view, a, Input::Click { x: 30, y: 0 });
     assert_eq!(dash.view(), ViewKind::Inbox);
-    // Row 3 is the second need-you item (M2's T5).
-    dash.handle(&view, a, Input::Click { x: 40, y: 3 });
+    // Row 4 is the second need-you item (M2's T5), under the first's two lines.
+    dash.handle(&view, a, Input::Click { x: 40, y: 4 });
     assert_eq!(dash.view(), ViewKind::Board);
     assert_eq!(dash.board_thread(&view), Some(ThreadId(5)));
     dash.handle(&view, a, Input::Esc);
@@ -5636,8 +5641,9 @@ fn opening_a_thread_reads_its_awareness_items_once_and_leaves_its_need_you_items
     dash.handle(&view, a, Input::Click { x: 30, y: 0 });
     // The inbox lists T5's items, but listing them is not opening their thread.
     assert!(dash.opened(&view).is_empty());
-    // Row 3 is T5's need-you item (501); T5 also has unread 502 and read 500.
-    dash.handle(&view, a, Input::Click { x: 40, y: 3 });
+    // Row 4 is T5's need-you item (501), under 402's two lines; T5 also has unread 502
+    // and read 500.
+    dash.handle(&view, a, Input::Click { x: 40, y: 4 });
     assert_eq!(dash.board_thread(&view), Some(ThreadId(5)));
     assert_eq!(dash.opened(&view), [502]);
     // Once, as it opens: the next look reads nothing, even before the write lands.
@@ -5664,7 +5670,7 @@ fn opening_a_thread_reads_its_awareness_items_once_and_leaves_its_need_you_items
     // Opened again (back to the inbox, then the thread), it is read.
     dash.handle(&later, a, Input::Esc);
     assert!(dash.opened(&later).is_empty());
-    dash.handle(&later, a, Input::Click { x: 40, y: 3 });
+    dash.handle(&later, a, Input::Click { x: 40, y: 4 });
     assert_eq!(dash.board_thread(&later), Some(ThreadId(5)));
     assert_eq!(dash.opened(&later), [503]);
 }
@@ -8460,6 +8466,102 @@ fn where_it_stands_reads_tower_s_word_as_the_chat_s_line_with_no_label() {
 }
 
 #[test]
+fn where_it_stands_folds_the_runs_of_spaces_in_tower_s_word() {
+    let mut board = board_fixture();
+    // T4 (task #14, no progress post) holds only a delivery failure whose herdr error has
+    // runs of spaces, so where it stands is tower's word.
+    let t = &mut board.milestones[0].threads[2];
+    let failure = Message {
+        id: 498,
+        author: "system".into(),
+        text: "@manager could not deliver to dev-1:  herdr has   no agent named dev-1.  ".into(),
+        at: NOW - 30,
+    };
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, vec![failure]);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let mut dash = select(Item::Task(TaskId(14)));
+    dash.handle(&view, a, Input::Char('b'));
+    let all = screen(&view, &dash, a);
+    // As the copy's nowrap line: each run is one space, on the header and in the list.
+    let folded = "@manager could not deliver to dev-1: herdr has no agent named dev-1.";
+    let head = find_row_containing(&all, "where it stands");
+    assert!(
+        all[head].contains(&format!("where it stands {folded}")),
+        "{all:#?}"
+    );
+    assert!(
+        (all.iter()).any(|r| r
+            .split('│')
+            .next()
+            .unwrap()
+            .contains("   @manager could not deliver to dev-1: herdr")),
+        "{all:#?}"
+    );
+}
+
+#[test]
+fn where_it_stands_draws_tower_s_word_in_the_text_colour_with_only_its_lead_in_dim() {
+    let mut board = board_fixture();
+    // T4 (task #14, no progress post) holds only a delivery failure, so where it stands is
+    // tower's word.
+    let t = &mut board.milestones[0].threads[2];
+    let failure = Message {
+        id: 497,
+        author: "system".into(),
+        text: "@manager could not deliver to dev-1: herdr has no agent named dev-1.".into(),
+        at: NOW - 30,
+    };
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, vec![failure]);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let word = "@manager could not deliver to dev-1";
+    let stands = format!("where it stands {word}");
+    // The milestone's message board, with T4's card; the full board on T4, its header
+    // beside the list.
+    let card = select(Item::Milestone(MilestoneId(1)));
+    let mut full = select(Item::Task(TaskId(14)));
+    full.handle(&view, a, Input::Char('b'));
+    for depth in [Depth::TrueColor, Depth::Ansi256] {
+        for (dash, place) in [(&card, "card"), (&full, "full board")] {
+            let buf = render_dash(&view, dash, 160, 50, depth);
+            let all = rows(&buf);
+            // Each line with tower's word: the card's or the header's, after its lead-in;
+            // on the full board also the list's row, left of its bar, with no lead-in.
+            let head = find_row_containing(&all, &stands);
+            let mut lines = vec![(head, all[head].find(&stands).unwrap(), true)];
+            if place == "full board" {
+                let list = (all.iter())
+                    .position(|r| r.split('│').next().unwrap().contains(word))
+                    .unwrap_or_else(|| panic!("{all:#?}"));
+                lines.push((list, all[list].find(word).unwrap(), false));
+            }
+            for (y, at, lead_in) in lines {
+                let x = all[y][..at].width();
+                let cell = |x: usize| buf[(x as u16, y as u16)].clone();
+                let from = if lead_in {
+                    // As the copy: only "where it stands" is dim.
+                    assert_eq!(cell(x).symbol(), "w", "{place} {all:#?}");
+                    assert_eq!(cell(x).fg, dim_colour(depth), "{place} {depth:?}");
+                    x + "where it stands ".width()
+                } else {
+                    x
+                };
+                // Tower's word in the text colour, as a person's plain words, where it
+                // had drawn dim.
+                for (i, c) in word.chars().enumerate() {
+                    let got = cell(from + i);
+                    assert_eq!(got.symbol(), c.to_string(), "{place} {all:#?}");
+                    assert_eq!(got.fg, Color::Reset, "{place} {lead_in} {depth:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn opening_a_folded_conversation_leaves_its_question_waiting() {
     let mut board = folded_fixture();
     // T9 (tower's, about #13) also asks the owner something.
@@ -9061,6 +9163,650 @@ fn url_message(name: &str, mut dash: Dash, w: u16) {
         let joined = format!("{}{}", first.trim(), next.trim());
         assert!(joined.contains(path), "{w}: {first:?} {next:?}");
     }
+}
+
+/// A message whose list lines are indented as the owner wrote them, one of them with a URL.
+fn indented_view() -> View {
+    let mut board = board_fixture();
+    let t = &mut board.milestones[0].threads[1];
+    let mut messages = t.messages.clone();
+    messages.push(Message {
+        id: 9100,
+        author: "cat-lead".into(),
+        text: "Left on the shelf grid:\n  - plain\n  - see https://example.com/a/b".into(),
+        at: NOW - 9 * 60,
+    });
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    sync(&mut board);
+    Ok(board)
+}
+
+#[test]
+fn a_message_lines_indent_stays_in_its_bubble() {
+    let view = indented_view();
+    let w = 160;
+    let mut dash = select(Item::Task(TaskId(13)));
+    dash.handle(&view, area(w, 50), Input::Char('b'));
+    let buf = render_dash(&view, &dash, w, 50, Depth::TrueColor);
+    assert_exact_width(&buf);
+    let b = board_of(&view, &dash, area(w, 50));
+    let conv = columns(&buf, b.conv.x, b.conv.width);
+    let text = |r: &String| r.split_once('▌').map(|(_, t)| t.trim_end().to_string());
+    let at = (conv.iter())
+        .position(|r| r.contains("▌ Left on the shelf grid:"))
+        .unwrap_or_else(|| panic!("{conv:#?}"));
+    // Each list line keeps its two spaces after the bubble's own; the URL's line is at the
+    // text's column.
+    let got: Vec<String> = (1..=3).map(|k| text(&conv[at + k]).unwrap()).collect();
+    assert_eq!(got, ["   - plain", "   - see", " https://example.com/a/b"]);
+    assert_snapshot(&format!("indented_message_space_{w}x50"), &buf);
+}
+
+/// A message whose lines are aligned in columns with runs of spaces.
+fn aligned_view() -> View {
+    let mut board = board_fixture();
+    let t = &mut board.milestones[0].threads[1];
+    let mut messages = t.messages.clone();
+    messages.push(Message {
+        id: 9101,
+        author: "cat-lead".into(),
+        text: "Shelf rows by size:\nphone    2 rows\ntablet   3 rows\ndesktop  4 rows".into(),
+        at: NOW - 9 * 60,
+    });
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    sync(&mut board);
+    Ok(board)
+}
+
+#[test]
+fn a_message_lines_inner_runs_of_spaces_stay_in_its_bubble() {
+    let view = aligned_view();
+    let w = 160;
+    let mut dash = select(Item::Task(TaskId(13)));
+    dash.handle(&view, area(w, 50), Input::Char('b'));
+    let buf = render_dash(&view, &dash, w, 50, Depth::TrueColor);
+    assert_exact_width(&buf);
+    let b = board_of(&view, &dash, area(w, 50));
+    let conv = columns(&buf, b.conv.x, b.conv.width);
+    let text = |r: &String| r.split_once('▌').map(|(_, t)| t.trim_end().to_string());
+    let at = (conv.iter())
+        .position(|r| r.contains("▌ Shelf rows by size:"))
+        .unwrap_or_else(|| panic!("{conv:#?}"));
+    // Each line keeps its columns after the bubble's own space.
+    let got: Vec<String> = (1..=3).map(|k| text(&conv[at + k]).unwrap()).collect();
+    assert_eq!(
+        got,
+        [" phone    2 rows", " tablet   3 rows", " desktop  4 rows"]
+    );
+    assert_snapshot(&format!("aligned_message_space_{w}x50"), &buf);
+}
+
+/// A delivery failure whose details hold an indented line and runs of spaces.
+fn spaced_failure_view() -> View {
+    let mut board = board_fixture();
+    let t = &mut board.milestones[0].threads[1];
+    let mut messages = t.messages.clone();
+    messages.push(Message {
+        id: 9102,
+        author: "system".into(),
+        text: "@manager could not deliver to 2 recipients; their posts stay on the board:\n\
+               - qa-1:  pane   closed\n    exit  1, see the watch's log\n- dev-4: gone"
+            .into(),
+        at: NOW - 60,
+    });
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    sync(&mut board);
+    Ok(board)
+}
+
+#[test]
+fn a_delivery_failures_details_keep_their_indent_and_runs_of_spaces() {
+    let view = spaced_failure_view();
+    let (w, h) = (160, 50);
+    let a = area(w, h);
+    let mut dash = on_t3(&view, a);
+    // Into the chat at its newest, the failure, then open its details.
+    dash.handle(&view, a, Input::Right);
+    assert_eq!(dash.board_message(), Some(9102));
+    dash.handle(&view, a, Input::Right);
+    assert!(dash.open_messages().contains(&9102));
+    dash.fit(&view, a);
+    let buf = render_dash(&view, &dash, w, h, Depth::TrueColor);
+    assert_exact_width(&buf);
+    let b = board_of(&view, &dash, a);
+    let conv = columns(&buf, b.conv.x, b.conv.width);
+    let all = conv.join("\n");
+    assert!(
+        all.contains("delivery failed to 2 recipients · hide details"),
+        "{all}"
+    );
+    let at = (conv.iter())
+        .position(|r| r.contains("@manager could not deliver"))
+        .unwrap_or_else(|| panic!("{all}"));
+    // Every detail line starts at the first one's column.
+    let col = conv[at].chars().position(|c| c == '@').unwrap();
+    let got: Vec<String> = (1..=3)
+        .map(|k| conv[at + k].chars().skip(col).collect::<String>())
+        .map(|r| r.trim_end().to_string())
+        .collect();
+    assert_eq!(
+        got,
+        [
+            "- qa-1:  pane   closed",
+            "    exit  1, see the watch's log",
+            "- dev-4: gone"
+        ]
+    );
+    assert_snapshot(&format!("spaced_failure_detail_{w}x{h}"), &buf);
+}
+
+/// The full board `view` drawn `w` x `h` with the message `id`'s details open: its failure
+/// line's first column and the one past its end, and where each line of its details starts.
+fn open_details(view: &View, id: i64, w: u16, h: u16) -> ((usize, usize), Vec<usize>) {
+    let a = area(w, h);
+    let mut dash = on_t3(view, a);
+    // Into the chat at its newest, the failure, then open its details.
+    dash.handle(view, a, Input::Right);
+    assert_eq!(dash.board_message(), Some(id));
+    dash.handle(view, a, Input::Right);
+    assert!(dash.open_messages().contains(&id));
+    dash.fit(view, a);
+    let buf = render_dash(view, &dash, w, h, Depth::TrueColor);
+    let b = board_of(view, &dash, a);
+    let conv = columns(&buf, b.conv.x, b.conv.width);
+    let all = conv.join("\n");
+    let at = (conv.iter())
+        .position(|r| r.contains("· hide details"))
+        .unwrap_or_else(|| panic!("{all}"));
+    let start = |r: &str| r.chars().position(|c| c != ' ' && c != '│');
+    let end = conv[at].trim_end().chars().count();
+    let line = (start(&conv[at]).unwrap(), end);
+    let details: Vec<usize> = conv[at + 1..].iter().map_while(|r| start(r)).collect();
+    assert!(!details.is_empty(), "{all}");
+    (line, details)
+}
+
+#[test]
+fn an_open_failures_details_sit_left_aligned_in_its_centred_box() {
+    // The box is as wide as the widest of the failure's line and its details' lines (74
+    // columns here), at most EVENT_MAX, and centred as the failure's line is: twice its first
+    // column plus its width is the line's first column plus its end, give or take the
+    // column a centred line rounds down. Every line of the details starts at that column.
+    let centred = |(from, to): (usize, usize), left: usize, bw: usize| {
+        (2 * left + bw).abs_diff(from + to) <= 1
+    };
+    let (line, details) = open_details(&spaced_failure_view(), 9102, 160, 50);
+    assert_eq!(details.len(), 4, "{details:?}");
+    assert!(centred(line, details[0], 74), "{line:?} {details:?}");
+    assert_eq!(
+        details,
+        [details[0], details[0], details[0] + 4, details[0]]
+    );
+    // The left-herdr flag's one line (85 columns) is wider than EVENT_MAX: the box takes its
+    // 80 columns.
+    let (line, details) = open_details(&Ok(chat_fixture()), 512, 160, 70);
+    assert!(details.len() > 1, "{details:?}");
+    assert!(centred(line, details[0], 80), "{line:?} {details:?}");
+    assert!(details.iter().all(|&d| d == details[0]), "{details:?}");
+}
+
+#[test]
+fn a_failures_line_wraps_in_a_narrow_chat_and_still_opens_by_keys_and_click() {
+    // 40 wide the chat takes the pane and its events 36 columns, fewer than the failure's
+    // line (41 shut, 46 open): what it says fills a centred line and its link a second.
+    let view = spaced_failure_view();
+    let (w, h) = (40, 60);
+    let a = area(w, h);
+    let mut dash = on_t3(&view, a);
+    let drawn = |dash: &mut Dash| {
+        dash.fit(&view, a);
+        let buf = render_dash(&view, dash, w, h, Depth::TrueColor);
+        assert_exact_width(&buf);
+        let b = board_of(&view, dash, a);
+        assert_eq!(b.conv.width, w);
+        let conv = columns(&buf, b.conv.x, b.conv.width);
+        let all = conv.join("\n");
+        let at = (conv.iter())
+            .position(|r| r.trim() == "delivery failed to 2 recipients ·")
+            .unwrap_or_else(|| panic!("{all}"));
+        let lines: Vec<String> = (conv[at..at + 3].iter())
+            .map(|r| r.trim_end().to_string())
+            .collect();
+        (b, at, lines, all)
+    };
+    let (b, _, lines, _) = drawn(&mut dash);
+    assert_eq!(
+        lines[..2],
+        [
+            format!("{}delivery failed to 2 recipients ·", " ".repeat(3)),
+            format!("{}details", " ".repeat(16)),
+        ]
+    );
+    // Both lines open and fold it; the keys reach it once, as one message.
+    let toggles: Vec<usize> = (b.toggles.iter())
+        .filter(|(_, id)| *id == 9102)
+        .map(|(l, _)| *l)
+        .collect();
+    assert_eq!(toggles.len(), 2, "{toggles:?}");
+    assert_eq!(toggles[1], toggles[0] + 1);
+    assert_eq!(b.starts.iter().filter(|(id, _)| *id == 9102).count(), 1);
+    // Into the chat at its newest, the failure, then → opens it.
+    dash.handle(&view, a, Input::Right);
+    assert_eq!(dash.board_message(), Some(9102));
+    dash.handle(&view, a, Input::Right);
+    assert!(dash.open_messages().contains(&9102));
+    let (b, at, lines, all) = drawn(&mut dash);
+    assert_eq!(lines[1], format!("{}hide details", " ".repeat(14)), "{all}");
+    // Its details under it in the box the events' width, two columns in.
+    assert!(
+        lines[2].starts_with("  @manager could not deliver to 2"),
+        "{all}"
+    );
+    // A click on its link's line folds it, and one on what it says opens it again (the
+    // rows are the screen's, from its top).
+    let y = u16::try_from(at + 1).unwrap();
+    dash.handle(
+        &view,
+        a,
+        Input::Click {
+            x: b.conv.x + 20,
+            y,
+        },
+    );
+    assert!(!dash.open_messages().contains(&9102), "{all}");
+    let (b, at, _, all) = drawn(&mut dash);
+    let y = u16::try_from(at).unwrap();
+    dash.handle(
+        &view,
+        a,
+        Input::Click {
+            x: b.conv.x + 20,
+            y,
+        },
+    );
+    assert!(dash.open_messages().contains(&9102), "{all}");
+}
+
+#[test]
+fn a_needs_you_strip_row_folds_its_questions_runs_of_spaces() {
+    // T4's question (402) written with runs of spaces between its words.
+    let mut board = board_fixture();
+    let t = (board.milestones[0].threads.iter_mut())
+        .find(|t| t.id == ThreadId(4))
+        .unwrap();
+    let mut messages = t.messages.clone();
+    let q = messages.iter_mut().find(|m| m.id == 402).unwrap();
+    q.text = "question:  the   covers are late again.    @manager can you call the printer?".into();
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    // The overview's strip is in its right column, where the row is cut in "call".
+    let folded = "cat-lead question: the covers are late again. @manager";
+    let mut on_board = select(Item::Task(TaskId(14)));
+    on_board.handle(&view, a, Input::Char('b'));
+    let overview = screen(&view, &select(Item::Milestone(MilestoneId(1))), a);
+    let board = screen(&view, &on_board, a);
+    for all in [&overview, &board] {
+        let strip = (all.iter())
+            .position(|r| r.contains("⚠ Needs you · 1"))
+            .unwrap_or_else(|| panic!("{all:#?}"));
+        // As the copy's nowrap row: each run is one space.
+        assert!(all[strip + 1].contains(folded), "{all:#?}");
+    }
+    // The bubble still keeps them, as the copy's pre-wrap body does.
+    let all = board.join("\n");
+    assert!(
+        all.contains("▌ question:  the   covers are late again.    @manager"),
+        "{all}"
+    );
+}
+
+#[test]
+fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spaces() {
+    // T4's question (402) written with runs of spaces between its words.
+    let mut board = board_fixture();
+    let t = (board.milestones[0].threads.iter_mut())
+        .find(|t| t.id == ThreadId(4))
+        .unwrap();
+    let mut messages = t.messages.clone();
+    let q = messages.iter_mut().find(|m| m.id == 402).unwrap();
+    q.text = "question:  the   covers are late again.    @manager can you call the printer?".into();
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    with_alerts(&mut board, &[]);
+    let view: View = Ok(board);
+    let a = area(160, 50);
+    let folded = "cat-lead: question: the covers are late again. @manager can you call";
+    // Replying to it from the strip: on the board, the reply line and where T4 stands, in
+    // its header and its row in the thread list.
+    let mut dash = select(Item::Milestone(MilestoneId(1)));
+    let all = screen(&view, &dash, a);
+    let y = find_row_containing(&all, "⚠ Needs you · 1") + 1;
+    // In the overview's strip, right of the tree.
+    let x = all[y][..all[y].rfind("cat-lead").unwrap()].width() as u16;
+    dash.handle(&view, a, Input::Click { x, y: y as u16 });
+    assert_eq!(dash.replying(), Some(402));
+    let all = screen(&view, &dash, a);
+    // As the copy's nowrap lines: each run is one space.
+    let reply = find_row_containing(&all, "replying to cat-lead");
+    assert!(
+        all[reply].contains(&format!(" replying to {folded}")),
+        "{all:#?}"
+    );
+    let head = find_row_containing(&all, "where it stands");
+    assert!(
+        all[head].contains(&format!("where it stands {folded}")),
+        "{all:#?}"
+    );
+    // The list's row, left of the conversation, is narrower: its start.
+    assert!(
+        (all.iter()).any(|r| r
+            .split('│')
+            .next()
+            .unwrap()
+            .contains("   cat-lead: question: the covers are")),
+        "{all:#?}"
+    );
+    // The bubble still keeps them, as the copy's pre-wrap body does.
+    let all = all.join("\n");
+    assert!(
+        all.contains("▌ question:  the   covers are late again.    @manager"),
+        "{all}"
+    );
+    // Its inbox row, as the copy's normal row: each run is one space.
+    let all = screen(&view, &inbox_dash(&view, a), a);
+    let row = find_row_containing(&all, "question:");
+    assert!(
+        all[row].contains("question: the covers are late again. @manager can you call"),
+        "{all:#?}"
+    );
+}
+
+#[test]
+fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_list() {
+    // T4 gets a newest message from cat-lead, starting with each leading tag in turn, on its
+    // full board beside the list, with whether its tag is bold. Each round's message has its
+    // own id: a message never changes, so the board keeps a conversation's bubbles by its
+    // messages' ids.
+    let tags = [
+        (
+            "decision:",
+            "decision: the covers come from the second printer. @manager for your awareness",
+            true,
+        ),
+        (
+            "blocked:",
+            "blocked: the second printer is out of ink too",
+            true,
+        ),
+        (
+            "question:",
+            "question: the covers are late again. @manager can you call the printer?",
+            false,
+        ),
+        // The owner mentioned on a later line: for your awareness, as its bubble takes it.
+        (
+            "decision:",
+            "decision: the spine stays matte\n@manager for your awareness",
+            true,
+        ),
+        // Not for your awareness (no mention of the owner): plain, as its bubble.
+        ("decision:", "decision: the covers stay blue", false),
+    ];
+    for (id, (tag, text, bold_tag)) in (410..).zip(tags) {
+        let mut board = board_fixture();
+        let t = (board.milestones[0].threads.iter_mut())
+            .find(|t| t.id == ThreadId(4))
+            .unwrap();
+        let mut messages = t.messages.clone();
+        messages.push(Message {
+            id,
+            author: "cat-lead".into(),
+            text: text.into(),
+            at: NOW - 5 * 60,
+        });
+        *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+        with_alerts(&mut board, &[]);
+        let view: View = Ok(board);
+        let a = area(160, 50);
+        let mut dash = select(Item::Task(TaskId(14)));
+        dash.handle(&view, a, Input::Char('b'));
+        for depth in [Depth::TrueColor, Depth::Ansi256] {
+            let buf = render_dash(&view, &dash, 160, 50, depth);
+            let all = rows(&buf);
+            // The column and cell where `needle` first starts in row `y`, `skip` columns in.
+            let at = |y: usize, needle: &str, skip: &str| {
+                let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
+                (x, buf[(x as u16, y as u16)].clone())
+            };
+            // Its bubble line: the last with the tag, as the newest message is drawn last
+            // (dev-1's blocked: and cat-lead's question: are above it).
+            let bubble = (all.iter())
+                .rposition(|r| r.contains(&format!("▌ {tag}")))
+                .unwrap_or_else(|| panic!("{all:#?}"));
+            let first = text.lines().next().unwrap();
+            assert!(all[bubble].contains(&format!("▌ {first}")), "{all:#?}");
+            let (_, want) = at(bubble, &format!("▌ {tag}"), "▌ ");
+            let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
+            assert_eq!(bold(&want), bold_tag, "{text:?} bubble {depth:?}");
+            let said = format!("cat-lead: {tag}");
+            // The header's line, right of the list's bar, by its lead-in; the list's row,
+            // left of it. T4 is the newest thread, so its list row can share the header's
+            // screen row.
+            let stands = format!("where it stands {said}");
+            let head = find_row_containing(&all, &stands);
+            let list = (all.iter())
+                .position(|r| r.split('│').next().unwrap().contains(&said))
+                .unwrap_or_else(|| panic!("{all:#?}"));
+            let bar = |y: usize| all[y][..all[y].find('│').unwrap()].width();
+            let lead_in = "where it stands cat-lead: ";
+            for (y, needle, skip, place) in [
+                (head, stands.as_str(), lead_in, "header"),
+                (list, said.as_str(), "cat-lead: ", "list"),
+            ] {
+                let (x, got) = at(y, needle, skip);
+                assert_eq!(x > bar(y), place == "header", "{place} {all:#?}");
+                assert_eq!(got.symbol(), &tag[..1], "{tag} {place} {depth:?}");
+                // As its bubble: in the bubble's colour, bold exactly when the round says.
+                assert_eq!(got.fg, want.fg, "{text:?} {place} {depth:?}");
+                assert_eq!(bold(&got), bold_tag, "{text:?} {place} {depth:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_task_detail_tones_its_doing_lines_leading_tag_as_its_bubble_does() {
+    // #14's doing post is T4's newest message, by cat-lead, starting with each leading tag
+    // in turn, with whether its tag is bold. Each round's message has its own id, as in
+    // the where-it-stands test.
+    let tags = [
+        (
+            "decision:",
+            "decision: the covers come from the second printer. @manager for your awareness",
+            true,
+        ),
+        (
+            "blocked:",
+            "blocked: the second printer is out of ink too",
+            true,
+        ),
+        (
+            "question:",
+            "question: the covers are late again. @manager can you call the printer?",
+            false,
+        ),
+        // The owner mentioned on a later line: for your awareness, as its bubble takes it.
+        (
+            "decision:",
+            "decision: the spine stays matte\n@manager for your awareness",
+            true,
+        ),
+        // Not for your awareness (no mention of the owner): plain, as its bubble.
+        ("decision:", "decision: the covers stay blue", false),
+    ];
+    for (id, (tag, text, bold_tag)) in (420..).zip(tags) {
+        let mut board = board_fixture();
+        let post = Message {
+            id,
+            author: "cat-lead".into(),
+            text: text.into(),
+            at: NOW - 5 * 60,
+        };
+        let t = (board.milestones[0].threads.iter_mut())
+            .find(|t| t.id == ThreadId(4))
+            .unwrap();
+        let mut messages = t.messages.clone();
+        messages.push(post.clone());
+        *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+        let task = (board.milestones[0].tasks.iter_mut())
+            .find(|t| t.id == TaskId(14))
+            .unwrap();
+        task.details.doing = Some(post);
+        with_alerts(&mut board, &[]);
+        let view: View = Ok(board);
+        let a = area(160, 50);
+        let mut detail = select(Item::Task(TaskId(14)));
+        detail.handle(&view, a, Input::Enter);
+        assert_eq!(detail.view(), ViewKind::TaskDetail);
+        let mut full = select(Item::Task(TaskId(14)));
+        full.handle(&view, a, Input::Char('b'));
+        let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
+        for depth in [Depth::TrueColor, Depth::Ansi256] {
+            // The cell where `needle` first starts on the screen, `skip` columns in.
+            let at = |dash: &Dash, needle: &str, skip: &str| {
+                let buf = render_dash(&view, dash, 160, 50, depth);
+                let all = rows(&buf);
+                let y = (all.iter())
+                    .rposition(|r| r.contains(needle))
+                    .unwrap_or_else(|| panic!("{needle:?} {all:#?}"));
+                let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
+                buf[(x as u16, y as u16)].clone()
+            };
+            // Its bubble line: the last with the tag, as the newest message is drawn last.
+            let want = at(&full, &format!("▌ {tag}"), "▌ ");
+            assert_eq!(bold(&want), bold_tag, "{text:?} bubble {depth:?}");
+            let got = at(&detail, &format!("doing      {tag}"), "doing      ");
+            assert_eq!(got.symbol(), &tag[..1], "{text:?} {depth:?}");
+            // As its bubble: in the bubble's colour, bold exactly when the round says.
+            assert_eq!(got.fg, want.fg, "{text:?} detail {depth:?}");
+            assert_eq!(bold(&got), bold_tag, "{text:?} detail {depth:?}");
+        }
+    }
+}
+
+#[test]
+fn an_inbox_row_shows_its_message_across_its_lines_folded_and_clamped_to_two() {
+    // T4's question (402) on three lines, with runs of spaces between its words.
+    let mut board = board_fixture();
+    let t = (board.milestones[0].threads.iter_mut())
+        .find(|t| t.id == ThreadId(4))
+        .unwrap();
+    let mut messages = t.messages.clone();
+    let q = messages.iter_mut().find(|m| m.id == 402).unwrap();
+    q.text = "question: the covers are late again.\n@manager can you call the printer?\n\
+              The  shop says Friday,   then Monday."
+        .into();
+    *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+    with_alerts(&mut board, &[]);
+    let view: View = Ok(board);
+    // As the copy's row (`.txt clamp2`, `white-space: normal`): its lines join with a
+    // space, each run of spaces is one, and it wraps at its words, the second line under
+    // the first's text, on two lines at most: the second ends in "…" right after its last
+    // word when the message goes on.
+    for (w, first, second) in [
+        (
+            160,
+            "question: the covers are late again. @manager can you call the printer? The shop \
+             says Friday,",
+            "then Monday.",
+        ),
+        (
+            110,
+            "question: the covers are late again. @manager can you call",
+            "the printer? The shop says Friday, then Monday.",
+        ),
+        (
+            80,
+            "question: the covers are late again.",
+            "@manager can you call the printer? The…",
+        ),
+    ] {
+        let a = area(w, 24);
+        let buf = render_dash(&view, &inbox_dash(&view, a), w, 24, Depth::TrueColor);
+        assert_exact_width(&buf);
+        let all = rows(&buf);
+        let row = find_row_containing(&all, "question:");
+        // Its author, then the message's first line, with its repo, thread and age at the
+        // right.
+        assert!(
+            all[row].starts_with(&format!("   cat-lead  {first} ")),
+            "w={w} {all:#?}"
+        );
+        assert!(all[row].trim_end().ends_with(" · 15m"), "w={w} {all:#?}");
+        assert_eq!(
+            all[row + 1].trim_end(),
+            format!("{:13}{second}", ""),
+            "w={w} {all:#?}"
+        );
+        assert_eq!(all[row + 2].trim_end(), "", "w={w} {all:#?}");
+        // The mention on the second line is marked, and the item, selected, is selected
+        // on both its lines.
+        let y = row as u16 + 1;
+        if w == 80 {
+            assert_eq!(buf[(13, y)].fg, bad(Depth::TrueColor));
+        }
+        assert_eq!(buf[(1, y)].bg, selected_bg(Depth::TrueColor));
+    }
+}
+
+#[test]
+fn an_inbox_rows_clamp_ellipsis_is_plain_text_when_it_cuts_a_mention() {
+    // At 40 columns 502's second line is full and ends inside "@manager": as the copy's
+    // clamp draws it, the mention's piece is red and bold and the "…" after it is the
+    // row's plain text.
+    let view: View = Ok(alerts_fixture());
+    let a = area(40, 24);
+    let buf = render_dash(&view, &inbox_dash(&view, a), 40, 24, Depth::TrueColor);
+    let all = rows(&buf);
+    let y = find_row_containing(&all, "book per row. @manage…") as u16;
+    let x = all[usize::from(y)]
+        .find('…')
+        .map(|b| all[usize::from(y)][..b].width())
+        .unwrap() as u16;
+    assert_eq!(x, 39, "{all:#?}");
+    let e = &buf[(x - 1, y)];
+    assert_eq!((e.symbol(), e.fg), ("e", bad(Depth::TrueColor)));
+    assert!(e.modifier.contains(Modifier::BOLD));
+    let dots = &buf[(x, y)];
+    assert_eq!((dots.symbol(), dots.fg), ("…", Color::Reset));
+    assert!(!dots.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn a_two_line_inbox_item_comes_whole_into_view_when_selected() {
+    let view: View = Ok(alerts_fixture());
+    // Eight list lines: the last item (310) takes the eighth and the ninth.
+    let a = area(120, 11);
+    let mut dash = inbox_dash(&view, a);
+    for _ in 0..3 {
+        dash.handle(&view, a, Input::Down);
+    }
+    assert_eq!(dash.inbox_selected(view.as_ref().unwrap()), Some(310));
+    assert_eq!(dash.inbox_scroll(), 1);
+    let all = screen(&view, &dash, a);
+    assert!(all[7].contains("@manager for"), "{all:#?}");
+    assert_eq!(all[8].trim_end(), format!("{:18}your awareness", ""));
+    assert!(all[10].contains(" · r mark read · "), "{all:#?}");
+    // Back up to the first item, two lines too, both still in view: the list stays.
+    for _ in 0..3 {
+        dash.handle(&view, a, Input::Up);
+    }
+    assert_eq!(dash.inbox_selected(view.as_ref().unwrap()), Some(402));
+    assert_eq!(dash.inbox_scroll(), 1);
+    let all = screen(&view, &dash, a);
+    assert!(all[1].contains("@manager can you call the"), "{all:#?}");
+    assert_eq!(all[2].trim_end(), format!("{:18}printer?", ""));
 }
 
 #[test]

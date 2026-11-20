@@ -764,11 +764,13 @@ impl<'a> Talk<'a> {
         t.id.to_string()
     }
 
-    /// Where thread `t` stands, by whom: on its task's first open thread, the task's doing
-    /// line (the blocked reason first, as its detail has it), else the first line of its
-    /// newest message by a person that is not an ack, else of its newest message; either
-    /// way without a "Status:" prefix.
-    pub fn stands(&self, t: &Thread) -> Option<(String, String)> {
+    /// Where thread `t` stands, by whom, and its tone: on its task's first open thread, the
+    /// task's doing line (the blocked reason first, as its detail has it), else the first
+    /// line of its newest message by a person that is not an ack, else of its newest
+    /// message; either way without a "Status:" prefix. The tone is the whole message's, as
+    /// its bubble takes it; a blocked reason, which has no message, takes its
+    /// "blocked: <why>" line's.
+    pub fn stands(&self, t: &Thread) -> Option<(String, String, Tone)> {
         // The doing line is the task's, so it heads the task's home thread only (or, while
         // no person has posted on the task, its first open thread); any other thread on the
         // task says where it stands in its own words.
@@ -784,12 +786,15 @@ impl<'a> Talk<'a> {
             match k.doing_line() {
                 Some(DoingLine::Blocked(why)) => {
                     let who = k.details.assignee.clone().unwrap_or_default();
-                    return Some((who, format!("blocked: {why}")));
+                    let text = format!("blocked: {why}");
+                    let tone = Tone::of(&text);
+                    return Some((who, text, tone));
                 }
                 Some(DoingLine::Post(line)) => {
-                    let who =
-                        (k.details.doing.as_ref()).map_or_else(String::new, |m| m.author.clone());
-                    return Some((who, without_status(line).to_string()));
+                    let doing = k.details.doing.as_ref();
+                    let who = doing.map_or_else(String::new, |m| m.author.clone());
+                    let tone = doing.map_or(Tone::Plain, tone_of);
+                    return Some((who, without_status(line).to_string(), tone));
                 }
                 None => {}
             }
@@ -810,7 +815,11 @@ impl<'a> Talk<'a> {
         };
         let m = newest(&|m| !is_tower(&m.author) && !is_ack(m)).or_else(|| newest(&|_| true))?;
         let first = m.text.lines().next().unwrap_or_default();
-        Some((m.author.clone(), without_status(first).to_string()))
+        Some((
+            m.author.clone(),
+            without_status(first).to_string(),
+            tone_of(m),
+        ))
     }
 
     /// Task `task`'s home thread on this board's whole repo: its first open thread a person
@@ -1428,14 +1437,17 @@ pub fn refuse_owner(author: &str) -> Result<()> {
     Ok(())
 }
 
-/// The names `text` @mentions, like `@qa-2`, in order: a `@` not right after a letter or
-/// digit (so not an email address), then letters, digits, `-` and `_`, less any trailing
-/// `-` or `_`. A name with spaces, such as a lead's session name, cannot be mentioned. What
-/// a post quotes is no mention: a fenced block (between lines starting with three
-/// backticks), a code span (between backticks on one line; an unmatched one ends with its
-/// line) and a line starting with `>`. Nor is code written without backticks: a name
-/// followed straight by `(`, or by `.` and a letter, digit or `_`, as in
-/// `@cart.isEmpty()`; a sentence that ends on a name, `@qa.`, still mentions it.
+/// The names `text` @mentions, like `@qa-2`, in order: a `@` not right after an ASCII
+/// letter or digit (so not an ASCII email address; after any other letter, such as kana, an
+/// ideograph or é, it is), then letters, digits, `-` and `_`, less any trailing `-` or `_`.
+/// A name with spaces, such as a lead's session name, cannot be mentioned. What a post
+/// quotes is no mention: a fenced block (between lines starting with three backticks), a
+/// code span (between backticks on one line; an unmatched one ends with its line) and a
+/// line starting with `>`. Nor is code written without backticks: a name followed straight
+/// by `(` and an ASCII character or nothing, as in `@cart(x)`, or by `.` and an ASCII
+/// letter, digit or `_`, as in `@cart.isEmpty()`. A sentence that ends on a name, `@qa.`,
+/// still mentions it, and so does a name before `.` or `(` and a character that is not
+/// ASCII, as Chinese or Japanese is written: `请@dev-2.谢谢`, `请@dev-2(明天)看一下`.
 pub fn mentioned(text: &str) -> Vec<&str> {
     mentions(text).into_iter().map(|(_, name)| name).collect()
 }
@@ -1464,17 +1476,17 @@ pub fn mentions(text: &str) -> Vec<(usize, &str)> {
         for (i, c) in line.char_indices() {
             if c == '`' {
                 code = !code;
-            } else if c == '@' && !code && !prev.is_some_and(char::is_alphanumeric) {
+            } else if c == '@' && !code && !prev.is_some_and(|p| p.is_ascii_alphanumeric()) {
                 let rest = &line[i + 1..];
                 let end = (rest
                     .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')))
                 .unwrap_or(rest.len());
                 let name = rest[..end].trim_end_matches(['-', '_']);
-                // Code, not a mention: `@cart.isEmpty()`, `@cart(x)`.
+                // Code, not a mention: `@cart.isEmpty()`, `@cart(x)`. Not `@qa.谢谢`.
                 let mut after = rest[end..].chars();
                 let code_like = match (after.next(), after.next()) {
-                    (Some('('), _) => true,
-                    (Some('.'), Some(n)) => n.is_alphanumeric() || n == '_',
+                    (Some('('), n) => n.is_none_or(|n| n.is_ascii()),
+                    (Some('.'), Some(n)) => n.is_ascii_alphanumeric() || n == '_',
                     _ => false,
                 };
                 if !name.is_empty() && !code_like {
@@ -2275,6 +2287,9 @@ mod tests {
             ),
             ("blocked: no covers, @manager please", Tone::Awareness),
             ("@manager question: not at the start", Tone::Awareness),
+            // Right after kana, with no space, as Japanese is written.
+            ("notes.mdを見てから@managerに返事します。", Tone::Awareness),
+            ("question: 確認後@managerの判断を待ちます", Tone::NeedsYou),
             ("Question: @manager capitalised", Tone::Awareness),
             // The owner's name in any case is the owner, as in delivery.
             ("question: @Manager which order?", Tone::NeedsYou),
@@ -2382,7 +2397,15 @@ mod tests {
             ),
             ("no mention here", vec![]),
             ("@", vec![]),
-            ("é@x but (@y", vec!["y"]),
+            // Only an ASCII letter or digit makes an e-mail address; after any other
+            // letter, such as kana, an ideograph or hangul, where words have no spaces
+            // between them, it is a mention, as the signed copy marks every `@manager`.
+            ("2@x or Z@x but (@y", vec!["y"]),
+            ("a@x", vec![]),
+            ("notes.mdを見てから@managerに返事します。", vec!["manager"]),
+            ("请@dev-2看一下，然后@qa。", vec!["dev-2", "qa"]),
+            ("검토@senior 부탁", vec!["senior"]),
+            ("é@x", vec!["x"]),
             // Quoted: code spans, fenced blocks and quoted lines.
             ("run `herdr agent prompt @dev-2` then @qa", vec!["qa"]),
             ("```\n@dev-1 x\n```\n@senior", vec!["senior"]),
@@ -2398,8 +2421,10 @@ mod tests {
         }
     }
 
-    /// Code written without backticks names no one. A name followed straight by `.`
-    /// and a word character, or by `(`, is code; a sentence ending on a name still counts.
+    /// Code written without backticks names no one. A name followed straight by `(` and an
+    /// ASCII character or nothing, or by `.` and an ASCII letter, digit or `_`, is code; a
+    /// sentence ending on a name still counts, and so does a name before `.` or `(` and a
+    /// character that is not ASCII.
     #[test]
     fn a_name_followed_by_a_member_or_a_call_is_code_not_a_mention() {
         let none: Vec<&str> = Vec::new();
@@ -2420,6 +2445,13 @@ mod tests {
             ),
             ("ask @qa... or @dev-2.)", vec!["qa", "dev-2"]),
             ("@qa (see above)", vec!["qa"]),
+            // Only ASCII after the `.` or `(` is code: Chinese and Japanese go straight on
+            // after a name, as the signed copy marks every `@manager`.
+            ("请@dev-zh.谢谢", vec!["dev-zh"]),
+            ("確認後@dev-ja.よろしく", vec!["dev-ja"]),
+            ("请@dev-zh(明天)看一下", vec!["dev-zh"]),
+            // A call with no argument, or one cut at the end of its line, is still code.
+            ("@cart() then @cart(\n  x)", none.clone()),
         ] {
             assert_eq!(mentioned(text), want, "{text}");
         }
@@ -2429,6 +2461,7 @@ mod tests {
             Tone::Plain
         );
         assert_eq!(Tone::of("question: is @manager(1) right?"), Tone::Plain);
+        assert_eq!(Tone::of("question: 请@manager(明天)回复"), Tone::NeedsYou);
         assert_eq!(
             Tone::of("question: @manager. Is this right?"),
             Tone::NeedsYou
@@ -2647,11 +2680,16 @@ mod talk_tests {
             let want = (
                 "dev-1".to_string(),
                 "building the picture-book shelf".to_string(),
+                Tone::Plain,
             );
             assert_eq!(talk.stands(t1), Some(want));
             // Only tower's messages: the newest of them.
             let t5 = *talk.threads.iter().find(|t| t.id == ThreadId(5)).unwrap();
-            let want = ("system".to_string(), "nudged dev-2: no post".to_string());
+            let want = (
+                "system".to_string(),
+                "nudged dev-2: no post".to_string(),
+                Tone::Plain,
+            );
             assert_eq!(talk.stands(t5), Some(want));
         }
         // The task's doing line once there is one (one source with its detail).
@@ -2660,14 +2698,40 @@ mod talk_tests {
         {
             let talk = Talk::of_repo(&b, &b.repos[0]);
             let t1 = *talk.threads.iter().find(|t| t.id == ThreadId(1)).unwrap();
-            let want = ("dev-1".to_string(), "picture-book shelf done".to_string());
+            let want = (
+                "dev-1".to_string(),
+                "picture-book shelf done".to_string(),
+                Tone::Plain,
+            );
+            assert_eq!(talk.stands(t1), Some(want));
+        }
+        // Its tone is the whole message's: a mention of the owner on a later line counts,
+        // as in its bubble.
+        b.milestones[0].tasks[0].details.doing = Some(msg(
+            98,
+            "dev-1",
+            "decision: the shelf takes 12 books\n@manager for your awareness",
+            700,
+        ));
+        {
+            let talk = Talk::of_repo(&b, &b.repos[0]);
+            let t1 = *talk.threads.iter().find(|t| t.id == ThreadId(1)).unwrap();
+            let want = (
+                "dev-1".to_string(),
+                "decision: the shelf takes 12 books".to_string(),
+                Tone::Awareness,
+            );
             assert_eq!(talk.stands(t1), Some(want));
         }
         // The blocked reason wins, as in its detail.
         b.milestones[0].tasks[0].details.blocked = Some("no cover images".into());
         let talk = Talk::of_repo(&b, &b.repos[0]);
         let t1 = *talk.threads.iter().find(|t| t.id == ThreadId(1)).unwrap();
-        let want = ("dev-1".to_string(), "blocked: no cover images".to_string());
+        let want = (
+            "dev-1".to_string(),
+            "blocked: no cover images".to_string(),
+            Tone::Blocked,
+        );
         assert_eq!(talk.stands(t1), Some(want));
     }
 
@@ -2898,11 +2962,18 @@ mod fold_tests {
         let t = |id| *talk.threads.iter().find(|t| t.id == ThreadId(id)).unwrap();
         assert_eq!(
             talk.stands(t(1)),
-            Some(("dev-1".into(), "picture-book shelf done".into()))
+            Some((
+                "dev-1".into(),
+                "picture-book shelf done".into(),
+                Tone::Plain
+            ))
         );
         let own =
             "decision: the shelf shows 12 books, not 10. @manager for your awareness".to_string();
-        assert_eq!(talk.stands(t(2)), Some(("kids-lead".into(), own)));
+        assert_eq!(
+            talk.stands(t(2)),
+            Some(("kids-lead".into(), own, Tone::Awareness))
+        );
         // With the first resolved, the second open one is the task's first open thread.
         let mut done = t(1).clone();
         done.resolved = Some(Resolution {
@@ -2915,7 +2986,11 @@ mod fold_tests {
         let t2 = *talk.threads.iter().find(|t| t.id == ThreadId(2)).unwrap();
         assert_eq!(
             talk.stands(t2),
-            Some(("dev-1".into(), "picture-book shelf done".into()))
+            Some((
+                "dev-1".into(),
+                "picture-book shelf done".into(),
+                Tone::Plain
+            ))
         );
     }
 

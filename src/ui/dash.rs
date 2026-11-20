@@ -1416,16 +1416,19 @@ impl Dash {
         Some(Request::Post { thread, text })
     }
 
-    /// Selects the inbox item with message id `id`, its line in view.
+    /// Selects the inbox item with message id `id`, its lines in view.
     fn inbox_pick(&mut self, ib: &InboxLayout, id: i64) {
-        // Its place among the items: the rows list them in order, between heads and gaps.
-        let ids_at = (ib.rows.iter().flatten())
-            .position(|i| *i == id)
-            .unwrap_or(0);
+        // Its place among the items: the rows list them in order, between heads and gaps,
+        // an item on each of its lines.
+        let mut ids = (ib.rows.iter().flatten()).collect::<Vec<_>>();
+        ids.dedup();
+        let ids_at = ids.iter().position(|i| **i == id).unwrap_or(0);
         let v = self.top_mut();
         v.inbox = Some((id, ids_at));
-        if let Some(line) = ib.rows.iter().position(|r| *r == Some(id)) {
-            let at = into_view(v.scroll, line, line, ib.list.height);
+        let first = ib.rows.iter().position(|r| *r == Some(id));
+        let last = ib.rows.iter().rposition(|r| *r == Some(id));
+        if let (Some(first), Some(last)) = (first, last) {
+            let at = into_view(v.scroll, first, last, ib.list.height);
             v.scroll = clamp_scroll(at, ib.rows.len(), ib.list.height);
         }
     }

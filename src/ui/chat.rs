@@ -13,7 +13,7 @@
 //! - Tower's own messages are quiet centred lines, wrapped at `EVENT_MAX`: consecutive
 //!   nudges of one worker as one ("dev-1 was nudged 3 times"), the watch's flags in a
 //!   chat's words, and a delivery failure as "delivery failed to X · details", which opens
-//!   its full text.
+//!   its full text under it, left-aligned in a centred box as wide as its widest line.
 //! - Separators where how long ago the messages were changes: "now", "within the hour",
 //!   "3h ago", "yesterday".
 //!
@@ -35,7 +35,8 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    highlight_marked, role_colour, units, wrap, wrap_line, wrap_line_paths,
+    dropped, fold_spaces, highlight_marked, role_colour, units, wrap, wrap_event_line,
+    wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -144,8 +145,8 @@ pub enum Item {
     Bubble { segs: Vec<usize>, acks: Vec<usize> },
     /// Consecutive nudges of one worker.
     Nudged { who: String, times: usize },
-    /// A delivery failure, or the watch's flag that a worker left herdr: one line whose
-    /// details open its full text.
+    /// A delivery failure, or the watch's flag that a worker left herdr: a line, wrapped
+    /// onto more in a chat narrower than it, whose details open its full text.
     Failure(usize),
     /// Any other message of tower's.
     Event(usize),
@@ -285,28 +286,39 @@ pub enum Row {
         marks: Vec<Range<usize>>,
         first: bool,
     },
-    /// "delivery failed to X · details" or "dev-1 left herdr while on #1 · details",
-    /// `open` when its full text shows under it.
+    /// A line of "delivery failed to X · details" or "dev-1 left herdr while on #1 ·
+    /// details", its link "hide details" while its full text shows under it, wrapped as the
+    /// copy's centred event box wraps it (`failure_pieces`): `said`, the piece of what it
+    /// says on this line, and `link`, the piece of its link; `first` on its first line.
     Failure {
         msg: usize,
-        open: bool,
+        said: String,
+        link: String,
+        first: bool,
     },
-    /// A line of an open `Failure`'s full text.
-    Detail(String),
+    /// A line of an open `Failure`'s full text, from column `left`: the left edge of the
+    /// copy's centred event box, which fits the failure's line and its text (`detail_box`).
+    Detail {
+        piece: String,
+        left: usize,
+    },
 }
 
 impl Row {
     /// The message whose rows this starts in the full board's keys: a bubble's name or a
-    /// later message's tags line, or a delivery failure.
+    /// later message's tags line, or a delivery failure's first line.
     pub fn starts(&self) -> Option<usize> {
         match self {
-            Row::Name { msg, .. } | Row::Meta { msg, .. } | Row::Failure { msg, .. } => Some(*msg),
+            Row::Name { msg, .. } | Row::Meta { msg, .. } => Some(*msg),
+            Row::Failure {
+                msg, first: true, ..
+            } => Some(*msg),
             _ => None,
         }
     }
 
     /// The message a click on this line opens or folds: "read more", "show less" and a
-    /// delivery failure's "details".
+    /// delivery failure's "details", on any line of the failure's.
     pub fn toggles(&self) -> Option<usize> {
         match self {
             Row::More { msg, .. } | Row::Failure { msg, .. } => Some(*msg),
@@ -383,11 +395,16 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
     out
 }
 
-/// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a
-/// line of its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
+/// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a line of
+/// its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
-/// own too; a path in the text breaks only after a `/` (`wrap_line_paths`). Spaces are all
-/// that is added or dropped, so `marked` can find the owner's mentions in the pieces.
+/// own too; a path in the text breaks only after a `/`, and other text where Chrome breaks
+/// the copy's, such as after a `-` or between two CJK characters; a word with no break of
+/// its own too wide for a line starts on a line of its own (`wrap_line_paths`). The line's
+/// leading spaces stay on its first line of text and its runs of spaces between words stay
+/// as written; a URL's line starts at the text's column, as the copy's block URL does.
+/// Spaces are all that is added, and what `dropped` names all that is dropped, so `marked`
+/// can find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -398,19 +415,23 @@ pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<Stri
     let mut out = Vec::new();
     let text = |out: &mut Vec<(String, Option<String>)>, t: &str| {
         // Spaces only: `marked` counts every other character.
-        let t = t.trim_matches(' ');
-        if !t.is_empty() {
+        if !t.trim_start_matches(' ').is_empty() {
             out.extend(wrap_line_paths(t, w).into_iter().map(|p| (p, None)));
         }
     };
     let mut at = 0;
     for r in found {
-        text(&mut out, &raw[at..r.start]);
+        // Only the space next to a URL goes: the line's indent before its first stays.
+        let mut before = raw[at..r.start].trim_end_matches(' ');
+        if at > 0 {
+            before = before.trim_start_matches(' ');
+        }
+        text(&mut out, before);
         let url = &raw[r.clone()];
         out.extend((pack_url(url, w).into_iter()).map(|p| (p, Some(url.to_string()))));
         at = r.end;
     }
-    text(&mut out, &raw[at..]);
+    text(&mut out, raw[at..].trim_start_matches(' '));
     out
 }
 
@@ -470,20 +491,20 @@ pub(crate) fn message_pieces(text: &str, w: usize) -> Vec<Piece> {
 }
 
 /// The owner's mentions `marks` (byte ranges of the whole text, its line `raw` starting at
-/// `base`) in each of `lines`, `raw` wrapped: wrapping adds or drops spaces only, so the
-/// lines' other characters are `raw`'s, in order.
-fn marked<'a>(
+/// `base`) in each of `lines`, `raw` wrapped: wrapping adds spaces or drops them (`dropped`)
+/// only, so the lines' other characters are `raw`'s, in order.
+pub(crate) fn marked<'a>(
     raw: &str,
     base: usize,
     marks: &[Range<usize>],
     lines: impl Iterator<Item = &'a str>,
 ) -> Vec<Vec<Range<usize>>> {
     let mut out = Vec::new();
-    let mut chars = raw.char_indices().filter(|(_, c)| *c != ' ');
+    let mut chars = raw.char_indices().filter(|(_, c)| !dropped(*c));
     for piece in lines {
         let mut ranges: Vec<Range<usize>> = Vec::new();
         for (pi, pc) in piece.char_indices() {
-            if pc == ' ' {
+            if dropped(pc) {
                 continue;
             }
             let Some((ri, _)) = chars.next() else { break };
@@ -502,8 +523,8 @@ fn marked<'a>(
 }
 
 /// `text` in pieces, its first at most `first` columns wide and the rest at most `w` (as
-/// `wrap` breaks them), each with the byte ranges in it of the owner's mentions, as
-/// `board::owner_mentions` reads the whole text.
+/// `wrap_event_line` breaks them, their spaces folded), each with the byte ranges in it of the
+/// owner's mentions, as `board::owner_mentions` reads the whole text.
 pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Range<usize>>)> {
     let marks = owner_mentions(text);
     let mut out = Vec::new();
@@ -512,13 +533,13 @@ pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Ran
         let mut lines = Vec::new();
         if out.is_empty() && lines.is_empty() && first < w {
             // The first piece at its own width, then the rest of that line at `w`.
-            let mut head = wrap_line(raw, first);
+            let mut head = wrap_event_line(raw, first);
             let p0 = head.remove(0);
-            let mut left = p0.chars().filter(|c| *c != ' ').count();
+            let mut left = p0.chars().filter(|c| !dropped(*c)).count();
             let at = (raw.char_indices())
                 .find(|(_, c)| {
                     let past = left == 0;
-                    if *c != ' ' {
+                    if !dropped(*c) {
                         left = left.saturating_sub(1);
                     }
                     past
@@ -527,10 +548,10 @@ pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Ran
             lines.push(p0);
             let rest = raw[at..].trim_start();
             if !rest.is_empty() {
-                lines.extend(wrap_line(rest, w));
+                lines.extend(wrap_event_line(rest, w));
             }
         } else {
-            lines = wrap_line(raw, w);
+            lines = wrap_event_line(raw, w);
         }
         let found = marked(raw, base, &marks, lines.iter().map(String::as_str));
         out.extend(lines.into_iter().zip(found));
@@ -612,11 +633,23 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
             }
             Item::Failure(msg) => {
                 let open = shape.open.contains(&msgs[msg].id);
-                rows.push(Row::Failure { msg, open });
+                let (said, link) = failure_line(&msgs[msg], people.lead, open);
+                for (j, (said, link)) in failure_pieces(&said, link, ew).into_iter().enumerate() {
+                    rows.push(Row::Failure {
+                        msg,
+                        said,
+                        link,
+                        first: j == 0,
+                    });
+                }
                 if open {
-                    let width = w.saturating_sub(6).max(1);
-                    (wrap(&msgs[msg].text, width).into_iter())
-                        .for_each(|p| rows.push(Row::Detail(p)));
+                    let text = &msgs[msg].text;
+                    // The line as drawn, its spaces folded: what it says, a space, its link.
+                    let line_w = fold_spaces(&said).width() + 1 + link.width();
+                    let bw = detail_box(text, line_w, ew);
+                    let left = w.saturating_sub(bw) / 2;
+                    (wrap(text, ew).into_iter())
+                        .for_each(|piece| rows.push(Row::Detail { piece, left }));
                 }
             }
             Item::Bubble { segs, acks } => {
@@ -683,7 +716,7 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                     let text = ack_text(m);
                     // Room on every line for " · " and the age at the end of the last.
                     let aw = bw.saturating_sub(2 + 3 + AGE_COLUMNS).max(1);
-                    let ps = wrap_line(&text, aw);
+                    let ps = wrap_event_line(&text, aw);
                     let n = ps.len();
                     for (j, piece) in ps.into_iter().enumerate() {
                         rows.push(Row::Ack {
@@ -843,6 +876,51 @@ pub fn event_text(m: &Message, lead: Option<&Lead>) -> String {
         }
     }
     text.to_string()
+}
+
+/// A delivery failure's or the left-herdr flag's line, in its two parts: what it says with
+/// " · " after it ("delivery failed to X · "), and its link, "details" or "hide details"
+/// when `open`.
+fn failure_line(m: &Message, lead: Option<&Lead>, open: bool) -> (String, &'static str) {
+    let said = if is_failure(m) {
+        format!("delivery failed to {}", failed_to(&m.text))
+    } else {
+        let text = event_text(m, lead);
+        text.lines().next().unwrap_or_default().to_string()
+    };
+    let link = if open { "hide details" } else { "details" };
+    (format!("{said} · "), link)
+}
+
+/// A failure's line (`failure_line`) in pieces at most `w` wide, as the copy's centred event
+/// box wraps it: each a piece of what it `said` and a piece of its `link`, either empty. Its
+/// words break as an event's do (`wrap_event_line`); the link, an `inline-block` there, ends the
+/// last of them when it fits and otherwise starts a line of its own, breaking inside only
+/// when wider than a line.
+fn failure_pieces(said: &str, link: &str, w: usize) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = (wrap_event_line(said, w).into_iter())
+        .map(|p| (p, String::new()))
+        .collect();
+    match out.last_mut() {
+        Some((last, room)) if last.width() + 1 + link.width() <= w => *room = link.to_string(),
+        _ => out.extend(
+            wrap_event_line(link, w)
+                .into_iter()
+                .map(|p| (String::new(), p)),
+        ),
+    }
+    out
+}
+
+/// The width of the copy's event box (`.evt`) around a failure's line `line_w` wide and
+/// its open `text`: it fits the widest of them, each line of the text with all its spaces,
+/// as the copy's `pre-wrap` details size the box (trailing ones too, though a drawn line
+/// drops them), at most `ew`, the events' width, past which the text wraps.
+fn detail_box(text: &str, line_w: usize, ew: usize) -> usize {
+    (text.split('\n'))
+        .map(UnicodeWidthStr::width)
+        .fold(line_w, usize::max)
+        .min(ew)
 }
 
 /// Who a delivery failure is about: "Kids Lead", "dev-1" or "3 recipients".
@@ -1088,18 +1166,15 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             );
             centred(spans, w)
         }
-        Row::Failure { msg, open } => {
-            let m = &msgs[*msg];
-            let said = if is_failure(m) {
-                format!("delivery failed to {}", failed_to(&m.text))
+        Row::Failure { said, link, .. } => {
+            let gap = if said.is_empty() || link.is_empty() {
+                ""
             } else {
-                let text = event_text(m, people.lead);
-                text.lines().next().unwrap_or_default().to_string()
+                " "
             };
-            let link = if *open { "hide details" } else { "details" };
             let spans = vec![
-                Span::styled(format!("{said} · "), dim(depth)),
-                Span::styled(link, Style::new().fg(accent(depth))),
+                Span::styled(format!("{said}{gap}"), dim(depth)),
+                Span::styled(link.clone(), Style::new().fg(accent(depth))),
             ];
             let mut line = centred(spans, w);
             if selected_here {
@@ -1110,8 +1185,11 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             }
             line
         }
-        Row::Detail(piece) => fit(
-            vec![Span::raw("   "), Span::styled(piece.clone(), dim(depth))],
+        Row::Detail { piece, left } => fit(
+            vec![
+                Span::raw(" ".repeat(*left)),
+                Span::styled(piece.clone(), dim(depth)),
+            ],
             w,
         ),
     }
@@ -1435,6 +1513,11 @@ mod tests {
             ]
             .map(|(p, m)| (p.to_string(), m.to_string()))
         );
+        // Right after kana, with no space, the mention is marked.
+        assert_eq!(
+            marked("見てから@managerに返事", 40, 40),
+            [("見てから@managerに返事".to_string(), "@manager".to_string())]
+        );
         let split = pieces("日本語 @manager です @Manager", 12, 40);
         assert_eq!(split[0].0, "日本語");
         // A word too wide for a line breaks inside it; the mention's halves stay marked.
@@ -1604,6 +1687,490 @@ mod tests {
                 ("@manager look:", vec![(0, 8)], None),
                 (url, vec![], Some(url)),
                 ("@manager", vec![(0, 8)], None)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lines_indent_stays_on_its_first_line_but_not_on_a_url() {
+        let url = "https://example.com/a/b";
+        let pair = |t: &str, l: Option<&str>| (t.to_string(), l.map(str::to_string));
+        assert_eq!(
+            wrap_message_line("  - see https://example.com/a/b", 40),
+            [pair("  - see", None), pair(url, Some(url))]
+        );
+        assert_eq!(
+            wrap_message_line("  - plain", 40),
+            [pair("  - plain", None)]
+        );
+        // A line that starts with a URL: the URL's line is at the text's column.
+        assert_eq!(
+            wrap_message_line("  https://example.com/a/b then", 40),
+            [pair(url, Some(url)), pair("then", None)]
+        );
+        // The indent counts toward the first line's width; the lines after it start at the
+        // text's column.
+        assert_eq!(
+            wrap_message_line("    one two three", 12),
+            [pair("    one two", None), pair("three", None)]
+        );
+        // An indented word that fits a line of its own but not after the indent goes to the
+        // next line whole, leaving the indent alone on the first, as the copy does.
+        let hash = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(
+            wrap_message_line(&format!("    {hash} sha"), 40),
+            [pair("    ", None), pair(hash, None), pair("sha", None)]
+        );
+        // An indent as wide as the line is dropped, so no line is wider than the bubble.
+        assert_eq!(wrap_message_line("      ab cd", 6), [pair("ab cd", None)]);
+        // A line of spaces alone is a blank line, as before.
+        assert_eq!(wrap_message_line("   ", 40), [pair("", None)]);
+        // The owner's mentions stay marked after an indent.
+        let p = message_pieces("  - ask @manager", 40);
+        let marks: Vec<(usize, usize)> = p[0].marks.iter().map(|r| (r.start, r.end)).collect();
+        assert_eq!(
+            (p[0].text.as_str(), marks),
+            ("  - ask @manager", vec![(8, 16)])
+        );
+    }
+
+    #[test]
+    fn a_lines_inner_runs_of_spaces_stay_and_a_break_drops_them() {
+        let pair = |t: &str| (t.to_string(), None);
+        // A line aligned in columns keeps its runs of spaces, as the copy's pre-wrap body does.
+        assert_eq!(
+            wrap_message_line("phone    2 rows", 40),
+            [pair("phone    2 rows")]
+        );
+        assert_eq!(wrap_message_line("  - a    b", 40), [pair("  - a    b")]);
+        // A break at a run drops the whole run; the next line starts at the text's column.
+        assert_eq!(
+            wrap_message_line("aa    bb    cc", 9),
+            [pair("aa    bb"), pair("cc")]
+        );
+        // A run counts toward the line's width.
+        assert_eq!(wrap_message_line("aa    bb", 7), [pair("aa"), pair("bb")]);
+        // The spaces at the line's end go, as before.
+        assert_eq!(wrap_message_line("a  b   ", 40), [pair("a  b")]);
+        // A word too wide for any line starts on the next, whether or not the run leaves a
+        // column on this one; the run hangs.
+        assert_eq!(
+            wrap_message_line("ab   abcdefghij", 8),
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
+        );
+        assert_eq!(
+            wrap_message_line("ab      abcdefghij", 8),
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
+        );
+        // Only the spaces next to a URL go; a run in the text after it stays.
+        let url = "https://a.b/c/d";
+        assert_eq!(
+            wrap_message_line("see    https://a.b/c/d    then  more", 40),
+            [
+                pair("see"),
+                (url.to_string(), Some(url.to_string())),
+                pair("then  more")
+            ]
+        );
+        // The owner's mentions stay marked after a run.
+        let p = message_pieces("ask    @manager", 40);
+        let marks: Vec<(usize, usize)> = p[0].marks.iter().map(|r| (r.start, r.end)).collect();
+        assert_eq!(
+            (p[0].text.as_str(), marks),
+            ("ask    @manager", vec![(7, 15)])
+        );
+        // In wrap_event_line (events, acks) a line's spaces still fold: its indent goes, each
+        // run is one.
+        assert_eq!(wrap_event_line("  a    b  ", 40), ["a b"]);
+    }
+
+    #[test]
+    fn a_word_too_wide_for_any_line_starts_on_a_line_of_its_own() {
+        let pair = |t: &str| (t.to_string(), None);
+        // After one space, as the copy's `overflow-wrap: anywhere` body breaks there first;
+        // the word then breaks where each line ends.
+        assert_eq!(
+            wrap_message_line("ab abcdefghij", 8),
+            [pair("ab"), pair("abcdefgh"), pair("ij")]
+        );
+        let hash = "0123456789abcdef0123456789abcdef0123456789";
+        assert_eq!(
+            wrap_message_line(&format!("ab {hash}"), 40),
+            [pair("ab"), pair(&hash[..40]), pair(&hash[40..])]
+        );
+        // After several words, and with text after it, which goes on the word's last line.
+        assert_eq!(
+            wrap_message_line("a ab abcdefghij cd", 8),
+            [pair("a ab"), pair("abcdefgh"), pair("ij cd")]
+        );
+        // After a line's indent, which stays alone on the first line.
+        assert_eq!(
+            wrap_message_line("    abcdefghij", 8),
+            [pair("    "), pair("abcdefgh"), pair("ij")]
+        );
+        // Alone on the line it is broken where the line ends, as before.
+        assert_eq!(
+            wrap_message_line("abcdefghij", 8),
+            [pair("abcdefgh"), pair("ij")]
+        );
+        // A path still starts where the line is and breaks only after a `/`, as the copy's
+        // path does.
+        assert_eq!(
+            wrap_message_line("ab assets/icons/bookmarks/outline", 12),
+            [
+                pair("ab assets/"),
+                pair("icons/"),
+                pair("bookmarks/"),
+                pair("outline")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_word_breaks_after_a_hyphen_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // A word with a `-` starts where the line is and breaks after it, as Chrome breaks
+        // the copy's body; a piece that then does not fit goes to the next line.
+        assert_eq!(wrapped("ab abc-def", 8), ["ab abc-", "def"]);
+        assert_eq!(wrapped("ab abc-def", 6), ["ab", "abc-", "def"]);
+        assert_eq!(
+            wrapped(
+                "ab a-word-too-wide-for-any-line-starts-on-a-line-of-its-own",
+                40
+            ),
+            [
+                "ab a-word-too-wide-for-any-line-starts-",
+                "on-a-line-of-its-own"
+            ]
+        );
+        assert_eq!(wrapped("ab 2026-11-19", 8), ["ab 2026-", "11-19"]);
+        assert_eq!(wrapped("ab 2026-11-19", 6), ["ab", "2026-", "11-19"]);
+        assert_eq!(wrapped("ab @dev-8 ok", 8), ["ab @dev-", "8 ok"]);
+        assert_eq!(wrapped("ab @dev-8 ok", 6), ["ab", "@dev-8", "ok"]);
+        // After each `-` of a run, and not after one that ends the word.
+        assert_eq!(wrapped("ab --verbose", 8), ["ab --", "verbose"]);
+        assert_eq!(wrapped("ab a--bcdefg", 6), ["ab a--", "bcdefg"]);
+        assert_eq!(
+            wrapped("ab cargo fmt --all --check", 14),
+            ["ab cargo fmt -", "-all --check"]
+        );
+        assert_eq!(wrapped("ab --", 4), ["ab -", "-"]);
+        assert_eq!(wrapped("ab --all", 4), ["ab -", "-all"]);
+        assert_eq!(wrapped("ab --verbose", 4), ["ab -", "-", "verb", "ose"]);
+        assert_eq!(wrapped("ab a--bcdefg", 5), ["ab a-", "-", "bcdef", "g"]);
+        assert_eq!(wrapped("ab abc---d", 7), ["ab abc-", "--d"]);
+        assert_eq!(wrapped("ab ----", 5), ["ab --", "--"]);
+        assert_eq!(wrapped("ab (--x", 5), ["ab (-", "-x"]);
+        assert_eq!(wrapped("ab x--", 4), ["ab", "x--"]);
+        assert_eq!(wrapped("ab abcdef-", 8), ["ab", "abcdef-"]);
+        // A piece too wide for a line breaks where the line ends.
+        assert_eq!(
+            wrapped("ab x-yzzzzzzzzzzz", 8),
+            ["ab x-", "yzzzzzzz", "zzzz"]
+        );
+        // Not after a minus sign: a `-` with no letter or digit before it and a digit after.
+        assert_eq!(wrapped("ab -5000000", 8), ["ab", "-5000000"]);
+        assert_eq!(wrapped("ab -5000000", 6), ["ab", "-50000", "00"]);
+        assert_eq!(wrapped("ab (-5000000", 10), ["ab", "(-5000000"]);
+        assert_eq!(wrapped("ab --5000", 5), ["ab -", "-5000"]);
+        assert_eq!(wrapped("ab --5000", 4), ["ab -", "-500", "0"]);
+        assert_eq!(wrapped("ab x-5000000", 8), ["ab x-", "5000000"]);
+        // Not before a character a line cannot start with.
+        assert_eq!(wrapped("ab abc-,defg", 8), ["ab", "abc-,def", "g"]);
+        assert_eq!(wrapped("ab abc-)defg", 8), ["ab", "abc-)def", "g"]);
+        // Before a character other than ASCII, where Chrome breaks through ICU: not before a
+        // quote or another script's digit, nor after a minus sign (no ASCII letter or digit
+        // before the `-`).
+        assert_eq!(
+            wrapped("the loaves for the morning shift: café-12", 40),
+            ["the loaves for the morning shift:", "café-12"]
+        );
+        assert_eq!(
+            wrapped("the loaves for the morning are non-“standard” today", 40),
+            ["the loaves for the morning are", "non-“standard” today"]
+        );
+        assert_eq!(wrapped("ab aé-5000000", 8), ["ab", "aé-50000", "00"]);
+        assert_eq!(wrapped("ab abc-٣٣", 8), ["ab", "abc-٣٣"]);
+        assert_eq!(wrapped("ab x-éabcdef", 8), ["ab x-", "éabcdef"]);
+        assert_eq!(wrapped("ab abc-ーdefg", 8), ["ab abc-", "ーdefg"]);
+        assert_eq!(wrapped("ab abc-·defg", 8), ["ab abc-", "·defg"]);
+        // Nor after a `-` that starts the word, before one.
+        assert_eq!(wrapped("ab -éabcdefg", 8), ["ab", "-éabcdef", "g"]);
+        assert_eq!(wrapped("ab -½00000", 9), ["ab", "-½00000"]);
+        // A word with breaks starts after a line's indent only when its first piece fits
+        // there; else the indent keeps its line, as the copy's does, and so does a path's.
+        assert_eq!(wrapped("    ab-cdefgh", 8), ["    ab-", "cdefgh"]);
+        let indent = " ".repeat(38);
+        assert_eq!(
+            wrapped(&format!("{indent}rye-bread"), 40),
+            [indent.as_str(), "rye-bread"]
+        );
+        let indent = " ".repeat(36);
+        let path = "assets/icons/bookmarks/outline.svg";
+        assert_eq!(
+            wrapped(&format!("{indent}{path}"), 40),
+            [indent.as_str(), path]
+        );
+        // The owner's mention after a `-` stays marked on its own line.
+        let p = message_pieces("ab x-@manager ok", 8);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("ab x-", vec![]),
+                ("@manager", vec![(0, 8)]),
+                ("ok", vec![])
+            ]
+        );
+    }
+
+    #[test]
+    fn a_word_breaks_after_a_question_mark_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // A word with a `?` starts where the line is and breaks after it, as Chrome breaks
+        // the copy's body; a piece that then does not fit goes to the next line.
+        assert_eq!(wrapped("ab abc?defg", 8), ["ab abc?", "defg"]);
+        assert_eq!(wrapped("ab abc?defg", 6), ["ab", "abc?", "defg"]);
+        assert_eq!(wrapped("ab what?why", 8), ["ab what?", "why"]);
+        assert_eq!(
+            wrapped("see search?q=rye&page=2 for the loaves", 16),
+            ["see search?", "q=rye&page=2 for", "the loaves"]
+        );
+        assert_eq!(
+            wrapped(
+                "did the proof rise?the dough doubled overnight?the oven is hot?bake it now",
+                24
+            ),
+            [
+                "did the proof rise?the",
+                "dough doubled overnight?",
+                "the oven is hot?bake it",
+                "now"
+            ]
+        );
+        // Before a digit, a `(`, and a `$` (which a `-` does not break before); beside a `-`;
+        // and at a word's start.
+        assert_eq!(wrapped("ab x?5000000", 8), ["ab x?", "5000000"]);
+        assert_eq!(wrapped("ab abc?$500", 8), ["ab abc?", "$500"]);
+        assert_eq!(wrapped("ab abc?(defg)", 8), ["ab abc?", "(defg)"]);
+        assert_eq!(wrapped("ab abc?-defg", 7), ["ab abc?", "-defg"]);
+        assert_eq!(wrapped("ab abc-?defg", 8), ["ab abc-?", "defg"]);
+        assert_eq!(wrapped("ab ?defg", 4), ["ab ?", "defg"]);
+        // A run of `?` keeps together and breaks after its last.
+        assert_eq!(wrapped("ab abc??defg", 8), ["ab abc??", "defg"]);
+        assert_eq!(wrapped("ab ???", 4), ["ab", "???"]);
+        // Not before a character a line cannot start with after a `?`, nor before a quote,
+        // nor after a `?` that ends the word.
+        for t in [
+            "ab abc?!defg",
+            "ab abc?)defg",
+            "ab abc?/defg",
+            "ab abc?\"defg\"",
+        ] {
+            let (head, tail) = t[3..].split_at(8);
+            assert_eq!(wrapped(t, 8), ["ab", head, tail], "{t}");
+        }
+        assert_eq!(wrapped("ab abc?'defg'", 8), ["ab", "abc?'def", "g'"]);
+        assert_eq!(wrapped("ab abc?“defg”", 8), ["ab", "abc?“def", "g”"]);
+        assert_eq!(wrapped("ab defg?", 6), ["ab", "defg?"]);
+        // Beside another script as before, where Chrome breaks through ICU; and after a `?`
+        // that follows an ideograph, before an ASCII letter.
+        assert_eq!(wrapped("ab abc?édefg", 8), ["ab abc?", "édefg"]);
+        assert_eq!(wrapped("ab abc?中文字", 8), ["ab abc?", "中文字"]);
+        assert_eq!(wrapped("ab 中?abcdefg", 8), ["ab 中?", "abcdefg"]);
+        // A path ends at a `?`, which breaks from what follows; an indent stays.
+        assert_eq!(
+            wrapped("ab assets/icons/bookmarks/outline.svg?v=2 ok", 12),
+            [
+                "ab assets/",
+                "icons/",
+                "bookmarks/",
+                "outline.svg?",
+                "v=2 ok"
+            ]
+        );
+        assert_eq!(wrapped("    abc?defghij", 8), ["    abc?", "defghij"]);
+        // The owner's mention after a `?` stays marked on its own line.
+        let p = message_pieces("ab x?@manager ok", 8);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("ab x?", vec![]),
+                ("@manager", vec![(0, 8)]),
+                ("ok", vec![])
+            ]
+        );
+    }
+
+    #[test]
+    fn the_owners_mention_after_a_hung_ideographic_space_stays_marked() {
+        // The U+3000 at the first line's end hangs past it, left off the line, and the
+        // mention after it is marked where it is drawn.
+        let p = message_pieces("確認です　@manager ok", 8);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("確認です", vec![]),
+                ("@manager", vec![(0, 8)]),
+                ("ok", vec![])
+            ]
+        );
+    }
+
+    #[test]
+    fn cjk_text_breaks_between_its_characters_where_the_copy_does() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // Between two ideographs, after a run of spaces or one, as Chrome breaks the copy's
+        // body.
+        assert_eq!(wrapped("ab  中文字", 6), ["ab  中", "文字"]);
+        assert_eq!(wrapped("ab 中文字", 6), ["ab 中", "文字"]);
+        // A run too wide for any line fills the line it starts on.
+        let run = "中".repeat(50);
+        assert_eq!(
+            wrapped(&format!("ab {run}"), 40),
+            [
+                format!("ab {}", "中".repeat(18)),
+                "中".repeat(20),
+                "中".repeat(12)
+            ]
+        );
+        // Between an ideograph and a letter, kana and hangul too.
+        assert_eq!(
+            wrapped(
+                "rebased the branch onto master: テストは全部通りました、問題ありません",
+                40
+            ),
+            [
+                "rebased the branch onto master: テストは",
+                "全部通りました、問題ありません"
+            ]
+        );
+        assert_eq!(
+            wrapped("今日はパンを焼きました。明日はケーキを作る予定です。", 20),
+            [
+                "今日はパンを焼きまし",
+                "た。明日はケーキを作",
+                "る予定です。"
+            ]
+        );
+        assert_eq!(
+            wrapped(
+                "오늘 아침에 빵을 세 개 구웠습니다. 내일은 케이크를 만들 예정입니다.",
+                14
+            ),
+            [
+                "오늘 아침에 빵",
+                "을 세 개 구웠",
+                "습니다. 내일은",
+                "케이크를 만들",
+                "예정입니다."
+            ]
+        );
+        // Not before a closing mark nor after an opening one.
+        assert_eq!(wrapped("中文。字字", 4), ["中", "文。", "字字"]);
+        assert_eq!(wrapped("「中文」字", 4), ["「中", "文」", "字"]);
+        assert_eq!(wrapped("中（中）中", 6), ["中", "（中）", "中"]);
+        // A `ー` may start a line, as CSS `line-break: auto` lets it.
+        assert_eq!(wrapped("テスト・ケース", 6), ["テス", "ト・ケ", "ース"]);
+        // A curly quote breaks from an ideograph on its outer side (UAX #14's LB19a).
+        assert_eq!(wrapped("ab 中“文”中", 5), ["ab 中", "“文”", "中"]);
+        assert_eq!(wrapped("ab 中“文”中", 9), ["ab 中“文”", "中"]);
+        // After a `-` that starts the word, before an ideograph but not before a letter,
+        // nor after a `‐` before one (LB20a).
+        assert_eq!(wrapped("ab -中文字中文字", 8), ["ab -中文", "字中文字"]);
+        assert_eq!(wrapped("ab ‐éabc", 6), ["ab", "‐éabc"]);
+        // A word with no break of its own after an ideograph starts on a line of its own.
+        let hash = "0123456789abcdef0123456789abcdef0123456789";
+        assert_eq!(
+            wrapped(&format!("ab 中{hash}"), 40),
+            ["ab 中", &hash[..40], &hash[40..]]
+        );
+        // After a `…`, which Chrome also breaks through ICU.
+        assert_eq!(wrapped("ab abc…defg", 8), ["ab abc…", "defg"]);
+    }
+
+    #[test]
+    fn a_path_joined_to_cjk_text_breaks_after_a_slash_and_the_text_around_it_as_any_other() {
+        let wrapped = |t: &str, w: usize| -> Vec<String> {
+            (wrap_message_line(t, w).into_iter())
+                .map(|(p, link)| {
+                    assert_eq!(link, None);
+                    p
+                })
+                .collect()
+        };
+        // The copy marks only the path inside the word, so the text before and after it
+        // breaks between its characters, and never before a closing mark.
+        assert_eq!(
+            wrapped(
+                "ログは/var/log/tower/output.logに書いてあるので原因を調べます。明日また報告します。",
+                40
+            ),
+            [
+                "ログは/var/log/tower/output.logに書いて",
+                "あるので原因を調べます。明日また報告しま",
+                "す。"
+            ]
+        );
+        assert_eq!(
+            wrapped(
+                "日志在/opt/tower/var/log/tower.log里面，请看第三行和第四行，然后告诉我结果。",
+                25
+            ),
+            [
+                "日志在/opt/tower/var/log/",
+                "tower.log里面，请看第三行",
+                "和第四行，然后告诉我结",
+                "果。"
+            ]
+        );
+        // A path under 16 characters is no path to the copy: it does not break after a `/`.
+        assert_eq!(
+            wrapped(
+                "テストはsrc/ui/chat.rsに追加しました。レビューをお願いします。",
+                40
+            ),
+            [
+                "テストはsrc/ui/chat.rsに追加しました。レ",
+                "ビューをお願いします。"
             ]
         );
     }
@@ -1869,7 +2436,7 @@ mod tests {
         let rows = plan(&m, 0, 100, shape(&open, 30, people));
         assert!(
             rows.iter()
-                .any(|r| matches!(r, Row::Failure { open: true, .. }))
+                .any(|r| matches!(r, Row::Failure { link, .. } if link == "hide details"))
         );
         assert!(rows.iter().any(|r| r.toggles() == Some(0)));
         let ctx = Ctx {
@@ -1885,5 +2452,325 @@ mod tests {
             .collect();
         assert!(all.contains("hide details"), "{all}");
         assert!(all.contains("tower task unassign 1"), "{all}");
+    }
+
+    #[test]
+    fn an_open_failures_details_keep_a_lines_indent_and_runs_of_spaces() {
+        let text = "@manager could not deliver to 2 recipients; their posts stay on the \
+                    board:\n- qa-1:  pane   closed\n    exit  1, see the watch's log\n- dev-4: \
+                    herdr has no agent named dev-4     twice";
+        let m = msgs(&[("system", text, 0)]);
+        let open = BTreeSet::from([1]);
+        // 44 wide: the details take the events' 40 columns.
+        let rows = plan(&m, 0, 44, shape(&open, 30, People::default()));
+        let got: Vec<&str> = (rows.iter())
+            .filter_map(|r| match r {
+                Row::Detail { piece, .. } => Some(piece.as_str()),
+                _ => None,
+            })
+            .collect();
+        // As the copy's pre-wrap details: each line's indent and runs stay, and a line that
+        // breaks at a run drops it, so the next line starts with its word.
+        assert_eq!(
+            got,
+            [
+                "@manager could not deliver to 2",
+                "recipients; their posts stay on the",
+                "board:",
+                "- qa-1:  pane   closed",
+                "    exit  1, see the watch's log",
+                "- dev-4: herdr has no agent named dev-4",
+                "twice",
+            ]
+        );
+    }
+
+    /// An open failure drawn `w` wide: its line, then its details as drawn.
+    fn opened(text: &str, w: usize) -> (String, Vec<String>) {
+        let m = msgs(&[("system", text, 0)]);
+        let open = BTreeSet::from([1]);
+        let rows = plan(&m, 0, w, shape(&open, 30, People::default()));
+        let ctx = Ctx {
+            msgs: &m,
+            people: People::default(),
+            now: 30,
+            depth: Depth::Ansi256,
+            selected: None,
+        };
+        let drawn: Vec<String> = (lines(&rows, w, &ctx).iter())
+            .map(|l| l.to_string().trim_end().to_string())
+            .collect();
+        let at = (drawn.iter())
+            .position(|l| l.contains("· hide details"))
+            .unwrap_or_else(|| panic!("{drawn:#?}"));
+        let details = drawn[at + 1..].iter().take_while(|l| !l.is_empty());
+        (drawn[at].clone(), details.cloned().collect())
+    }
+
+    /// The column a drawn line's text starts at.
+    fn start(line: &str) -> usize {
+        line.chars().take_while(|&c| c == ' ').count()
+    }
+
+    #[test]
+    fn an_open_failures_details_sit_left_aligned_in_its_centred_event_box() {
+        // Narrower than the failure's line (38 wide): the box fits that line, so the details
+        // start where it does.
+        let (line, details) = opened("@manager could not deliver to qa-1: x", 105);
+        assert_eq!(line.trim(), "delivery failed to qa-1 · hide details");
+        assert_eq!((start(&line), details.len()), (33, 1));
+        assert_eq!(start(&details[0]), 33);
+        assert_eq!(details[0].trim(), "@manager could not deliver to qa-1: x");
+        // A line's trailing spaces widen the box, as the copy's pre-wrap shrink-to-fit counts
+        // them: 41 columns and 20 spaces make it 61 wide (22.0 in headless Chrome), though the
+        // drawn line drops them.
+        let text = format!(
+            "@manager could not deliver to qa-1: gone.{}\n- exit 1",
+            " ".repeat(20)
+        );
+        let (_, details) = opened(&text, 105);
+        assert_eq!(
+            details,
+            [
+                format!(
+                    "{}@manager could not deliver to qa-1: gone.",
+                    " ".repeat(22)
+                ),
+                format!("{}- exit 1", " ".repeat(22))
+            ]
+        );
+        // A wider line of the text sets the box: 73 columns, centred, every line from its
+        // left edge, an indented one keeping its indent there.
+        let text = "@manager could not deliver to 1 recipient; their posts stay on the board:\n\
+                    - qa-1: pane closed\n  exit 1";
+        let (_, details) = opened(text, 105);
+        let starts: Vec<usize> = details.iter().map(|d| start(d)).collect();
+        assert_eq!(starts, [16, 16, 18], "{details:#?}");
+        assert_eq!(details[0].chars().count(), 16 + 73);
+        // Wider than EVENT_MAX: the box takes its 80 columns, centred, and the text wraps there.
+        let long = format!("@manager could not deliver to qa-1: {}", "word ".repeat(30));
+        let (_, details) = opened(long.trim_end(), 160);
+        assert!(details.len() > 1, "{details:#?}");
+        for d in &details {
+            assert_eq!(start(d), 40, "{details:#?}");
+            assert!(d.chars().count() - 40 <= EVENT_MAX, "{details:#?}");
+        }
+        assert_eq!(details[0].chars().count(), 40 + EVENT_MAX, "{details:#?}");
+        // In a narrow chat the box is the events' width, two columns in from each edge.
+        let (_, details) = opened(long.trim_end(), 44);
+        assert!(details.iter().all(|d| start(d) == 2), "{details:#?}");
+        assert!(
+            details.iter().all(|d| d.chars().count() <= 42),
+            "{details:#?}"
+        );
+    }
+
+    #[test]
+    fn the_left_herdr_flags_details_sit_in_the_same_box() {
+        let text = "@kids-lead #1 is in progress but its worker dev-1 is gone from herdr (no \
+                    live agent by that name); if it was closed: tower task unassign 1, or set \
+                    the next worker.";
+        // One line wider than EVENT_MAX: the box takes its 80 columns, centred in the 120.
+        let (line, details) = opened(text, 120);
+        assert_eq!(line.trim(), "dev-1 left herdr while on #1 · hide details");
+        assert!(details.len() > 1, "{details:#?}");
+        assert!(details.iter().all(|d| start(d) == 20), "{details:#?}");
+    }
+
+    /// The failure `text`'s line drawn, `open` or shut, in a chat `ew + 4` wide, whose
+    /// events take `ew` columns: each of its lines with the column it starts at.
+    fn failure_lines(text: &str, open: bool, ew: usize) -> Vec<(usize, String)> {
+        let w = ew + 4;
+        let m = msgs(&[("system", text, 0)]);
+        let shown = if open {
+            BTreeSet::from([1])
+        } else {
+            BTreeSet::new()
+        };
+        let rows = plan(&m, 0, w, shape(&shown, 30, People::default()));
+        let ctx = Ctx {
+            msgs: &m,
+            people: People::default(),
+            now: 30,
+            depth: Depth::Ansi256,
+            selected: None,
+        };
+        (rows.iter())
+            .filter(|r| matches!(r, Row::Failure { .. }))
+            .map(|r| line(r, w, &ctx).to_string())
+            .map(|l| (start(&l), l.trim().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn an_events_or_an_acks_word_too_wide_for_a_line_ends_its_last_line() {
+        // The copy's `.evt` and `.ack` leave `overflow-wrap` normal: Chrome lets a word too
+        // wide for a line overflow it and starts what follows on the next line. Here the
+        // word breaks where its lines end, and the next word starts a line of its own.
+        let none = BTreeSet::new();
+        let rows = |m: &[Message], w: usize| plan(m, 0, w, shape(&none, 60, People::default()));
+        let events = |m: &[Message], w: usize| -> Vec<String> {
+            (rows(m, w).into_iter())
+                .filter_map(|r| match r {
+                    Row::Event { piece, .. } => Some(piece),
+                    _ => None,
+                })
+                .collect()
+        };
+        // An event 8 columns wide, in a chat of 12.
+        let m = msgs(&[("system", "ab abcdefghij cd", 0)]);
+        assert_eq!(events(&m, 12), ["ab", "abcdefgh", "ij", "cd"]);
+        // A tagged one: its first line at what the tag leaves, the rest at 20, in a chat of 24.
+        let m = msgs(&[("system", "decision: ab a1b2c3d4e5f6a7b8c9d0e1f2 cd", 0)]);
+        assert_eq!(
+            events(&m, 24),
+            ["decision:", "ab", "a1b2c3d4e5f6a7b8c9d0", "e1f2", "cd"]
+        );
+        // An ack under a bubble 34 wide, in a chat of 40: 25 columns for its words. Posted in
+        // the same minute as the message, so no hour line parts them.
+        let m = msgs(&[
+            ("dev-1", "Report", 0),
+            ("qa", "copy a1b2c3d4e5f6a7b8c9d0e1f2a3 ok", 0),
+        ]);
+        let acks: Vec<String> = (rows(&m, 40).into_iter())
+            .filter_map(|r| match r {
+                Row::Ack { piece, .. } => Some(piece),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(acks, ["↳ qa: copy", "a1b2c3d4e5f6a7b8c9d0e1f2a", "3", "ok"]);
+    }
+
+    #[test]
+    fn a_failures_line_wraps_where_the_copys_event_box_does() {
+        let failed = "@manager could not deliver to 3 recipients; their posts stay on the \
+                      board:\n- qa-1: gone\n- dev-2: gone\n- dev-3: gone";
+        let left = "@kids-lead #1 is in progress but its worker dev-1 is gone from herdr (no \
+                    live agent by that name); if it was closed: tower task unassign 1, or set \
+                    the next worker.";
+        let named = "@manager could not deliver to senior-reviewer-2: gone. Its posts stay on \
+                     the board.";
+        let hashed = "@manager could not deliver to a1b2c3d4e5f6a7b8c9d0e1f2: gone. Its posts \
+                      stay on the board.";
+        // Where headless Chrome breaks the copy's `.evt` line in a box `ew` ch wide: its words
+        // as an event's, and its link whole, ending the last line when it fits there.
+        let cases: [(&str, bool, usize, &[&str]); 12] = [
+            (
+                failed,
+                false,
+                26,
+                &["delivery failed to 3", "recipients · details"],
+            ),
+            (
+                failed,
+                false,
+                36,
+                &["delivery failed to 3 recipients ·", "details"],
+            ),
+            (
+                failed,
+                true,
+                24,
+                &["delivery failed to 3", "recipients ·", "hide details"],
+            ),
+            (
+                failed,
+                true,
+                25,
+                &["delivery failed to 3", "recipients · hide details"],
+            ),
+            (
+                failed,
+                true,
+                31,
+                &["delivery failed to 3 recipients", "· hide details"],
+            ),
+            (
+                failed,
+                true,
+                47,
+                &["delivery failed to 3 recipients · hide details"],
+            ),
+            (
+                left,
+                false,
+                14,
+                &["dev-1 left", "herdr while on", "#1 · details"],
+            ),
+            (
+                left,
+                false,
+                28,
+                &["dev-1 left herdr while on #1", "· details"],
+            ),
+            // A name breaks after a `-`.
+            (
+                named,
+                false,
+                27,
+                &["delivery failed to senior-", "reviewer-2 · details"],
+            ),
+            (
+                named,
+                false,
+                14,
+                &[
+                    "delivery",
+                    "failed to",
+                    "senior-",
+                    "reviewer-2 ·",
+                    "details",
+                ],
+            ),
+            // A name too wide for a line starts on a line of its own; Chrome lets it overflow
+            // that line and starts what follows on the next, so it breaks where its lines end
+            // and the next line starts after it.
+            (
+                hashed,
+                false,
+                14,
+                &[
+                    "delivery",
+                    "failed to",
+                    "a1b2c3d4e5f6a7",
+                    "b8c9d0e1f2",
+                    "· details",
+                ],
+            ),
+            // A link wider than a line breaks inside too.
+            (
+                failed,
+                true,
+                11,
+                &[
+                    "delivery",
+                    "failed to 3",
+                    "recipients",
+                    "·",
+                    "hide",
+                    "details",
+                ],
+            ),
+        ];
+        for (text, open, ew, want) in cases {
+            let got = failure_lines(text, open, ew);
+            let said: Vec<&str> = got.iter().map(|(_, l)| l.as_str()).collect();
+            assert_eq!(said, want, "{ew} wide, open {open}");
+            // Each line centred in the chat, as the copy's `text-align: center` puts it.
+            for (at, l) in &got {
+                assert_eq!(*at, (ew + 4 - l.width()) / 2, "{l:?}, {ew} wide");
+            }
+        }
+        // Every line of it opens and folds it; only its first starts it, for the keys.
+        let m = msgs(&[("system", failed, 0)]);
+        let none = BTreeSet::new();
+        let rows = plan(&m, 0, 30, shape(&none, 30, People::default()));
+        let failure: Vec<&Row> = (rows.iter())
+            .filter(|r| matches!(r, Row::Failure { .. }))
+            .collect();
+        assert_eq!(failure.len(), 2, "{rows:#?}");
+        assert!(failure.iter().all(|r| r.toggles() == Some(0)), "{rows:#?}");
+        let starts: Vec<Option<usize>> = failure.iter().map(|r| r.starts()).collect();
+        assert_eq!(starts, [Some(0), None]);
     }
 }

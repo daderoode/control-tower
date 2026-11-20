@@ -14,9 +14,9 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use super::chat::event_text;
-use super::message_board::{highlight, pill, status_style};
+use super::message_board::{fold_spaces, highlight, pill, status_style};
 use super::theme::{Depth, bad, bold, dim, fit, ok};
-use crate::board::{Message, Talk, Thread, ThreadStatus, age, is_tower};
+use crate::board::{Message, Talk, Thread, ThreadStatus, Tone, age, is_tower};
 use crate::inbox::Alert;
 
 /// The widest an age gets: "999d".
@@ -87,9 +87,10 @@ pub fn stands(
     w: usize,
     depth: Depth,
 ) -> Option<Line<'static>> {
-    let (who, text) = talk.stands(t)?;
+    let (who, text, tone) = talk.stands(t)?;
     let mut s = vec![Span::styled(lead_in.to_string(), dim(depth))];
-    // Tower's own word reads as the chat's quiet line does, with no "system:" label.
+    // Tower's own word in the chat's words for it, with no "system:" label, and in the text
+    // colour as a person's plain words: only the lead-in is dim.
     if is_tower(&who) {
         let m = Message {
             id: 0,
@@ -98,8 +99,9 @@ pub fn stands(
             at: 0,
         };
         let said = event_text(&m, talk.lead);
-        let first = said.lines().next().unwrap_or_default().to_string();
-        s.push(Span::styled(first, dim(depth)));
+        // Its spaces folded, as the copy's `nowrap` line draws its event text.
+        let first = fold_spaces(said.lines().next().unwrap_or_default());
+        s.push(Span::raw(first));
         return Some(fit(s, w));
     }
     if !who.is_empty() {
@@ -107,7 +109,10 @@ pub fn stands(
         s.push(Span::styled(who, Style::new().fg(colour)));
         s.push(Span::raw(": "));
     }
-    s.extend(highlight(&text, true, false, depth));
+    // Its spaces folded, as the copy's `nowrap` line draws them; a leading tag toned as in
+    // its bubble, by the whole message's tone.
+    let awareness = tone == Tone::Awareness;
+    s.extend(highlight(&fold_spaces(&text), true, awareness, depth));
     Some(fit(s, w))
 }
 
@@ -189,8 +194,9 @@ fn need_line(talk: &Talk, a: &Alert, w: usize, now: i64, depth: Depth) -> Line<'
         Span::styled(m.author.clone(), bold().fg(colour)),
         Span::raw(" "),
     ];
-    let first = m.text.lines().next().unwrap_or_default();
-    left.extend(highlight(first, true, false, depth));
+    // Its spaces folded, as the copy's `nowrap` row draws them.
+    let first = fold_spaces(m.text.lines().next().unwrap_or_default());
+    left.extend(highlight(&first, true, false, depth));
     // The thread's name gives way before the question does, down to a third of the line.
     let right = fit(
         vec![Span::styled(right.clone(), dim(depth))],
