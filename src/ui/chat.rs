@@ -2921,6 +2921,62 @@ mod tests {
     }
 
     #[test]
+    fn an_ack_starts_its_next_line_with_the_run_of_ideographic_spaces_it_carries() {
+        // As headless Chrome draws the copy's `.ack` 36 wide: a word that is only a U+3000,
+        // after a space, does not end the first line, but starts the next with the word
+        // after it, under the owner's bubble (at the right, each line ending at the edge)
+        // and under anyone else's (at the left). Chrome's lines: "↳ dev-7: ok ab あああああ
+        // ああああ" / "　 いいいい · 1m". The bubble 38 wide in a chat of 45, its ack's
+        // lines 36.
+        let none = BTreeSet::new();
+        let text = "ok ab あああああああああ 　 いいいい";
+        for (author, owner) in [("manager", true), ("qa-2", false)] {
+            let m = msgs(&[(author, "go ahead", 0), ("dev-7", text, 60)]);
+            let rows = plan(&m, 0, 45, shape(&none, 120, People::default()));
+            let ctx = Ctx {
+                msgs: &m,
+                people: People::default(),
+                now: 120,
+                depth: Depth::Ansi256,
+                selected: None,
+            };
+            let got: Vec<(usize, String)> = (rows.iter())
+                .filter(|r| matches!(r, Row::Ack { .. }))
+                .map(|r| line(r, 45, &ctx).to_string())
+                .map(|l| (start(&l), l.trim_matches(' ').to_string()))
+                .collect();
+            let (first, second) = if owner { (10, 27) } else { (3, 3) };
+            assert_eq!(
+                got,
+                [
+                    (first, "↳ dev-7: ok ab あああああああああ".into()),
+                    (second, "　 いいいい · 1m".into())
+                ],
+                "under {author}'s bubble"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tagged_events_rest_keeps_every_run_of_a_chain_its_first_line_carries() {
+        // A chain of words that are only U+3000s, after the first piece: the rest starts
+        // with the whole chain, wrapped at its own width as an untagged event's lines are
+        // (`wrap_event_line`), so no run is lost where the first piece's lines left one alone
+        // on a line.
+        let texts = |text: &str, first: usize, w: usize| -> Vec<String> {
+            (pieces(text, first, w).into_iter())
+                .map(|(s, _)| s)
+                .collect()
+        };
+        assert_eq!(
+            wrap_event_line("ab 　 　 cd ef", 6),
+            ["ab", "　", "　 cd", "ef"]
+        );
+        assert_eq!(texts("ab 　 　 cd ef", 6, 20), ["ab", "　 　 cd ef"]);
+        assert_eq!(texts("ab 　 　 cd ef", 6, 7), ["ab", "　", "　 cd", "ef"]);
+    }
+
+    #[test]
     fn an_events_or_an_acks_word_too_wide_for_a_line_ends_its_last_line() {
         // The copy's `.evt` and `.ack` leave `overflow-wrap` normal: Chrome lets a word too
         // wide for a line overflow it and starts what follows on the next line. Here the

@@ -72,6 +72,13 @@ tag's date, and a new empty Unreleased goes above it.
   fewer, PgUp or PgDn across the gap between its sections could leave only the selected
   item's second line in view. Paging there now goes on to the nearest item's first line, and
   the selection to an item whose first line shows; the wheel still scrolls freely (#44).
+- **Every run of a chain of ideographic spaces stays where the UI design draws it.** In a
+  title, goal, thread name, event, ack or inbox row, words that are only full-width spaces
+  (U+3000), one after another, lost their second and later runs where they started a
+  line, as in `build` / `　` / `a1b2c3... ok`. Where the design carries those runs to the
+  next line with the word after them, they now start that line too, `build` / `　` /
+  `　 a1b2c3...` / `ok`, and a tree title's second line keeps them; where the design hangs
+  them past the line's end, they still hang (#82).
 
 ## [0.5.0] - 2026-11-20
 
