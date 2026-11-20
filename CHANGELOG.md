@@ -16,8 +16,8 @@ tag's date, and a new empty Unreleased goes above it.
   the gap between the sections, or an item's second line) while Enter still opened the
   selected item's thread and `r` marked it read. There nothing is highlighted now, the keys
   line leaves Enter and `r` out, and both do nothing until the arrows or the wheel bring an
-  item back; the wheel still scrolls three lines. A short inbox with nothing in NEED YOU also
-  opens on its first item, where it opened on the section heads (#61).
+  item back; the wheel still scrolls three lines. A short inbox also opens with its selected
+  item in view, where it could open on its section heads alone (#61).
 - **An inbox delivery failure wraps onto two lines.** An inbox row for a delivery failure,
   "@manager delivery failed to X", stayed one line cut at the row's edge. It now wraps at
   its words onto a second line and ends in "…" there when it goes on, as the UI design's

@@ -10182,6 +10182,30 @@ fn a_short_inbox_with_nothing_in_need_you_opens_on_its_first_item() {
     }
 }
 
+/// A list of 1 line shows only row 0 at scroll 0, and row 0 is always the NEED YOU head, so
+/// even with items in NEED YOU the inbox opens scrolled to its first item, selected and lit,
+/// and Enter opens that item's thread.
+#[test]
+fn a_one_line_inbox_opens_on_its_first_need_you_item() {
+    let view: View = Ok(alerts_fixture());
+    let board = view.as_ref().unwrap();
+    let a = area(40, 2);
+    let mut dash = inbox_dash(&view, a);
+    let ib = layout(&view, &dash, a).inbox.unwrap();
+    assert_eq!(ib.list.height, 1);
+    assert_eq!(ib.rows[..3], [None, Some(402), Some(402)], "{:?}", ib.rows);
+    assert_eq!(dash.inbox_selected(board), Some(402));
+    assert_eq!(dash.inbox_scroll(), 1, "{:#?}", screen(&view, &dash, a));
+    let buf = render_dash(&view, &dash, a.width, a.height, Depth::TrueColor);
+    assert_eq!(buf[(1, ib.list.y)].bg, selected_bg(Depth::TrueColor));
+    let thread = (board.inbox.all())
+        .find(|i| i.message.id == 402)
+        .unwrap()
+        .thread;
+    dash.handle(&view, a, Input::Enter);
+    assert_eq!(dash.board_thread_wanted(), Some(thread));
+}
+
 #[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();
