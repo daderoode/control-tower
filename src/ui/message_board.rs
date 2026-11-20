@@ -644,6 +644,16 @@ pub(crate) fn wrap_event_line(text: &str, w: usize) -> Vec<String> {
     wrap_line_by(&fold_spaces(text), w, Wrap::Event)
 }
 
+/// Whether `text`'s last line, as `wrap_event_line` wraps it `w` wide, ends with a piece of
+/// a word too wide for any line, as a long hash's last does: the copy lets that piece
+/// overflow its line, so what follows the text there, such as an ack's age, starts the next.
+pub(crate) fn event_line_overflows(text: &str, w: usize) -> bool {
+    let text = fold_spaces(text);
+    let word = text.rsplit(' ').next().unwrap_or_default();
+    let pieces = own_breaks(word, Wrap::Event).unwrap_or_else(|| vec![word]);
+    pieces.last().is_some_and(|p| hang(p).0.width() > w.max(1))
+}
+
 /// `text` with its spaces folded as the copy's normal and `nowrap` text folds them: its
 /// leading and trailing ones dropped and each run between words one.
 pub(crate) fn fold_spaces(text: &str) -> String {
