@@ -221,7 +221,7 @@ pub fn layout(view: &View, dash: &Dash, area: Rect) -> Layout {
         let rw = usize::from(r.width);
         match (dash.shown(board), overview_of(board, sel)) {
             (ViewKind::Overview, Some((ov, talk, task))) => {
-                let limits = Limits::of(dash.mode, dash.board_shown(sel));
+                let limits = Limits::of(dash.mode, dash.board_shown(sel), dash.minute());
                 let mut o = match ov {
                     Over::Repo(r) => repo_overview_layout(board, r, rw),
                     Over::Done(r) => super::overview::done_overview_layout(board, r, rw),
@@ -250,7 +250,7 @@ pub fn layout(view: &View, dash: &Dash, area: Rect) -> Layout {
             }
             (ViewKind::Overview, None) => {}
             (kind, _) => {
-                detail = detail_layout(board, kind, sel, rw, dash.board_shown(sel));
+                detail = detail_layout(board, kind, sel, rw, dash.board_shown(sel), dash.minute());
                 threads = (detail.as_ref())
                     .map(|d| d.threads.clone())
                     .unwrap_or_default();

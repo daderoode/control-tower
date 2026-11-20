@@ -34,8 +34,8 @@
                         │ │  ▌ grid. Please test          │ 
                         │ │  ▌ read more                  │ 
                         │ │    ↳ senior: copy,            │ 
-                        │ │      reviewing the            │ 
-                        │ │      layout · 10m             │ 
+                        │ │    reviewing the layout ·     │ 
+                        │ │    10m                        │ 
                         │ │                               │ 
                         │ │   qa · tester · 8m            │ 
                         │ │  ▌ copy, testing: phone       │ 

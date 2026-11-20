@@ -156,7 +156,7 @@ fn input_loop(
         let clock = now.format("%H:%M").to_string();
         terminal.draw(|f| {
             // Drawn as text, then the URLs the bubbles show made links.
-            let links = draw(f, &view, &dash, &clock, now.timestamp(), depth);
+            let links = draw(f, &view, &dash, &clock, depth);
             hyperlink(f.buffer_mut(), &links);
         })?;
         if !event::poll(TICK)? {

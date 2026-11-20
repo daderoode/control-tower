@@ -57,6 +57,17 @@ tag's date, and a new empty Unreleased goes above it.
   It now starts the next line with the word, as the UI design does; a run that is a word
   of its own goes with the word after it, and one after a word ending in U+3000 hangs past
   the line's end with that word's (#74).
+- **A wrapped ack fills each line, as the UI design does.** A wrapped ack kept room for
+  its ` · age` at the end of every line, so it broke earlier than the design's, as in
+  `↳ qa: copy,` / `testing the` / `thing now · 8m`. Its lines now fill to the ack's width,
+  `↳ qa: copy, testing` / `the thing now · 8m`, and a hash that fits a line is no longer
+  cut. Its age follows the last word where it fits; where only the `·` fits, the `·` ends
+  that line and the age starts the next, at the age's own width on the message board too,
+  where it had kept room for the widest age. An ack's lines after its first now start where
+  the first does, under the arrow, no longer two columns further in. Every age on the
+  dashboard now goes by its minute, as the full board's chat did, so a message shows one
+  age everywhere on the screen, where the alert line, the inbox and the full board's
+  thread list could say a minute more than its bubble (#75).
 
 ## [0.5.0] - 2026-11-20
 

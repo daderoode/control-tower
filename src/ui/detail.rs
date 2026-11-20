@@ -172,16 +172,17 @@ pub fn detail(
 }
 
 /// Where everything in the detail view `kind` goes, as `detail` draws it, without colours,
-/// its boards as the owner left them (`shown`). Ages never change the layout, so no time is
-/// needed.
+/// its boards as the owner left them (`shown`), at the clock `detail` draws it at (`now`):
+/// an ack lays its age out at its width as drawn.
 pub fn detail_layout(
     board: &Board,
     kind: ViewKind,
     sel: Item,
     w: usize,
     shown: Shown,
+    now: i64,
 ) -> Option<DetailLayout> {
-    build(board, kind, sel, w, shown, 0, Pen(None)).map(|d| d.layout)
+    build(board, kind, sel, w, shown, now, Pen(None)).map(|d| d.layout)
 }
 
 fn build(
@@ -243,7 +244,7 @@ pub fn task_detail(
 
 /// Adds the thread boxes of the board `m` for `task` (all of them with `None`), or why
 /// there are none, and returns where each box is. Without colours (a layout) any depth will
-/// do: the summary's height never depends on the depth or the time.
+/// do: the summary's height never depends on the depth.
 fn board_boxes(
     lines: &mut Vec<Line<'static>>,
     m: &Talk,
@@ -256,13 +257,12 @@ fn board_boxes(
     // `boxes` leaves out the summary's blank line and title, two lines.
     let at = lines.len();
     // A detail view shows the board as its own space does, in the popup too.
-    let limits = Limits::of(Mode::Space, shown);
+    let limits = Limits::of(Mode::Space, shown, now);
     lines.extend(message_board::boxes(
         m,
         task,
         w,
         limits,
-        now,
         pen.0.unwrap_or(Depth::Ansi256),
     ));
     let threads = (message_board::thread_rows(m, task, w, limits).into_iter())

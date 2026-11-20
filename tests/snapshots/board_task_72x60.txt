@@ -37,8 +37,8 @@
                               │ │  ▌ I have done the shelf            │ 
                               │ │  ▌ grid. Please test while I        │ 
                               │ │  ▌ do the ribbon.                   │ 
-                              │ │    ↳ senior: copy,                  │ 
-                              │ │      reviewing the layout · 10m     │ 
+                              │ │    ↳ senior: copy, reviewing        │ 
+                              │ │    the layout · 10m                 │ 
                               │ │                                     │ 
                               │ │   qa · tester · 8m                  │ 
                               │ │  ▌ copy, testing: phone and         │ 
