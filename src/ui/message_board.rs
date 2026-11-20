@@ -574,31 +574,53 @@ pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
 }
 
 /// `text` wrapped to `w` columns on at most `max` lines: past that, the last line carries
-/// the rest, for the caller to clamp (`clamp`) at the width it draws it. The rest is the
-/// text as written from where the lines before it end, so a word broken across lines stays
-/// whole.
+/// the rest (`rest_after`), for the caller to clamp (`clamp`) at the width it draws it.
 pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
     let max = max.max(1);
     let mut pieces = wrap_line(text, w);
     if pieces.len() > max {
+        let rest = rest_after(text, &pieces[..max - 1], &pieces[max - 1]).to_string();
         pieces.truncate(max - 1);
-        // The lines kept are the text's first words, what wrapping drops aside (`dropped`):
-        // skip as many characters.
-        let mut left: usize = (pieces.iter())
-            .map(|p| p.chars().filter(|c| !dropped(*c)).count())
-            .sum();
-        let at = (text.char_indices())
-            .find(|(_, c)| {
-                let past = left == 0;
-                if !dropped(*c) {
-                    left = left.saturating_sub(1);
-                }
-                past
-            })
-            .map_or(text.len(), |(i, _)| i);
-        pieces.push(text[at..].trim_start().to_string());
+        pieces.push(rest);
     }
     pieces
+}
+
+/// What of `text` comes after `kept`, the first lines its folded wrap gives, `next` the
+/// line after them: the text as written from where they end, so a word broken across lines
+/// stays whole, past what wrapping drops there (`dropped`) but the run of ideographic spaces
+/// `next` starts with (`carried`), so it starts as `next` does.
+pub(crate) fn rest_after<'a>(text: &'a str, kept: &[String], next: &str) -> &'a str {
+    let run = (next.chars())
+        .take_while(|c| dropped(*c))
+        .filter(|c| *c == IDEOGRAPHIC_SPACE)
+        .count();
+    // The lines kept are the text's first characters, what wrapping drops aside: skip as
+    // many.
+    let mut left: usize = (kept.iter())
+        .map(|p| p.chars().filter(|c| !dropped(*c)).count())
+        .sum();
+    let at = (text.char_indices())
+        .find(|(_, c)| {
+            let past = left == 0;
+            if !dropped(*c) {
+                left = left.saturating_sub(1);
+            }
+            past
+        })
+        .map_or(text.len(), |(i, _)| i);
+    // Then what wrapping drops before the next character, but the last `run` ideographic
+    // spaces of it.
+    let rest = text[at..].trim_start_matches(dropped);
+    let before = &text[at..text.len() - rest.len()];
+    let start = (run.checked_sub(1))
+        .and_then(|n| {
+            (before.char_indices())
+                .filter(|(_, c)| *c == IDEOGRAPHIC_SPACE)
+                .nth_back(n)
+        })
+        .map_or(before.len(), |(i, _)| i);
+    &text[at + start..]
 }
 
 /// `text` on at most `max` lines `w` wide, as the copy's `.clamp2` draws it: wrapped as
@@ -668,7 +690,7 @@ pub(crate) fn dropped(c: char) -> bool {
     c == ' ' || c == IDEOGRAPHIC_SPACE
 }
 
-const IDEOGRAPHIC_SPACE: char = '\u{3000}';
+pub(crate) const IDEOGRAPHIC_SPACE: char = '\u{3000}';
 
 /// `piece` as the part that must fit on a line and the run of ideographic spaces ending it,
 /// which the copy hangs past the line's end, as `pre-wrap` hangs a run of spaces, so the
@@ -694,6 +716,30 @@ fn put_hung(line: &mut String, out: &mut Vec<String>, hung: &str, w: usize) {
     } else {
         out.push(std::mem::take(line));
     }
+}
+
+/// The width of what the copy's folded text keeps on one line with a run of ideographic
+/// spaces starting `word`, a word after a space, `next` the words after it: the run and the
+/// first piece of the rest of the word (`own_breaks`). For a word that is only a run, that
+/// is the next word's, after a space, the runs of the words that are only runs counted on
+/// to the first with more. Chrome breaks after such a run at a line's start only, so after
+/// other text the run goes to the next line with that piece. 0 for a word not starting
+/// with a run.
+fn carried<'a>(word: &'a str, next: impl Iterator<Item = &'a str>, how: Wrap) -> usize {
+    if !word.starts_with(IDEOGRAPHIC_SPACE) {
+        return 0;
+    }
+    let mut width = 0;
+    let words = std::iter::once(word).chain(next.filter(|n| !n.is_empty()));
+    for (i, word) in words.enumerate() {
+        let rest = word.trim_start_matches(IDEOGRAPHIC_SPACE);
+        width += usize::from(i > 0) + word[..word.len() - rest.len()].width();
+        if !rest.is_empty() {
+            let first = own_breaks(rest, how).map_or(rest, |pieces| pieces[0]);
+            return width + hang(first).0.width();
+        }
+    }
+    width
 }
 
 /// `text` on lines at most `w` wide as the copy's message body breaks it (`Wrap::Body`).
@@ -964,7 +1010,9 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
 /// `pre_wrap` text, one starting a word after a space is part of the run before it, and one
-/// ending the text is drawn where it fits.
+/// ending the text is drawn where it fits. In folded text, one starting a word after a word
+/// ending with one is part of the run before it too; any other does not end a line after
+/// other text, but goes to the next with what follows it (`carried`).
 fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
@@ -981,16 +1029,21 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let mut run = String::new();
     // Whether a word is down yet, so a run before the next one is between words.
     let mut placed = false;
-    for word in body.split(' ') {
+    // Whether the word before ended with a run of ideographic spaces.
+    let mut after_run = false;
+    let mut words = body.split(' ');
+    while let Some(word) = words.next() {
         if word.is_empty() {
             run.push(' ');
             continue;
         }
         let after_text = line.bytes().any(|b| b != b' ');
+        let ends_run = word.ends_with(IDEOGRAPHIC_SPACE);
         // In `pre_wrap` text, after a word and a space, the run of ideographic spaces
         // starting the word goes with the run before it, also where the word before hung its
-        // own run and ended the line (`put_hung`).
-        let word = if how.pre_wrap() && placed {
+        // own run and ended the line (`put_hung`). Folded text does so after a word ending
+        // with such a run.
+        let word = if (how.pre_wrap() || after_run) && placed {
             let rest = word.trim_start_matches(IDEOGRAPHIC_SPACE);
             run.push_str(&word[..word.len() - rest.len()]);
             if rest.is_empty() {
@@ -1002,6 +1055,19 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             rest
         } else {
             word
+        };
+        after_run = ends_run;
+        // In folded text, any other run of ideographic spaces starting a word does not end a
+        // line after other text: the line breaks before it unless what the copy carries with
+        // it (`carried`) fits there too.
+        let after_text = if !how.pre_wrap()
+            && after_text
+            && line.width() + run.width() + carried(word, words.clone(), how) > w
+        {
+            out.push(std::mem::take(&mut line));
+            false
+        } else {
+            after_text
         };
         // No space between the indent and the first word, or at the start of a line.
         let gap = if after_text {
@@ -2063,6 +2129,75 @@ mod tests {
         assert_eq!(folded("ab cd 　ef", 4), ["ab", "cd", "　ef"]);
         assert_eq!(folded("ab cd 　ef", 5), ["ab cd", "　ef"]);
         assert_eq!(folded("ab 　　 cd", 2), ["ab", "　", "cd"]);
+    }
+
+    #[test]
+    fn an_ideographic_run_after_a_space_goes_to_the_next_line_with_what_follows_in_folded_text() {
+        // As headless Chrome draws the copy's `.clamp2` and `.evt`: a run of U+3000 starting
+        // a word after a space does not end a line after other text, but starts the next
+        // with the first piece of its word, or for a word that is only a run, with the next
+        // word. The expected lines are Chrome's.
+        let folded = |text: &str, w: usize| {
+            let lines = wrap_line(text, w);
+            assert_eq!(wrap_event_line(text, w), lines, "event at {w}");
+            lines
+        };
+        // The issue's event, ack and title, where the line breaks before the run.
+        let event = "@manager dev-1 is waiting on a prompt: 配布 　今日 　　明日 ...";
+        for w in [43, 47] {
+            assert_eq!(
+                folded(event, w),
+                [
+                    "@manager dev-1 is waiting on a prompt: 配布",
+                    "　今日 　　明日 ..."
+                ],
+                "at {w}"
+            );
+        }
+        for w in [26, 29] {
+            assert_eq!(
+                folded("ok 　確認 　　了解 　中文 　好的", w),
+                ["ok 　確認 　　了解 　中文", "　好的"],
+                "at {w}"
+            );
+        }
+        for w in [28, 32] {
+            assert_eq!(
+                folded("表示確認 　全角空白 　　行末 　折り返し 测试 　中文", w),
+                ["表示確認 　全角空白 　　行末", "　折り返し 测试 　中文"],
+                "at {w}"
+            );
+        }
+        // The run goes with the first piece of its word; where the two do not fit on a line
+        // together, the line breaks after the run, in an event too.
+        assert_eq!(folded("ab 　中文", 3), ["ab", "　", "中", "文"]);
+        assert_eq!(folded("ab 　中文", 5), ["ab", "　中", "文"]);
+        assert_eq!(folded("ab 　中文", 6), ["ab", "　中文"]);
+        assert_eq!(folded("ab 　中文", 7), ["ab 　中", "文"]);
+        assert_eq!(folded("ab 　　中文", 5), ["ab", "　　", "中文"]);
+        // A word that is only a run goes whole with the word after it.
+        assert_eq!(folded("ab 　 cd", 4), ["ab", "　", "cd"]);
+        assert_eq!(folded("ab 　 cd", 5), ["ab", "　 cd"]);
+        assert_eq!(folded("ab 　 cd", 8), ["ab 　 cd"]);
+        assert_eq!(folded("ab 　　 cd", 7), ["ab", "　　 cd"]);
+        // After a word ending with a run, the run hangs with it, as in `pre-wrap` text.
+        assert_eq!(folded("ab　 　中文", 4), ["ab　", "中文"]);
+        assert_eq!(folded("ab　 　中文", 6), ["ab　", "中文"]);
+        assert_eq!(
+            folded("了解　 中 ab　 　　　了解", 11),
+            ["了解　 中", "ab　", "了解"]
+        );
+        // The rest past the last line starts with the run it carries.
+        assert_eq!(
+            wrap_at_most("確認 　今日 了解 確認 中文", 5, 2),
+            ["確認", "　今日 了解 確認 中文"]
+        );
+        assert_eq!(wrap_at_most("ab 　 cd ef gh", 5, 2), ["ab", "　 cd ef gh"]);
+        // `pre-wrap` text keeps hanging the run with the space before it.
+        for (text, last) in [("ab 　中文", "中文"), ("ab 　 cd", "cd")] {
+            assert_eq!(wrap_line_paths(text, 5), ["ab", last], "body {text:?}");
+            assert_eq!(wrap(text, 5), ["ab", last], "details {text:?}");
+        }
     }
 
     #[test]

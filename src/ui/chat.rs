@@ -35,8 +35,8 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    dropped, event_line_overflows, fold_spaces, highlight_marked, role_colour, units, wrap,
-    wrap_event_line, wrap_line_paths,
+    dropped, event_line_overflows, fold_spaces, highlight_marked, rest_after, role_colour, units,
+    wrap, wrap_event_line, wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -546,19 +546,8 @@ pub(crate) fn pieces(text: &str, first: usize, w: usize) -> Vec<(String, Vec<Ran
         if out.is_empty() && lines.is_empty() && first < w {
             // The first piece at its own width, then the rest of that line at `w`.
             let mut head = wrap_event_line(raw, first);
-            let p0 = head.remove(0);
-            let mut left = p0.chars().filter(|c| !dropped(*c)).count();
-            let at = (raw.char_indices())
-                .find(|(_, c)| {
-                    let past = left == 0;
-                    if !dropped(*c) {
-                        left = left.saturating_sub(1);
-                    }
-                    past
-                })
-                .map_or(raw.len(), |(i, _)| i);
-            lines.push(p0);
-            let rest = raw[at..].trim_start();
+            let rest = rest_after(raw, &head[..1], head.get(1).map_or("", String::as_str));
+            lines.push(head.remove(0));
             if !rest.is_empty() {
                 lines.extend(wrap_event_line(rest, w));
             }
@@ -1579,6 +1568,22 @@ mod tests {
         let p = pieces("one two three four five", 7, 14);
         let p: Vec<&str> = p.iter().map(|(s, _)| s.as_str()).collect();
         assert_eq!(p, ["one two", "three four", "five"]);
+    }
+
+    #[test]
+    fn a_tagged_events_second_piece_starts_with_the_run_its_first_line_carries() {
+        // A tagged event's first piece is narrower than the rest (`plan`). A U+3000 run the
+        // first line's break carries starts the second piece with its word, as an untagged
+        // event's second line does (`wrap_event_line`); after a word ending with a run, the
+        // run hangs with that one.
+        let texts = |text: &str, first: usize, w: usize| -> Vec<String> {
+            (pieces(text, first, w).into_iter())
+                .map(|(s, _)| s)
+                .collect()
+        };
+        assert_eq!(wrap_event_line("ab 　中文 cd", 5)[1], "　中");
+        assert_eq!(texts("ab 　中文 cd", 5, 10), ["ab", "　中文 cd"]);
+        assert_eq!(texts("ab　 　中文 cd", 4, 10), ["ab　", "中文 cd"]);
     }
 
     #[test]
@@ -2837,12 +2842,13 @@ mod tests {
                 ("了解です · 1m".into(), 35)
             ]
         );
-        // A space before the run hangs with it: a word that is only a U+3000, between two
-        // spaces, fits at the end of the first line, and Chrome ends the text before the
-        // space at the edge. The bubble 34 wide in a chat of 40 ends at 38.
+        // Spaces around the run hang with it: after a word ending with a U+3000, a word that
+        // is only one, between two spaces, hangs past the first line's end with them, and
+        // Chrome ends the text before them at the edge. The bubble 34 wide in a chat of 40
+        // ends at 38.
         let m = msgs(&[
             ("manager", "check rollout 4", 0),
-            ("dev-1", "ok ああああ 　 いいいいいいいいいいいい", 60),
+            ("dev-1", "ok ああああ　 　 いいいいいいいいいいいい", 60),
         ]);
         let acks = drawn_rows(&m, 40, |r| matches!(r, Row::Ack { .. }));
         let ends: Vec<(String, usize)> = (acks.iter())

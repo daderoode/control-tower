@@ -50,6 +50,13 @@ tag's date, and a new empty Unreleased goes above it.
   under one of your messages ended two columns short of the bubble's edge. It now hangs
   past the line's end, as the UI design does, so the line sits where the text before it
   does (#62).
+- **An ideographic space before a word stays with it in a title, event or ack.** In a
+  title, goal, thread name, event, ack or inbox row, a run of full-width spaces (U+3000)
+  starting a word after an ordinary space, where a line broke before the word, was left at
+  the end of the line before, out of sight, or dropped from a tree title's second line.
+  It now starts the next line with the word, as the UI design does; a run that is a word
+  of its own goes with the word after it, and one after a word ending in U+3000 hangs past
+  the line's end with that word's (#74).
 
 ## [0.5.0] - 2026-11-20
 
