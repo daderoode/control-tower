@@ -11,6 +11,27 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A word breaks before an opening bracket after a punctuation mark.** In a message, a
+  delivery failure's opened details, and a title, goal, event, ack or inbox row, a word
+  with a `(`, `[`, `{` or `<` after a mark such as `!`, `.`, `,` or `)`, such as
+  `f(x),(y)`, moved to the next line whole, or broke only where a line ended. It now breaks
+  before the bracket where the UI design does; not after a letter, a digit, another
+  opening bracket, or one of `$ ' / @ ^ _` and a backquote (#45).
+
+## [0.5.0] - 2026-11-20
+
+### Changed
+
+- **The owner signs off the spec, and sees it beside the lead.** The lead skill follows the
+  front of the lifecycle for a new goal or milestone: the owner grills the idea, runs
+  `/to-spec` and signs off the spec, then runs `/to-tickets`, whose tickets in blocking
+  order are the plan. A ready-for-agent issue is a ticket in its own right. The lead asks the
+  owner to run both skills in its session instead of trying to run them itself, and when the
+  spec is posted it opens a copy in Neovim in a pane to the right of its own (in herdr or
+  Rex), or gives the spec's link elsewhere.
+
+### Fixed
+
 - **prefix+a brings an open dashboard into view.** With the dashboard already open in its
   own workspace, prefix+a left you where you were: herdr 0.9.5's `plugin pane focus` moves
   only the herdr server's focus, not what your terminal shows. `tower space` now also
@@ -105,12 +126,6 @@ tag's date, and a new empty Unreleased goes above it.
   word is tower's, such as a delivery failure, its line on the thread's header (on the
   message board and the full board) and in the thread list draws it in the text colour, as
   the UI design does, where it had drawn dim; only "where it stands" stays dim (#60).
-- **A word breaks before an opening bracket after a punctuation mark.** In a message, a
-  delivery failure's opened details, and a title, goal, event, ack or inbox row, a word
-  with a `(`, `[`, `{` or `<` after a mark such as `!`, `.`, `,` or `)`, such as
-  `f(x),(y)`, moved to the next line whole, or broke only where a line ended. It now breaks
-  before the bracket where the UI design does; not after a letter, a digit, another
-  opening bracket, or one of `$ ' / @ ^ _` and a backquote (#45).
 
 ## [0.4.0] - 2026-11-16
 

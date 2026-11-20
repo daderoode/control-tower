@@ -18,7 +18,7 @@ Keep it light.
 
 | Role | Does |
 |---|---|
-| Owner | Asks for releases (the lead may propose one); the lead tags. UI sign-off. Has given the lead authority to merge to master in this repo |
+| Owner | Signs off a new goal's or milestone's spec and tickets before building starts. Asks for releases (the lead may propose one); the lead tags. UI sign-off. Has given the lead authority to merge to master in this repo |
 | Lead | Only coordinates: never implements, tests or reviews, whatever the size. Picks the path, commits, opens the PR, delivers: merges, or hands the PR to the named reviewer when a peer review is asked for |
 | Dev | Implements; stages the change and reports. Only the lead commits and pushes |
 | QA | Tests |
@@ -28,6 +28,15 @@ Keep it light.
 A human working alone is out of scope.
 
 ## Lifecycle
+
+Before any building on a new goal or milestone there is a spec and a set of tickets, and the
+owner signs off both. A ready-for-agent issue (a triaged bug, or a feature the owner
+approved on its issue) is a ticket in its own right and needs no spec.
+The owner grills the idea, runs `/to-spec` and signs off the spec, then runs `/to-tickets`.
+Those tickets, in their blocking order, are the plan. Both skills are the owner's to run:
+the lead asks the owner to run them in the session that holds the context. When the spec is
+posted, open a copy of it for the owner in Neovim in a pane to the right of yours (in Rex or
+herdr; otherwise give its link), and make any change they ask for on the issue.
 
 Each step picks up work marked ready for it and marks it ready for the next, by reporting to
 the lead, who starts the next step (under `/lead`, the board shows it). Testing and review
