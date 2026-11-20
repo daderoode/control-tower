@@ -842,6 +842,12 @@ pub fn event_text(m: &Message, lead: Option<&Lead>) -> String {
         Some(rest) if tone_of(m) == Tone::NeedsYou => rest.trim_start(),
         _ => text,
     };
+    event_words(text, lead)
+}
+
+/// Tower's `text` in a chat's words, whole, as `event_text` says it but keeping a
+/// "question:", for a line with no "needs you" tag to say it.
+pub fn event_words(text: &str, lead: Option<&Lead>) -> String {
     let (first, rest) = text.split_once('\n').unwrap_or((text, ""));
     let then = |line: String| {
         if rest.is_empty() {
@@ -2069,8 +2075,10 @@ mod tests {
         assert_eq!(wrapped("ab f(x),(y)", 8), ["ab f(x),", "(y)"]);
         assert_eq!(wrapped("ab 5%(defg)", 8), ["ab 5%", "(defg)"]);
         assert_eq!(wrapped("ab a=<b>", 5), ["ab a=", "<b>"]);
-        // Not after a letter, an opening bracket, or one of the marks Chrome keeps with it.
+        // Not after a letter, a digit, an opening bracket, or one of the marks Chrome keeps
+        // with it.
         assert_eq!(wrapped("ab abc(defg)", 8), ["ab", "abc(defg", ")"]);
+        assert_eq!(wrapped("ab abc5(defg)", 8), ["ab", "abc5(def", "g)"]);
         assert_eq!(wrapped("ab ab((defg)", 8), ["ab", "ab((defg", ")"]);
         assert_eq!(wrapped("ab abc$(defg)", 8), ["ab", "abc$(def", "g)"]);
         assert_eq!(wrapped("ab abc'(defg)", 8), ["ab", "abc'(def", "g)"]);
