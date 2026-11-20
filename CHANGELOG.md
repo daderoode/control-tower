@@ -97,6 +97,10 @@ tag's date, and a new empty Unreleased goes above it.
   end as in the UI design, so the word before it fits and the next line starts with the
   word after it (a run after an ordinary space aside, #57); within a line it keeps its
   width (#40).
+- **A task's doing line tones a leading `decision:`.** In a task's detail, a doing post
+  that starts with `decision:` and is for your awareness (its mention of you on any of its
+  lines) draws it bold in the info colour, as its bubble and where its thread stands do,
+  where it had drawn plain (#54).
 - **Where a thread stands draws tower's word in the text colour.** When the thread's newest
   word is tower's, such as a delivery failure, its line on the thread's header (on the
   message board and the full board) and in the thread list draws it in the text colour, as
