@@ -13,10 +13,10 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
-use super::chat::event_text;
+use super::chat::event_words;
 use super::message_board::{fold_spaces, highlight, pill, status_style};
 use super::theme::{Depth, bad, bold, dim, fit, ok};
-use crate::board::{Message, Talk, Thread, ThreadStatus, Tone, age, is_tower};
+use crate::board::{Talk, Thread, ThreadStatus, Tone, age, is_tower};
 use crate::inbox::Alert;
 
 /// The widest an age gets: "999d".
@@ -78,8 +78,9 @@ pub fn head(
     out
 }
 
-/// Where thread `t` stands on one line `w` wide after `lead_in` (dim): its author in their
-/// colour, then the line.
+/// Where thread `t` stands on one line `w` wide after `lead_in` (dim): a person's line,
+/// after their name in their colour when it has one, or tower's in the chat's words for it
+/// with no name.
 pub fn stands(
     talk: &Talk,
     t: &Thread,
@@ -90,15 +91,10 @@ pub fn stands(
     let (who, text, tone) = talk.stands(t)?;
     let mut s = vec![Span::styled(lead_in.to_string(), dim(depth))];
     // Tower's own word in the chat's words for it, with no "system:" label, and in the text
-    // colour as a person's plain words: only the lead-in is dim.
+    // colour as a person's plain words: only the lead-in is dim. A question for the owner
+    // keeps its "question:", as the copy does: no "needs you" tag here says it.
     if is_tower(&who) {
-        let m = Message {
-            id: 0,
-            author: who,
-            text,
-            at: 0,
-        };
-        let said = event_text(&m, talk.lead);
+        let said = event_words(&text, talk.lead);
         // Its spaces folded, as the copy's `nowrap` line draws its event text.
         let first = fold_spaces(said.lines().next().unwrap_or_default());
         s.push(Span::raw(first));

@@ -842,6 +842,12 @@ pub fn event_text(m: &Message, lead: Option<&Lead>) -> String {
         Some(rest) if tone_of(m) == Tone::NeedsYou => rest.trim_start(),
         _ => text,
     };
+    event_words(text, lead)
+}
+
+/// Tower's `text` in a chat's words, whole, as `event_text` says it but keeping a
+/// "question:", for a line with no "needs you" tag to say it.
+pub fn event_words(text: &str, lead: Option<&Lead>) -> String {
     let (first, rest) = text.split_once('\n').unwrap_or((text, ""));
     let then = |line: String| {
         if rest.is_empty() {

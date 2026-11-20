@@ -9,6 +9,14 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Where a thread stands keeps tower's `question:`.** When where a thread stands is
+  tower's question for you (a thread holding only tower's words, such as a worker waiting on
+  a herdr prompt), that line on the thread's header (on the message board and the full
+  board) and in the thread list keeps its leading `question:`, as the UI design does, where
+  it had dropped it; the chat's line still drops it after its "needs you" tag (#68).
+
 ## [0.5.0] - 2026-11-20
 
 ### Changed

@@ -378,22 +378,22 @@ person has posted in) that is the task's doing line (its blocked reason while it
 blocked); on any other thread, and before any progress post, the first line of its newest
 message by a person that is not an ack; either way without a "Status:" prefix. Tower's own
 word there is in the chat's words for it, with no "system:" label, in the text colour like a
-person's words. A thread holding only tower's messages (the watch's
-nudges and flags) about a task with a home thread is no thread of its own: its messages join
-the home thread's conversation in time order, counted in its messages and age. A resolved
-tower thread joins too (its lines are history), but nothing joins a resolved thread: an open
-tower thread beside a resolved one stays in the list, so a question in it can still be
-answered. Every open thread shows as a compact chat preview, its last three bubbles, each
-bubble its last two messages folded to two lines, after "N earlier messages", then "open
-chat ▶". Resolved threads fold into one row under the open ones, "RESOLVED 3 ▸", as on the
-full board: a click unfolds it ("▾") to one line per resolved thread, a
-green ✓, its name and its age, and a click folds it again. A board's overview and detail
-share the fold, and every board starts folded each time the dashboard starts. A click on a
-resolved thread's line opens it on the full board. A preview is drawn from the thread's
-latest messages the board loads (twelve for an open thread, four for a resolved one): acks
-at the start of them that answer a message not loaded count among the earlier ones, and when
-those latest messages are all tower's (nudges, flags) the preview shows tower's last lines
-and no bubble; "open chat ▶" shows the whole thread.
+person's words; a question for you keeps its "question:", having no "needs you" tag there. A
+thread holding only tower's messages (the watch's nudges and flags) about a task with a home
+thread is no thread of its own: its messages join the home thread's conversation in time
+order, counted in its messages and age. A resolved tower thread joins too (its lines are
+history), but nothing joins a resolved thread: an open tower thread beside a resolved one
+stays in the list, so a question in it can still be answered. Every open thread shows as a
+compact chat preview, its last three bubbles, each bubble its last two messages folded to
+two lines, after "N earlier messages", then "open chat ▶". Resolved threads fold into one
+row under the open ones, "RESOLVED 3 ▸", as on the full board: a click unfolds it ("▾") to
+one line per resolved thread, a green ✓, its name and its age, and a click folds it again. A
+board's overview and detail share the fold, and every board starts folded each time the
+dashboard starts. A click on a resolved thread's line opens it on the full board. A preview
+is drawn from the thread's latest messages the board loads (twelve for an open thread, four
+for a resolved one): acks at the start of them that answer a message not loaded count among
+the earlier ones, and when those latest messages are all tower's (nudges, flags) the preview
+shows tower's last lines and no bubble; "open chat ▶" shows the whole thread.
 
 The board reads as a group chat, in the previews and the full board alike.
 Each message sits in a bubble that fits its text, from 24 columns up to 85% of the
