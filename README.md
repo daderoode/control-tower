@@ -376,8 +376,9 @@ the task's stage and who is on it, dim; one not about a task keeps its title, "o
 and under it a line on where it stands. On the task's home thread (its first open thread a
 person has posted in) that is the task's doing line (its blocked reason while it is
 blocked); on any other thread, and before any progress post, the first line of its newest
-message by a person that is not an ack; either way without a "Status:" prefix, and tower's
-own word reads as the chat's quiet line. A thread holding only tower's messages (the watch's
+message by a person that is not an ack; either way without a "Status:" prefix. Tower's own
+word there is in the chat's words for it, with no "system:" label, in the text colour like a
+person's words. A thread holding only tower's messages (the watch's
 nudges and flags) about a task with a home thread is no thread of its own: its messages join
 the home thread's conversation in time order, counted in its messages and age. A resolved
 tower thread joins too (its lines are history), but nothing joins a resolved thread: an open
