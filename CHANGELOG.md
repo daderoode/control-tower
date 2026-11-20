@@ -97,6 +97,10 @@ tag's date, and a new empty Unreleased goes above it.
   end as in the UI design, so the word before it fits and the next line starts with the
   word after it (a run after an ordinary space aside, #57); within a line it keeps its
   width (#40).
+- **Where a thread stands draws tower's word in the text colour.** When the thread's newest
+  word is tower's, such as a delivery failure, its line on the thread's header (on the
+  message board and the full board) and in the thread list draws it in the text colour, as
+  the UI design does, where it had drawn dim; only "where it stands" stays dim (#60).
 
 ## [0.4.0] - 2026-11-16
 
