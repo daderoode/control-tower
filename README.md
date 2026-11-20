@@ -582,8 +582,10 @@ Either way the item leaves the inbox and the next one takes the selection. The w
 PgUp and PgDn, move the selection with the view: an item scrolled out of sight hands it to
 the nearest item in view, so Enter and `r` never act on one you cannot see. When no item
 shows whole, the selection goes to one whose first line shows, if one does, and PgUp and
-PgDn always stop where one does. An empty
-inbox's keys line offers only "esc back". Opening a thread
+PgDn always stop where one does. Where the wheel leaves no item's first line in view, as it
+can on a short list, nothing is highlighted and Enter and `r` do nothing until the arrows or
+the wheel bring one back; the inbox opens with its selected item's first line in view. An
+empty inbox's keys line offers only "esc back". Opening a thread
 on the full board marks its awareness items read and leaves its need-you items. Marking
 read is the owner's alone, so there is no CLI command for it: the dashboard writes it
 itself, off the screen's thread as a post, and refuses any message that does not mention

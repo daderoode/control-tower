@@ -11,6 +11,13 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **Enter and `r` never act on an inbox item out of view.** In an inbox list of four lines or
+  fewer, the wheel could leave no item's first line in view (only section heads, "nothing",
+  the gap between the sections, or an item's second line) while Enter still opened the
+  selected item's thread and `r` marked it read. There nothing is highlighted now, the keys
+  line leaves Enter and `r` out, and both do nothing until the arrows or the wheel bring an
+  item back; the wheel still scrolls three lines. A short inbox also opens with its selected
+  item in view, where it could open on its section heads alone (#61).
 - **An inbox delivery failure wraps onto two lines.** An inbox row for a delivery failure,
   "@manager delivery failed to X", stayed one line cut at the row's edge. It now wraps at
   its words onto a second line and ends in "…" there when it goes on, as the UI design's

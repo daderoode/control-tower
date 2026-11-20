@@ -262,7 +262,7 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
     if let Some(ib) = &l.inbox {
         let tw = usize::from(ib.top.width);
         frame.render_widget(Paragraph::new(inbox::top_line(tw, depth)), ib.top);
-        let sel = dash.inbox_selected(board);
+        let sel = dash.inbox_target(board, ib);
         let lines = inbox::list_lines(board, sel, usize::from(ib.list.width), now, depth);
         render_scrolled(frame, lines, dash.inbox_scroll(), ib.list);
         return Vec::new();
@@ -478,24 +478,31 @@ fn new_lead_line(
 /// (only when a tree has milestones), opening and going back, the board,
 /// inbox and new lead keys (in the inbox, `r` as "r clear" on a need-you item), scrolling,
 /// and clicking. They show in reading order. In the popup, "esc back · q close" at the end.
-/// A key that would do nothing is not offered: an empty inbox has only the way out.
+/// A key that would do nothing is not offered: an empty inbox has only the way out, and
+/// Enter and `r` show only while the selected item's first line is in view.
 fn keys_line(view: &View, l: &Layout, dash: &Dash, w: usize, depth: Depth) -> Line<'static> {
     // (priority, hint) in reading order; the lowest priorities are left out first.
     let mut hints = vec![];
-    if l.inbox.is_some() {
+    if let Some(ib) = &l.inbox {
         // r clears a need-you item and marks any other read.
         let board = view.as_ref().ok();
         let at = board.and_then(|b| dash.inbox_selected(b));
-        let need_you = (board.zip(at))
+        // Enter and r act only on the selected item while its first line shows.
+        let target = board.and_then(|b| dash.inbox_target(b, ib));
+        let need_you = (board.zip(target))
             .is_some_and(|(b, id)| b.inbox.need_you.iter().any(|a| a.message.id == id));
         if at.is_none() {
             // An empty inbox: nothing to select, open or mark, only the way out.
             hints.extend([(2, "esc back"), (0, "q quit")]);
         } else {
+            hints.push((1, "↑↓ select"));
+            if target.is_some() {
+                hints.extend([
+                    (1, "enter open thread"),
+                    (2, if need_you { "r clear" } else { "r mark read" }),
+                ]);
+            }
             hints.extend([
-                (1, "↑↓ select"),
-                (1, "enter open thread"),
-                (2, if need_you { "r clear" } else { "r mark read" }),
                 (2, "esc back"),
                 (3, "PgUp PgDn scroll"),
                 (4, "click an item"),
