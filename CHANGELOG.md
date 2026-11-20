@@ -97,6 +97,10 @@ tag's date, and a new empty Unreleased goes above it.
   end as in the UI design, so the word before it fits and the next line starts with the
   word after it (a run after an ordinary space aside, #57); within a line it keeps its
   width (#40).
+- **A task's doing line tones a leading `decision:`.** In a task's detail, a doing post
+  that starts with `decision:` and is for your awareness (its mention of you on any of its
+  lines) draws it bold in the info colour, as its bubble and where its thread stands do,
+  where it had drawn plain (#54).
 - **Thai, Lao, Khmer and Burmese break between words.** In a message, a delivery failure's
   opened details, and a title, goal, event, ack or inbox row, text in these scripts, which
   puts no spaces between words, moved to the next line whole or broke only where a line
