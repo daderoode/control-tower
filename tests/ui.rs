@@ -10046,6 +10046,142 @@ fn a_selected_inbox_items_first_line_stays_in_view_at_any_height() {
     assert_eq!(tested, (1..=5).collect::<BTreeSet<u16>>());
 }
 
+/// On a short inbox the wheel can scroll every item's first line out of view: a list of 2
+/// showing an item's second line and the gap, a list of 1 a head or only the selected
+/// item's second line. Then nothing is highlighted, the keys line offers no Enter or `r`,
+/// and both do nothing, so they never act on an item the owner cannot see. Wherever an
+/// item's first line shows, the selection is on one whose first line shows, highlighted,
+/// and Enter opens it. The wheel still scrolls three lines a turn.
+#[test]
+fn enter_and_r_never_act_on_an_inbox_item_the_wheel_scrolled_out_of_view() {
+    let view: View = Ok(alerts_fixture());
+    let board = view.as_ref().unwrap();
+    let ids: Vec<i64> = board.inbox.all().map(|a| a.message.id).collect();
+    // At 40 columns every item takes two lines: NEED YOU, 402, 501, a blank, FOR YOUR
+    // AWARENESS, 502, 310. Panes 2 to 8 rows high give lists 1 to 5 lines high; from five
+    // rows the pane has a keys line.
+    let mut hidden = BTreeSet::new();
+    for pane_h in 2..=8u16 {
+        let a = area(40, pane_h);
+        // Each start: the selection moved down `k` items and back up one, so the list sits
+        // at another scroll before the wheel turns.
+        for k in 0..4 {
+            let mut dash = inbox_dash(&view, a);
+            for input in std::iter::repeat_n(Input::Down, k).chain([Input::Up]) {
+                dash.handle(&view, a, input);
+            }
+            let ib = layout(&view, &dash, a).inbox.unwrap();
+            let h = usize::from(ib.list.height);
+            let last_top = ib.rows.len() - h;
+            let (x, y) = (ib.list.x + 4, ib.list.y);
+            for down in [true; 4].into_iter().chain([false; 4]) {
+                let before = dash.inbox_scroll().min(last_top);
+                dash.handle(&view, a, Input::Wheel { x, y, down });
+                let top = dash.inbox_scroll().min(last_top);
+                let wheeled = if down {
+                    (before + 3).min(last_top)
+                } else {
+                    before.saturating_sub(3)
+                };
+                assert_eq!(top, wheeled, "pane {pane_h}, k {k}, wheel down {down}");
+                let what = format!("pane {pane_h}, list {h}, k {k}, top {top}");
+                let shown = top..top + h;
+                let first = |id: &i64| ib.rows.iter().position(|r| *r == Some(*id)).unwrap();
+                let selected = dash.inbox_selected(board).unwrap();
+                let buf = render_dash(&view, &dash, a.width, a.height, Depth::TrueColor);
+                // The list lines highlighted, by their place in the list.
+                let lit: Vec<usize> = (0..h)
+                    .filter(|l| buf[(1, ib.list.y + *l as u16)].bg == selected_bg(Depth::TrueColor))
+                    .map(|l| top + l)
+                    .collect();
+                if shown.contains(&first(&selected)) {
+                    assert!(lit.contains(&first(&selected)), "{what}: {lit:?}");
+                    let thread = (board.inbox.all())
+                        .find(|i| i.message.id == selected)
+                        .unwrap()
+                        .thread;
+                    let mut enter = dash.clone();
+                    enter.handle(&view, a, Input::Enter);
+                    assert_eq!(enter.board_thread_wanted(), Some(thread), "{what}");
+                    continue;
+                }
+                // No item's first line is in view, or the selection would be on it.
+                hidden.insert(h);
+                assert!(
+                    !ids.iter().any(|id| shown.contains(&first(id))),
+                    "{what}: {selected} out of view\n{:#?}",
+                    screen(&view, &dash, a)
+                );
+                assert!(lit.is_empty(), "{what}: {lit:?}");
+                if pane_h >= 5 {
+                    let keys = screen(&view, &dash, a)[usize::from(pane_h) - 1].clone();
+                    let offered = ["enter open", "r mark", "r clear"];
+                    assert!(!offered.iter().any(|k| keys.contains(k)), "{what}: {keys}");
+                }
+                for input in [Input::Enter, Input::Char('r')] {
+                    let mut probe = dash.clone();
+                    assert_eq!(probe.handle(&view, a, input), None, "{what}: {input:?}");
+                    assert_eq!(probe.view(), ViewKind::Inbox, "{what}: {input:?}");
+                    assert_eq!(probe.board_thread_wanted(), None, "{what}: {input:?}");
+                    assert_eq!(probe.handing, None, "{what}: {input:?}");
+                }
+            }
+        }
+    }
+    // Lists of 1 and 2 lines get there (and a list of 3, between the sections).
+    assert!(hidden.contains(&1) && hidden.contains(&2), "{hidden:?}");
+}
+
+/// With nothing in NEED YOU the first awareness item's first line is the list's fifth (NEED
+/// YOU, "nothing", a blank, FOR YOUR AWARENESS come first), so a list of four lines or
+/// fewer opens scrolled to it, selected and highlighted, and Enter opens the item in view.
+/// A list that shows its first line anyway opens at its top, as before.
+#[test]
+fn a_short_inbox_with_nothing_in_need_you_opens_on_its_first_item() {
+    let mut board = alerts_fixture();
+    // Nothing needs the owner: only the awareness items 502 and 310 are listed.
+    board.inbox.need_you.clear();
+    let view: View = Ok(board);
+    let board = view.as_ref().unwrap();
+    let thread = board.inbox.awareness[0].thread;
+    for pane_h in 2..=10u16 {
+        let a = area(40, pane_h);
+        // Opened by `i`, and by a click on the alert line, which a pane shows from five rows.
+        for open in [Input::Char('i'), Input::Click { x: 1, y: 0 }] {
+            if open != Input::Char('i') && pane_h < 5 {
+                continue;
+            }
+            let mut opened = clocked();
+            opened.handle(&view, a, open);
+            assert_eq!(opened.view(), ViewKind::Inbox, "pane {pane_h}, {open:?}");
+            let ib = layout(&view, &opened, a).inbox.unwrap();
+            assert_eq!(
+                ib.rows[..6],
+                [None, None, None, None, Some(502), Some(502)],
+                "{:?}",
+                ib.rows
+            );
+            let h = usize::from(ib.list.height);
+            let top = opened.inbox_scroll().min(ib.rows.len() - h);
+            let what = format!("pane {pane_h}, list {h}, {open:?}");
+            assert_eq!(opened.inbox_selected(board), Some(502), "{what}");
+            assert!(
+                (top..top + h).contains(&4),
+                "{what}: 502 out of view at {top}\n{:#?}",
+                screen(&view, &opened, a)
+            );
+            if h >= 5 {
+                assert_eq!(top, 0, "{what}");
+            }
+            let buf = render_dash(&view, &opened, a.width, a.height, Depth::TrueColor);
+            let y = ib.list.y + (4 - top) as u16;
+            assert_eq!(buf[(1, y)].bg, selected_bg(Depth::TrueColor), "{what}");
+            opened.handle(&view, a, Input::Enter);
+            assert_eq!(opened.board_thread_wanted(), Some(thread), "{what}");
+        }
+    }
+}
+
 #[test]
 fn every_piece_of_a_url_is_one_terminal_link_on_the_full_and_the_inline_board() {
     let view = mr_url_view();

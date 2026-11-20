@@ -728,6 +728,19 @@ impl Dash {
         }
     }
 
+    /// The inbox item Enter and `r` act on, laid out as `ib`: the selected one, while its
+    /// first line is in view. `None` while it is not (the wheel can scroll every item's
+    /// first line away from a short list), so nothing is highlighted and those keys do
+    /// nothing until the arrows or the wheel bring an item back.
+    pub fn inbox_target(&self, board: &Board, ib: &InboxLayout) -> Option<i64> {
+        let id = self.inbox_selected(board)?;
+        let first = ib.rows.iter().position(|r| *r == Some(id))?;
+        let scroll = clamp_scroll(self.inbox_scroll(), ib.rows.len(), ib.list.height);
+        (scroll..scroll + usize::from(ib.list.height))
+            .contains(&first)
+            .then_some(id)
+    }
+
     /// How far the inbox's list is scrolled.
     pub fn inbox_scroll(&self) -> usize {
         self.top().scroll
@@ -1135,7 +1148,7 @@ impl Dash {
                 self.new_lead_repo = repo.map(|r| r.id);
                 self.new_lead = Some(String::new());
             }
-            Input::Char('i') => self.views.push(OpenView::new(ViewKind::Inbox)),
+            Input::Char('i') => self.open_inbox(view, area),
             // The full board and the inbox take their keys above, so `o` acts only where the
             // tree's selection is on screen.
             Input::Char('o') => {
@@ -1157,7 +1170,7 @@ impl Dash {
                 if l.new_lead.is_some_and(|a| contains(a, x, y)) {
                     return self.handle(view, area, Control::NewLead.key());
                 } else if l.alert.is_some_and(|a| contains(a, x, y)) {
-                    self.views.push(OpenView::new(ViewKind::Inbox));
+                    self.open_inbox(view, area);
                 } else if let Some(id) = l.ticket_at(board, self, x, y) {
                     self.select(board, Item::Task(id));
                     return self.open_ticket(board, id);
@@ -1327,7 +1340,8 @@ impl Dash {
 
     /// An input on the inbox laid out as `ib`: up/down move over its items, Enter or a click
     /// opens the item's thread on the full board (Esc there comes back here), `r` asks to
-    /// mark an unread awareness item read, `i` or a click on "◀ back" goes back.
+    /// mark an unread awareness item read, `i` or a click on "◀ back" goes back. Enter and
+    /// `r` act on `inbox_target`, never on a selection out of view.
     fn inbox_input(
         &mut self,
         view: &View,
@@ -1340,6 +1354,7 @@ impl Dash {
         let inbox = &board.inbox;
         let ids: Vec<i64> = inbox.all().map(|a| a.message.id).collect();
         let at = self.inbox_selected(board);
+        let target = self.inbox_target(board, ib);
         let i = ids.iter().position(|id| Some(*id) == at);
         match input {
             Input::Up | Input::Down => {
@@ -1351,10 +1366,10 @@ impl Dash {
                 };
                 self.inbox_pick(ib, ids[next]);
             }
-            Input::Enter => self.open_from_inbox(view, area, inbox, at?),
+            Input::Enter => self.open_from_inbox(view, area, inbox, target?),
             Input::Char('r') => {
                 // Every item listed can be marked: the store refuses one read meanwhile.
-                let id = at?;
+                let id = target?;
                 if self.handing.is_some() {
                     return None;
                 }
@@ -1437,8 +1452,8 @@ impl Dash {
 
     /// After the inbox list scrolled, with `at` selected: an item no longer wholly in view
     /// hands the selection to the nearest item that is (or, when none is, the nearest whose
-    /// first line is in view, then the nearest partly in view), so Enter and `r` never act on
-    /// an item out of sight.
+    /// first line is in view). When no item's first line is in view the selection stays,
+    /// out of sight, and `inbox_target` keeps Enter and `r` off it.
     fn inbox_follow_view(&mut self, ib: &InboxLayout, at: Option<i64>) {
         let Some(at) = at else {
             return;
@@ -1451,7 +1466,6 @@ impl Dash {
         };
         let whole = |(_, a, b): &&(i64, usize, usize)| shown.contains(a) && shown.contains(b);
         let first = |(_, a, _): &&(i64, usize, usize)| shown.contains(a);
-        let part = |(_, a, b): &&(i64, usize, usize)| *a < shown.end && *b >= shown.start;
         if items.iter().filter(whole).any(|(id, ..)| *id == at) {
             return;
         }
@@ -1463,11 +1477,23 @@ impl Dash {
             }
         };
         let near = (items.iter().filter(whole).min_by_key(distance))
-            .or_else(|| items.iter().filter(first).min_by_key(distance))
-            .or_else(|| items.iter().filter(part).min_by_key(distance));
+            .or_else(|| items.iter().filter(first).min_by_key(distance));
         if let Some(&(id, ..)) = near {
             let index = items.iter().position(|(i, ..)| *i == id).unwrap_or(0);
             self.top_mut().inbox = Some((id, index));
+        }
+    }
+
+    /// Opens the inbox over whatever shows. Its first item can sit below a short list's top
+    /// (an empty NEED YOU section comes first), so the selection comes into view as
+    /// selecting brings it when its first line would not show.
+    fn open_inbox(&mut self, view: &View, area: Rect) {
+        self.views.push(OpenView::new(ViewKind::Inbox));
+        if let (Some(ib), Ok(board)) = (layout(view, self, area).inbox, view)
+            && let Some(id) = self.inbox_selected(board)
+            && self.inbox_target(board, &ib).is_none()
+        {
+            self.inbox_pick(&ib, id);
         }
     }
 

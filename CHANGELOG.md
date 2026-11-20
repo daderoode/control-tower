@@ -11,6 +11,13 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **Enter and `r` never act on an inbox item out of view.** In an inbox list of three lines
+  or fewer, the wheel could leave no item's first line in view (only a section head, the gap
+  between the sections, or an item's second line) while Enter still opened the selected item's
+  thread and `r` marked it read. There nothing is highlighted now, the keys line leaves Enter
+  and `r` out, and both do nothing until the arrows or the wheel bring an item back; the wheel
+  still scrolls three lines. A short inbox with nothing in NEED YOU also opens on its first
+  item, where it opened on the section heads (#61).
 - **A message that wraps takes the widest bubble.** A message whose text wraps had a
   bubble only as wide as its widest wrapped line, so it could be much narrower than the
   widest a bubble gets. It now takes that widest, on either side, as the UI design's
