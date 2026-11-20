@@ -44,6 +44,12 @@ tag's date, and a new empty Unreleased goes above it.
   such as a long hash, drew its age after the word's last piece, as in `5d6e7f8 · 8m`. Its
   `· 8m` now starts the next line, under the text, as the UI design draws it; an ack whose
   last word, or the last piece of it after a `-`, fits keeps its age on its last line (#52).
+- **An ideographic space ending a line no longer moves a centred or right-aligned line.**
+  A full-width space (U+3000) that fit at the end of an event's or a delivery failure's
+  line counted toward its width, so that line sat a column left of the others, and an ack
+  under one of your messages ended two columns short of the bubble's edge. It now hangs
+  past the line's end, as the UI design does, so the line sits where the text before it
+  does (#62).
 
 ## [0.5.0] - 2026-11-20
 
