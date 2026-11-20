@@ -1071,7 +1071,8 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         // In `pre_wrap` text, after a word and a space, the run of ideographic spaces
         // starting the word goes with the run before it, also where the word before hung its
         // own run and ended the line (`put_hung`). Folded text does so after a word ending
-        // with such a run.
+        // with such a run, but not after a word that is one ideographic space starting a
+        // line where Chrome takes it as text (`text_run`, below).
         let word = if (how.pre_wrap() || after_run) && placed {
             let rest = word.trim_start_matches(IDEOGRAPHIC_SPACE);
             run.push_str(&word[..word.len() - rest.len()]);
