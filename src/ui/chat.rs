@@ -24,8 +24,8 @@
 //! the separators depend on the time, as of the `now` a plan is made for; a preview has
 //! none, so its height never changes as ages grow (an age is planned at its widest).
 //!
-//! A bubble fits its widest line and its name line, from `BUBBLE_MIN` columns up to
-//! `widest`: 85% of the chat's width, with at most `TEXT_MAX` columns of text.
+//! A bubble fits its text as if no width limited it, and its name line, from `BUBBLE_MIN`
+//! columns up to `widest`: 85% of the chat's width, with at most `TEXT_MAX` columns of text.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -465,6 +465,17 @@ fn pack_url(url: &str, w: usize) -> Vec<String> {
     out
 }
 
+/// The width a message's `text` asks of its bubble, as the copy's `.msg` fits its content:
+/// its widest line laid out with no width limit, a URL still a block of its own, a line a
+/// clip hides included. Past the widest a bubble gets, the text wraps and the bubble takes
+/// that widest whatever its widest wrapped line.
+fn max_content(text: &str) -> usize {
+    (message_pieces(text, text.width() + 1).iter())
+        .map(|p| p.text.width())
+        .max()
+        .unwrap_or(0)
+}
+
 /// A piece of a message's text as a bubble shows it: the line, the byte ranges in it of
 /// the owner's mentions, and the URL it is part of, when it is one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -658,7 +669,7 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                 let widest = |w| widest_in(w, shape.full);
                 let most = inner(widest(w));
                 // Each message's pieces at the widest, folded unless open; the bubble then
-                // fits the widest of them and its name line.
+                // fits each message's text unwrapped (`max_content`) and its name line.
                 let mut texts = Vec::new();
                 // The name line holds the first message's tags and age; every text line
                 // takes the bubble's full width.
@@ -673,9 +684,7 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                     if long && !open {
                         ps.truncate(shape.clip.max(1));
                     }
-                    for p in &ps {
-                        need = need.max(p.text.width());
-                    }
+                    need = need.max(max_content(&m.text));
                     if k > 0 {
                         need = need.max(meta_columns(m).saturating_sub(3));
                     }
@@ -1630,10 +1639,10 @@ mod tests {
                 })
                 .unwrap()
         };
-        // At 60 columns the widest is 51 (85%), or 58 with `full`; four-letter words fill a
-        // line to within a word of it: 47 and 57.
-        assert_eq!(bw(false, 60), 47);
-        assert_eq!(bw(true, 60), 57);
+        // At 60 columns the widest is 51 (85%), or 58 with `full`, which the wrapping
+        // message takes.
+        assert_eq!(bw(false, 60), 51);
+        assert_eq!(bw(true, 60), 58);
         // A short message's bubble still fits its text.
         let short = msgs(&[("dev-1", "ok", 0)]);
         let s = Shape {
@@ -1647,6 +1656,45 @@ mod tests {
             })
             .unwrap();
         assert!(fit < 58, "{fit}");
+    }
+
+    /// The copy's `.msg` fits its content: a message that wraps takes the widest a bubble
+    /// gets, on either side, and one that fits keeps its width.
+    #[test]
+    fn a_wrapped_message_takes_the_widest_bubble_and_one_that_fits_keeps_its_width() {
+        let none = BTreeSet::new();
+        let bw = |author: &str, text: &str| {
+            let m = msgs(&[(author, text, 0)]);
+            (plan(&m, 0, 60, shape(&none, 0, People::default())).iter())
+                .find_map(|r| match r {
+                    Row::Name { bw, .. } => Some(*bw),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        // At 60 columns the widest is 51, 48 of text.
+        assert_eq!(widest(60), 51);
+        let wraps = format!("{} {}", "a".repeat(20), "b".repeat(30));
+        assert_eq!(bw("dev-1", &wraps), 51);
+        assert_eq!(bw(OWNER_AUTHOR, &wraps), 51);
+        // A U+3000 dropped where the line breaks still counts.
+        assert_eq!(
+            bw("dev-1", &format!("{} \u{3000}bbbbbb", "a".repeat(44))),
+            51
+        );
+        // A line that fits, or lines that each fit, keep their width.
+        let fits = "aaa bbb ccc ddd eee fff ggg hhh";
+        assert_eq!(bw("dev-1", fits), 34);
+        assert_eq!(bw(OWNER_AUTHOR, fits), 34);
+        assert_eq!(bw("dev-1", &format!("{fits}\n{fits}")), 34);
+        // Lines that each fit: the widest of them.
+        assert_eq!(bw("dev-1", &format!("ab\n{}\nde", "c".repeat(40))), 43);
+        // A URL is a block of its own: the text before it and the URL each fit.
+        let url = "https://x.example/aaaa/bbbb/cccc/dddd/ee";
+        assert_eq!(bw("dev-1", &format!("some words here {url}")), 43);
+        // A line the clip hides counts, as the copy's clipped body still measures it.
+        let clipped = format!("aa\nbb\ncc\ndd\nee\n{}", "d".repeat(30));
+        assert_eq!(bw("dev-1", &clipped), 33);
     }
 
     #[test]

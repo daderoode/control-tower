@@ -11,6 +11,10 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A message that wraps takes the widest bubble.** A message whose text wraps had a
+  bubble only as wide as its widest wrapped line, so it could be much narrower than the
+  widest a bubble gets. It now takes that widest, on either side, as the UI design's
+  does; a message that fits keeps its width, counting a line "read more" hides (#77).
 - **A clamped title, goal or thread name ends after a whole piece.** A milestone's or
   task's title in the tree, a milestone's goal, or a thread's name (and its own title) in
   the thread list too long for its two lines was cut mid-word, as in "shed-lead-senior-r…".
