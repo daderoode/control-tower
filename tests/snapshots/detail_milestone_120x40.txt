@@ -5,13 +5,13 @@
      ✓ Bookmarks page         no ticket │ lead       Catalogue Lead                                                     
      ● New book shelf               #13 │ team       dev-1, dev-2                                                       
      ○ Show each book's       no ticket │ context    One branch per task; you approve each release. Test with the demo  
-       reviews under its cover, newest …│            shop only.                                                         
+       reviews under its cover, newest… │            shop only.                                                         
 ────────────────────────────────────────│ spec       docs/specs/first-shop-pages.md (from /to-spec)                     
                                         │ tracker    https://github.com/example/bookshop/milestone/1                    
  ▾ checkout                             │                                                                               
    Checkout Lead with a name long enoug…│ TASKS 1/3                                                                     
    ▾ M2 Checkout with a   ████████ 100% │ ✓ #12 Bookmarks page                                             dev-1 [done] 
-     title long enough to be cut in a n…│      A shelf of the newest books, so a reader sees what came in.              
+     title long enough to be cut in a…  │      A shelf of the newest books, so a reader sees what came in.              
      ✓ Shelf layout           no ticket │ ● #13 New book shelf                                      dev-2 [in progress] 
      ✓ 日本語のタスク名と絵文 no ticket │      The shelf shows the twelve newest books with their covers, newest first. 
        字です                           │ ○ #14 Show each book's reviews under its cover, newest … unassigned [waiting] 

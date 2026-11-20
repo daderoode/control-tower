@@ -9,7 +9,7 @@
  ▾ checkout                   │   cat-lead question: the covers…  in Show each …
    Checkout Lead with a name …│ ┌─────────────────────────────────────────────┐ 
    ▾ M2         ████████ 100% │ │ [open] New book shelf                       │ 
-     Checkout with a title lo…│ │ T3 · 7 messages ·   8m                      │ 
+     Checkout with a title…   │ │ T3 · 7 messages ·   8m                      │ 
      ✓ Shelf layout no ticket │ │ in progress · dev-2 · started by cat-lead   │ 
      ✓ 日本語のタス no ticket │ │ where it stands dev-2: testing the shelf g… │ 
        ク名と絵文字です       │ │             3 earlier messages              │ 

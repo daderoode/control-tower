@@ -7,13 +7,13 @@
        page                   │            talogue                      
      ● New book shelf    #113 │ work       1 active milestone · 0 stand…
      ○ Show each    no ticket │                                         
-       book's reviews under i…│ MILESTONES                              
+       book's reviews under…  │ MILESTONES                              
 ──────────────────────────────│ ● M1 First shop pages   ███░░░░░░░  33% 
                               │                                         
  ▾ checkout                   │ STANDALONE TASKS 0/0                    
    Checkout Lead with a name …│ none                                    
    ▾ M2         ████████ 100% │                                         
-     Checkout with a title lo…│ MESSAGE BOARD                           
+     Checkout with a title…   │ MESSAGE BOARD                           
      ✓ Shelf layout no ticket │ ⚠ Needs you · 1                         
      ✓ 日本語のタス no ticket │   cat-lead question: the c…  in Show ea…
        ク名と絵文字です       │ ┌─────────────────────────────────────┐ 

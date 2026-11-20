@@ -5,7 +5,7 @@
      ✓ Bookmarks page                no ticket │  standalone 0 · Done 0 milestones                                                          
      ● New book shelf                     #113 │                                                                                            
      ○ Show each book's reviews      no ticket │ MESSAGE BOARD · whole repo Catalogue Lead                            open full board (b) ▶ 
-       under its cover, newest first, with a l…│ ⚠ Needs you · 1                                                                            
+       under its cover, newest first, with a…  │ ⚠ Needs you · 1                                                                            
 ───────────────────────────────────────────────│   cat-lead question: the covers are late again. @manager can…  in Show each book's reviews…
                                                │ ┌────────────────────────────────────────────────────────────────────────────────────────┐ 
  ▾ checkout                                    │ │ [open] Triage of the new issues                                 T8 · 1 message ·   3m  │ 

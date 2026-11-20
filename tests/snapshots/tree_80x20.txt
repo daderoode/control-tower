@@ -7,13 +7,13 @@
        page                   │ MESSAGE BOARD · whole repo                      
      ● New book shelf    #113 │ no lead yet, so no message board                
      ○ Show each    no ticket │                                                 
-       book's reviews under i…│                                                 
+       book's reviews under…  │                                                 
 ──────────────────────────────│                                                 
                               │                                                 
  ▾ checkout                   │                                                 
    no lead yet: n starts one  │                                                 
    ▾ M2         ████████ 100% │                                                 
-     Checkout with a title lo…│                                                 
+     Checkout with a title…   │                                                 
      ✓ Shelf layout no ticket │                                                 
      ✓ 日本語のタス no ticket │                                                 
 ────────────────────────────────────────────────────────────────────────────────

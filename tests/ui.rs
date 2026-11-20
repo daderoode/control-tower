@@ -732,7 +732,7 @@ fn a_milestone_shows_its_bar_and_percentage_at_the_right_edge() {
         .iter()
         .position(|l| l.starts_with("   ▾ M2 "))
         .unwrap();
-    assert_eq!(lines[at + 1], "     title long enough to be cut in a n…");
+    assert_eq!(lines[at + 1], "     title long enough to be cut in a…  ");
     // No tasks: an empty bar at 0%, even with a Done mark stored.
     let (_, _, row) = milestone_row(&board, "M3", 40);
     assert_eq!(row, "   ▾ M3 Search by author  ░░░░░░░░   0% ");
@@ -3714,8 +3714,47 @@ fn a_long_thread_name_wraps_to_two_lines_beside_the_conversation() {
     assert_eq!(
         seconds,
         [
-            "   its cover, newe… · Review stars",
-            "   its cover, n… · Delivery failed"
+            "   its cover,… · Review stars",
+            "   its cover,… · Delivery failed"
+        ],
+        "{all:#?}"
+    );
+}
+
+/// An own title whose first word is too wide for the room it keeps on a thread's second
+/// list line is cut by character after its " · ", as a lone piece is, never down to "·…",
+/// so two threads on one task still read apart (#50).
+#[test]
+fn an_own_title_too_long_for_its_room_keeps_its_start_after_the_dot() {
+    let list = |r: &String| r.chars().take(40).collect::<String>();
+    let mut board = board_fixture();
+    board.milestones[0].threads.push(Thread::whole(
+        ThreadId(9),
+        "Shelfgridribbonalignmentcheck notes".into(),
+        Some(TaskId(14)),
+        None,
+        vec![Message {
+            id: 900,
+            author: "dev-1".into(),
+            text: "the grid lines up on the second try".into(),
+            at: NOW - 30 * 60,
+        }],
+    ));
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(120, 30);
+    let mut dash = select(Item::Milestone(MilestoneId(1)));
+    dash.handle(&view, a, Input::Char('b'));
+    let all = rows(&render_dash(&view, &dash, 120, 30, Depth::TrueColor));
+    let seconds: Vec<String> = (all.iter().enumerate())
+        .filter(|(_, r)| list(r).contains(" Show each book's reviews "))
+        .map(|(y, _)| list(&all[y + 1]).trim_end().to_string())
+        .collect();
+    assert_eq!(
+        seconds,
+        [
+            "   its cover,… · Review stars",
+            "   its cover,… · Shelfgridribbona…"
         ],
         "{all:#?}"
     );
@@ -6597,6 +6636,18 @@ fn cards_are_one_line_and_always_show_the_assignee() {
 }
 
 #[test]
+fn a_clamped_goal_ends_after_its_last_whole_piece() {
+    // As the copy's `.goal clamp2` ends it in Chrome (#50): after "shed-lead-senior-", the
+    // last piece that fits, not cut inside "reviewer".
+    let mut board = reference_fixture();
+    board.milestones[0].goal = "the long garden-shed-lead-senior-reviewer keeps it".into();
+    let o = overview(&board.milestones[0], None, 24, Depth::Ansi256);
+    let text: Vec<String> = o.lines.iter().map(|l| l.to_string()).collect();
+    assert_eq!(text[1], " goal the long garden-  ");
+    assert_eq!(text[2], "      shed-lead-senior-…");
+}
+
+#[test]
 fn a_done_card_with_no_assignee_says_done_by_lead_only_when_the_lead_finished_it() {
     let board = reference_fixture();
     let m = &board.milestones[0];
@@ -6948,7 +6999,7 @@ fn a_word_the_first_line_breaks_stays_whole_on_the_second() {
         .collect();
     let m3 = find_row(&lines, "   ▾ M3");
     assert_eq!(lines[m3], "   ▾ M3   ░░░░░░░░   0%", "{lines:#?}");
-    assert_eq!(lines[m3 + 1], "     Search by author  …", "{lines:#?}");
+    assert_eq!(lines[m3 + 1], "     Search by author…", "{lines:#?}");
 }
 
 #[test]

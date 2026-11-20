@@ -7,13 +7,13 @@
        page                   │ MESSAGE BOARD · whole re… open full board (b) ▶ 
      ● New book shelf    #113 │ nothing on this board needs you                 
      ○ Show each    no ticket │ no threads yet                                  
-       book's reviews under i…│                                                 
+       book's reviews under…  │                                                 
                               │                                                 
    standalone · no … 1/3 done │                                                 
      ● Sort the poetry    #64 │                                                 
        shelf by poet          │                                                 
      ○ Add a notes  no ticket │                                                 
-       box to each bookmark w…│                                                 
+       box to each bookmark…  │                                                 
      ✓ Dust the     no ticket │                                                 
        shelves                │                                                 
 ──────────────────────────────│                                                 
@@ -21,6 +21,6 @@
  ▾ checkout                   │                                                 
    Checkout Lead with a name …│                                                 
    ▾ M2         ████████ 100% │                                                 
-     Checkout with a title lo…│                                                 
+     Checkout with a title…   │                                                 
 ────────────────────────────────────────────────────────────────────────────────
  ↑↓ select · enter open · b board · i inbox · n new lead · q quit               

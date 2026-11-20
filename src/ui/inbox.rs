@@ -14,11 +14,11 @@ use std::ops::Range;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use super::chat::{failed_to, marked};
 use super::control::Control;
-use super::message_board::{highlight_marked, wrap_line};
+use super::message_board::{clamp_end, highlight_marked, wrap_line};
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, ok, selected_bg};
 use super::tree::split_line;
 use crate::board::{Board, DELIVERY_FAILURE, SYSTEM_AUTHOR, Talk, age, owner_mentions};
@@ -158,15 +158,7 @@ impl Said {
                 }
                 // The "…" in the row's text style, never a mention's: the piece is cut
                 // first, to leave it a column, and then styled.
-                let mut end = 0;
-                let mut used = 0;
-                for (at, c) in piece.char_indices() {
-                    used += c.width().unwrap_or(0);
-                    if used + 1 > room {
-                        break;
-                    }
-                    end = at + c.len_utf8();
-                }
+                let end = clamp_end(piece, room);
                 let marks: Vec<Range<usize>> = (marks.iter())
                     .filter(|r| r.start < end)
                     .map(|r| r.start..r.end.min(end))
