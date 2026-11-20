@@ -266,8 +266,8 @@ pub enum Row {
         open: bool,
     },
     /// A line of an ack under the bubble it answers, on that bubble's side; the first
-    /// starts "↳ author:", the last ends with its age, or is only its age after a word too
-    /// wide for a line (its `piece` empty).
+    /// starts "↳ author:", the last ends with its age, or is only its age after a word, or
+    /// the last piece of one, too wide for a line (its `piece` empty).
     Ack {
         msg: usize,
         bw: usize,
@@ -718,8 +718,8 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                     // Room on every line for " · " and the age at the end of the last.
                     let aw = bw.saturating_sub(2 + 3 + AGE_COLUMNS).max(1);
                     let mut ps = wrap_event_line(&text, aw);
-                    // After a word too wide for a line, which overflows it in the copy, the
-                    // age starts a line of its own.
+                    // After a word, or the last piece of one, too wide for a line, which
+                    // overflows it in the copy, the age starts a line of its own.
                     if event_line_overflows(&text, aw) {
                         ps.push(String::new());
                     }

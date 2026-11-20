@@ -35,10 +35,11 @@ tag's date, and a new empty Unreleased goes above it.
   line's end with the spaces before it, as the UI design does, so the next line starts with
   the word after it. Titles, goals, events, acks and inbox rows still carry it to the next
   line with its word, as the design does there (#57).
-- **An ack's age after a word too wide for a line starts the next line.** An ack ending in
-  a word too wide for its line, such as a long hash, drew its age after the word's last
-  piece, as in `5d6e7f8 · 8m`. Its `· 8m` now starts the next line, under the text, as the
-  UI design draws it; an ack whose last word fits keeps its age on its last line (#52).
+- **An ack's age after a word, or the last piece of one, too wide for a line starts the
+  next line.** An ack ending in a word, or the last piece of one, too wide for its line,
+  such as a long hash, drew its age after the word's last piece, as in `5d6e7f8 · 8m`. Its
+  `· 8m` now starts the next line, under the text, as the UI design draws it; an ack whose
+  last word, or the last piece of it after a `-`, fits keeps its age on its last line (#52).
 
 ## [0.5.0] - 2026-11-20
 
