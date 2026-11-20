@@ -677,9 +677,11 @@ fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'s
         };
         let keeps = if rest.is_empty() { 0 } else { NAME_KEEPS };
         let sw = own.width().min(room.saturating_sub(keeps));
-        let rest = clamp_to(&rest, room - sw);
+        let rest = clamp_to("", &rest, room - sw);
         let nw = rest.width().min(room - sw);
-        let own = clamp_to(&own, room - nw);
+        // Its " · " stays whole before its text, which is clamped alone.
+        let (sep, said) = own.split_at(own.find('·').map_or(0, |i| i + '·'.len_utf8()));
+        let own = clamp_to(sep, said, room - nw);
         let sw = own.width().min(room - nw);
         let mut second = Vec::new();
         if nw > 0 {
@@ -723,17 +725,19 @@ fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'s
     rows
 }
 
-/// `part` of a thread's second list line (the name's rest, or " · " and its own title) in
-/// at most `w` columns: whole when it fits, else on one line ending in "…" after its last
-/// whole piece (`message_board::clamp`), its leading space kept. Too narrow for that, as
-/// written, for `fit` to cut.
-fn clamp_to(part: &str, w: usize) -> String {
-    let body = part.trim_start();
-    let lead = &part[..part.len() - body.len()];
+/// `lead` and `text`, a part of a thread's second list line (the name's rest, or " · " and
+/// its own title), in at most `w` columns: whole when it fits, else `lead` whole and `text`
+/// on one line ending in "…" after its last whole piece (`message_board::clamp`), a first
+/// piece too wide for the line cut by character. Too narrow for that, as written, for `fit`
+/// to cut.
+fn clamp_to(lead: &str, text: &str, w: usize) -> String {
+    let part = format!("{lead}{text}");
+    let text = text.trim_start();
+    let lead = &part[..part.len() - text.len()];
     if part.width() <= w || w <= lead.width() + 1 {
-        return part.to_string();
+        return part;
     }
-    let cut = message_board::clamp(body, w - lead.width(), 1);
+    let cut = message_board::clamp(text, w - lead.width(), 1);
     format!("{lead}{}", cut.into_iter().next().unwrap_or_default())
 }
 

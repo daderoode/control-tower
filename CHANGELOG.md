@@ -16,7 +16,8 @@ tag's date, and a new empty Unreleased goes above it.
   the thread list too long for its two lines was cut mid-word, as in "shed-lead-senior-r…".
   It now ends in "…" right after the last piece that fits, "shed-lead-senior-…", or in
   place of the line's last character when the line is full, as the UI design's clamp and
-  the inbox row do (#50).
+  the inbox row do. A tree title's second line now folds each run of spaces to one, as
+  the design does (#50).
 - **Where a thread stands keeps tower's `question:`.** When where a thread stands is
   tower's question for you (a thread holding only tower's words, such as a worker waiting on
   a herdr prompt), that line on the thread's header (on the message board and the full

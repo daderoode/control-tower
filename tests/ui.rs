@@ -3721,6 +3721,45 @@ fn a_long_thread_name_wraps_to_two_lines_beside_the_conversation() {
     );
 }
 
+/// An own title whose first word is too wide for the room it keeps on a thread's second
+/// list line is cut by character after its " · ", as a lone piece is, never down to "·…",
+/// so two threads on one task still read apart (#50).
+#[test]
+fn an_own_title_too_long_for_its_room_keeps_its_start_after_the_dot() {
+    let list = |r: &String| r.chars().take(40).collect::<String>();
+    let mut board = board_fixture();
+    board.milestones[0].threads.push(Thread::whole(
+        ThreadId(9),
+        "Shelfgridribbonalignmentcheck notes".into(),
+        Some(TaskId(14)),
+        None,
+        vec![Message {
+            id: 900,
+            author: "dev-1".into(),
+            text: "the grid lines up on the second try".into(),
+            at: NOW - 30 * 60,
+        }],
+    ));
+    sync(&mut board);
+    let view: View = Ok(board);
+    let a = area(120, 30);
+    let mut dash = select(Item::Milestone(MilestoneId(1)));
+    dash.handle(&view, a, Input::Char('b'));
+    let all = rows(&render_dash(&view, &dash, 120, 30, Depth::TrueColor));
+    let seconds: Vec<String> = (all.iter().enumerate())
+        .filter(|(_, r)| list(r).contains(" Show each book's reviews "))
+        .map(|(y, _)| list(&all[y + 1]).trim_end().to_string())
+        .collect();
+    assert_eq!(
+        seconds,
+        [
+            "   its cover,… · Review stars",
+            "   its cover,… · Shelfgridribbona…"
+        ],
+        "{all:#?}"
+    );
+}
+
 #[test]
 fn the_selected_list_item_is_on_the_selected_background_and_marks_are_coloured() {
     let view: View = Ok(board_fixture());
