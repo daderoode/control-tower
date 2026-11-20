@@ -921,7 +921,8 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// between words stays as written, and counts toward the line's width; a line that breaks
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
-/// `pre_wrap` text, one starting a word after a space is part of the run before it.
+/// `pre_wrap` text, one starting a word after a space is part of the run before it, and one
+/// ending the text is drawn where it fits.
 fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let w = w.max(1);
     let mut out = Vec::new();
@@ -936,15 +937,18 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     // more for each empty piece `split` leaves after it, and in `pre_wrap` text a run of
     // ideographic spaces starting a word after it.
     let mut run = String::new();
+    // Whether a word is down yet, so a run before the next one is between words.
+    let mut placed = false;
     for word in body.split(' ') {
         if word.is_empty() {
             run.push(' ');
             continue;
         }
         let after_text = line.bytes().any(|b| b != b' ');
-        // In `pre_wrap` text, after text and a space, a run of ideographic spaces starting
-        // the word, up to its first break (or the whole word), goes with the run before it.
-        let word = if how.pre_wrap() && after_text {
+        // In `pre_wrap` text, after a word and a space, a run of ideographic spaces starting
+        // the word, up to its first break (or the whole word), goes with the run before it,
+        // also where the word before hung its own run and ended the line (`put_hung`).
+        let word = if how.pre_wrap() && placed {
             let first = own_breaks(word, how).map_or(word, |p| p[0]);
             if first.chars().all(|c| c == IDEOGRAPHIC_SPACE) {
                 run.push_str(first);
@@ -970,6 +974,7 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             String::new()
         };
         run = " ".to_string();
+        placed = true;
         let (fits, hung) = hang(word);
         if line.width() + gap.width() + fits.width() <= w {
             line.push_str(&gap);
@@ -1021,6 +1026,16 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             }
             put_hung(&mut line, &mut out, hung, w);
         }
+    }
+    // A run of ideographic spaces ending the text after a space is drawn where it fits on
+    // the line, as the copy's is, and otherwise hangs past its end; the spaces after it are
+    // the text's trailing ones. Only `pre_wrap` text joins one to the run.
+    let tail = run.trim_end_matches(' ');
+    if tail.contains(IDEOGRAPHIC_SPACE)
+        && line.bytes().any(|b| b != b' ')
+        && line.width() + tail.width() <= w
+    {
+        line.push_str(tail);
     }
     if !line.is_empty() || out.is_empty() {
         out.push(line);
@@ -1974,6 +1989,17 @@ mod tests {
         // Mid-line, each space around a word that is only a run stays as written.
         assert_eq!(pre("ab 　　 cd", 20), ["ab 　　 cd"]);
         assert_eq!(pre("ab 　 　cd", 20), ["ab 　 　cd"]);
+        // After a word whose own run hung and ended the line, the run hangs too.
+        assert_eq!(pre("abc　 　ef", 4), ["abc", "ef"]);
+        assert_eq!(pre("確認 済み　 　次へ", 9), ["確認 済み", "次へ"]);
+        let a = "a".repeat(34);
+        assert_eq!(pre(&format!("{a}　 　next"), 35), [a.as_str(), "next"]);
+        // A run ending the text is drawn where it fits, and hangs where it does not.
+        assert_eq!(pre("ab 　", 20), ["ab 　"]);
+        assert_eq!(pre("ab 　", 3), ["ab"]);
+        // At the text's start, after its indent or not, a run is the first word's.
+        assert_eq!(pre("　ab cd", 20), ["　ab cd"]);
+        assert_eq!(pre("  　ab", 20), ["  　ab"]);
         for text in [
             "A: ab 　 　cd end",
             "B: ab 　　 cd end",
