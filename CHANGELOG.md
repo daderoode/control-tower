@@ -29,6 +29,10 @@ tag's date, and a new empty Unreleased goes above it.
   `f(x),(y)`, moved to the next line whole, or broke only where a line ended. It now breaks
   before the bracket where the UI design does; not after a letter, a digit, another
   opening bracket, or one of `$ ' / @ ^ _` and a backquote (#45).
+- **An ack's age after a word too wide for a line starts the next line.** An ack ending in
+  a word too wide for its line, such as a long hash, drew its age after the word's last
+  piece, as in `5d6e7f8 · 8m`. Its `· 8m` now starts the next line, under the text, as the
+  UI design draws it; an ack whose last word fits keeps its age on its last line (#52).
 
 ## [0.5.0] - 2026-11-20
 
