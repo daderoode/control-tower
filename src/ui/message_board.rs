@@ -566,10 +566,10 @@ pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
 }
 
 /// `text` in pieces at most `w` columns wide, a piece per line of it (a blank line stays
-/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::PreWrap`).
+/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Preserved`).
 pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
     text.split('\n')
-        .flat_map(|line| wrap_line_by(line, w, Wrap::PreWrap))
+        .flat_map(|line| wrap_line_by(line, w, Wrap::Preserved))
         .collect()
 }
 
@@ -673,13 +673,13 @@ enum Wrap {
     /// pre-wrap` keeps a line's leading spaces on its first line and each run between words
     /// as written, and takes a run of ideographic spaces starting a word into the run of
     /// spaces before it (`pre_wrap`).
-    PreWrap,
+    Preserved,
     /// Events, a delivery failure's line and acks (`.evt`, `.ack`), their spaces folded: as
     /// `Plain`, but the copy leaves `overflow-wrap` normal there, so a piece of a word too
     /// wide for any line (`own_breaks`) overflows its line in Chrome, and what follows it
     /// starts the next. Here it breaks where its lines end, and its last line ends with it.
     Event,
-    /// A message body (`.seg .body`): as `PreWrap`, and a path the copy marks (`paths`),
+    /// A message body (`.seg .body`): as `Preserved`, and a path the copy marks (`paths`),
     /// alone or joined to other text, breaks only after each `/`, as the copy's `<wbr>`
     /// breaks one; the text joined to it breaks as any other.
     Body,
@@ -693,7 +693,7 @@ impl Wrap {
     /// line starts with the word after it. In folded text the line breaks after the spaces,
     /// so the run starts the next line with its word.
     fn pre_wrap(self) -> bool {
-        matches!(self, Wrap::PreWrap | Wrap::Body)
+        matches!(self, Wrap::Preserved | Wrap::Body)
     }
 }
 
@@ -702,7 +702,7 @@ impl Wrap {
 /// only after each `/`.
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
-        Wrap::Plain | Wrap::PreWrap | Wrap::Event => break_units(word, &[]),
+        Wrap::Plain | Wrap::Preserved | Wrap::Event => break_units(word, &[]),
         Wrap::Body => break_units(word, &paths(word)),
     };
     (pieces.len() > 1).then_some(pieces)
