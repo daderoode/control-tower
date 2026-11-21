@@ -795,8 +795,10 @@ enum Wrap {
     /// starts the next. Here it breaks where its lines end, and its last line ends with it.
     Event,
     /// A message body (`.seg .body`): as `Preserved`, and a path the copy marks (`paths`),
-    /// alone or joined to other text, breaks only after each `/`, as the copy's `<wbr>`
-    /// breaks one; the text joined to it breaks as any other.
+    /// alone or joined to other text, also breaks after each `/`, as the copy's `<wbr>`
+    /// breaks one. Inside it the copy leaves `overflow-wrap` normal, so Chrome breaks it
+    /// where it breaks any word (after a `-`), and a piece too wide for any line overflows;
+    /// here such a piece breaks where its lines end, as a terminal cannot overflow.
     Body,
 }
 
@@ -814,7 +816,7 @@ impl Wrap {
 
 /// `word` in the pieces `how` may break it between, short of breaking it anywhere, or
 /// `None` when it has no such break: where Chrome does (`break_units`), a path in a `Body`
-/// only after each `/`.
+/// after each `/` too.
 fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     let pieces = match how {
         Wrap::Plain | Wrap::Preserved | Wrap::Event => break_units(word, &[]),
@@ -823,9 +825,10 @@ fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     (pieces.len() > 1).then_some(pieces)
 }
 
-/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`):
-/// inside one of `paths`, byte ranges of `word`, only after each `/`, where the copy puts a
-/// `<wbr>`, and the last `/` of a path breaks from what follows it too.
+/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`),
+/// and after each `/` of one of `paths`, byte ranges of `word`, where the copy puts a
+/// `<wbr>`, the last `/` of a path breaking from what follows it too. A path is ASCII, so
+/// inside one `breaks_between` breaks only after a `-`.
 fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     static SEGMENTER: LineSegmenterBorrowed<'static> = {
         let mut options = LineBreakOptions::default();
@@ -846,16 +849,8 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
         let after = chars.get(i + 1).map(|&(_, c)| c);
         let c = chars[i - 1].1;
         let after_path = paths.iter().any(|r| r.start < at && at <= r.end);
-        let in_path = paths.iter().any(|r| r.start < at && at < r.end);
         let icu = found.binary_search(&at).is_ok();
-        let breaks = if after_path && c == '/' {
-            true
-        } else if in_path {
-            false
-        } else {
-            breaks_between(before, c, next, after, icu)
-        };
-        if breaks {
+        if (after_path && c == '/') || breaks_between(before, c, next, after, icu) {
             out.push(&word[start..at]);
             start = at;
         }
@@ -1831,7 +1826,7 @@ mod tests {
     }
 
     #[test]
-    fn a_path_stays_in_its_line_and_breaks_only_after_a_slash() {
+    fn a_path_stays_in_its_line_and_breaks_after_a_slash() {
         let text =
             "Icons live in assets/icons/bookmarks/outline/bookmark-ribbon.svg, one file an icon.";
         assert_eq!(
@@ -1861,6 +1856,57 @@ mod tests {
         );
         // Any other word too wide for a line still breaks where the line ends.
         assert_eq!(wrap_line_paths("abcdefghijkl", 5), ["abcde", "fghij", "kl"]);
+    }
+
+    #[test]
+    fn a_path_breaks_after_a_hyphen_as_the_copys_does() {
+        // As headless Chrome draws the copy's message body at width 1, which shows each
+        // break it has: after each `/`, and after a `-` where it breaks any word, not before
+        // a `.` or a `/`, nor before a digit after a minus sign (a `-` with no letter or
+        // digit before it).
+        let path = "/srv/tower/x-1yz/-1xyz/x_-9999/x.-9999/g-+h/x-_y/a---b/c-.d/e-@f";
+        assert_eq!(
+            own_breaks(path, Wrap::Body).unwrap(),
+            [
+                "/", "srv/", "tower/", "x-", "1yz/", "-1xyz/", "x_-9999/", "x.-9999/", "g-", "+h/",
+                "x-", "_y/", "a-", "-", "-", "b/", "c-.d/", "e-", "@f"
+            ]
+        );
+        // In a bubble, as Chrome draws the copy's body at those widths.
+        assert_eq!(
+            wrap_line_paths("ab notes/plan-/drafts-/q4-final.md", 8),
+            ["ab", "notes/", "plan-/", "drafts-/", "q4-", "final.md"]
+        );
+        // A `-` in the text before the path's first `/` is the path's too.
+        assert_eq!(
+            wrap_line_paths("ab my-repo/src/ui/chat-view.rs", 8),
+            ["ab my-", "repo/", "src/ui/", "chat-", "view.rs"]
+        );
+        let path = "ab assets/icons/bookmark-ribbon-outline.svg";
+        assert_eq!(
+            wrap_line_paths(path, 14),
+            [
+                "ab assets/",
+                "icons/",
+                "bookmark-",
+                "ribbon-",
+                "outline.svg"
+            ]
+        );
+        // A piece too wide for a line overflows it in Chrome; a terminal cannot overflow, so
+        // it still breaks where the line ends.
+        assert_eq!(
+            wrap_line_paths(path, 9),
+            [
+                "ab",
+                "assets/",
+                "icons/",
+                "bookmark-",
+                "ribbon-",
+                "outline.s",
+                "vg"
+            ]
+        );
     }
 
     #[test]
@@ -2012,7 +2058,7 @@ mod tests {
         assert_eq!(wrap("ab abcdefghij", 8), ["ab", "abcdefgh", "ij"]);
         assert_eq!(wrap("ab abc-def", 8), ["ab abc-", "def"]);
         // But a path is a word like any other, as the details mark none, where a message
-        // breaks it after each `/`.
+        // breaks it after each `/` and after a `-`.
         let path = "ab assets/icons/bookmarks/outline";
         assert_eq!(
             wrap(path, 12),
@@ -2022,9 +2068,14 @@ mod tests {
             wrap_line_paths(path, 12),
             ["ab assets/", "icons/", "bookmarks/", "outline"]
         );
+        let text = "see /opt/tower/var/log/control-tower.log now";
         assert_eq!(
-            wrap("see /opt/tower/var/log/control-tower.log now", 20),
+            wrap(text, 20),
             ["see", "/opt/tower/var/log/c", "ontrol-tower.log now"]
+        );
+        assert_eq!(
+            wrap_line_paths(text, 20),
+            ["see /opt/tower/var/", "log/control-", "tower.log now"]
         );
     }
 

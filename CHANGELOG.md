@@ -9,6 +9,14 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A path in a message breaks after a `-` too.** A path in a message (16 characters or more
+  with two `/`) broke only after a `/`, so a long piece such as `control-tower.log` was cut
+  where the line ended. It now also breaks after a `-`, as the UI design's does (not before a
+  `.` or a `/`, nor between a minus sign and a digit); a piece too wide for its line is still
+  cut where the line ends. URLs keep their own breaks (#24).
+
 ## [0.5.1] - 2026-11-21
 
 ### Fixed

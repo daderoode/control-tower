@@ -9305,12 +9305,12 @@ fn url_message(name: &str, mut dash: Dash, w: u16) {
         .unwrap_or_else(|| panic!("{w}: {conv:#?}"));
     assert_eq!(text(&conv[later - 1]).unwrap(), " 8m", "{w}");
     assert!(!conv.iter().any(|r| r.contains('╌')), "{w}: {conv:#?}");
-    // The path stays in its line, and breaks, if it must, only after a `/`.
+    // The path stays in its line, and breaks, if it must, only after a `/` or a `-`.
     let first = text(&conv[later]).unwrap();
     let path = "assets/icons/bookmarks/outline/bookmark-ribbon.svg,";
     if !first.contains(path) {
         let next = text(&conv[later + 1]).unwrap();
-        assert!(first.ends_with('/'), "{w}: {first:?}");
+        assert!(first.ends_with(['/', '-']), "{w}: {first:?}");
         let joined = format!("{}{}", first.trim(), next.trim());
         assert!(joined.contains(path), "{w}: {first:?} {next:?}");
     }
