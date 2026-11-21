@@ -1,6 +1,6 @@
 {
   "name": "control-tower",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "The Claude Code side of control-tower: the lead skill, which runs a repo's dev team through the tower board, the lead's Stop hook, which holds a lead's turn while posts on its board are unread, and its SessionStart hook, which attaches a restarted lead again.",
   "author": {
     "name": "daderoode"
