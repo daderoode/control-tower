@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-21
+
 ### Fixed
 
 - **Enter and `r` never act on an inbox item out of view.** In an inbox list of four lines or
