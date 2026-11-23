@@ -9813,11 +9813,12 @@ fn an_indented_first_line_is_classed_and_toned_by_its_raw_text_everywhere() {
             let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
             (x, buf[(x as u16, y as u16)].clone())
         };
-        // The alert line and the strip: T4's question (402) still the only need-you item,
-        // this one for your awareness.
+        // The alert line, the overview's top row (the full board has none), and the strip:
+        // T4's question (402) still the only need-you item, this one for your awareness.
+        let overview = rows(&render(&view, 160, 50));
         assert!(
-            all[0].starts_with(" ⚠ 1 need you · ⓘ 1 for your awareness"),
-            "{text:?} {all:#?}"
+            overview[0].starts_with(" ⚠ 1 need you · ⓘ 1 for your awareness"),
+            "{text:?} {overview:#?}"
         );
         assert!(
             (all.iter()).any(|r| r.contains("⚠ Needs you · 1")),
