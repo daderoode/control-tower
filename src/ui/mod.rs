@@ -40,6 +40,8 @@ pub mod writer;
 
 use std::path::{Path, PathBuf};
 
+use icu_properties::CodePointMapData;
+use icu_properties::props::GraphemeClusterBreak;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -418,36 +420,58 @@ fn render_scrolled(frame: &mut Frame, lines: Vec<Line<'static>>, scroll: usize, 
 }
 
 /// `text` as a paragraph, the one way a pane's lines are drawn: each span's leading marks
-/// (characters of no width, such as a Hebrew point) moved onto the end of the last span
-/// before it with text, so each draws in the cell before it, as the copy draws a point
-/// after a space at a line's start or after a mention or a tag. ratatui draws no grapheme of
-/// no width and a grapheme never crosses spans, so a span starting with a mark would lose
-/// it. The marks starting a line's first span have no cell before them and stay as they are.
-/// Only a line with such a span is changed.
+/// (`attaches`, such as a Hebrew point) moved onto the end of the last span before it with
+/// text, so each draws in the cell before it, as the copy draws a point after a space at a
+/// line's start or after a mention or a tag. ratatui draws no grapheme of no width and a
+/// grapheme never crosses spans, so a span starting with a mark would lose it. Marks with no
+/// span with text before them in their line (in its first span, or after only empty ones)
+/// have no cell before them and stay as they are. Only a line with such a span is changed.
+///
+/// A line keeps its width because a moved mark joins a cell whose width it does not change:
+/// every span before message text today ends in a space, the bubble's bar, the last letter
+/// of a mention of the owner or a tag's ':'. A span ending in a character that a mark makes
+/// wider would break that, such as a digit, '#', '*', '©' or '®' before a U+FE0F, which
+/// unicode-width draws 2 wide as an emoji: the line would grow a column, and `link::placed`,
+/// which measures the lines before this, would place a link a column off.
 fn paragraph<'a>(text: impl Into<Text<'a>>) -> Paragraph<'a> {
     let mut text = text.into();
-    for line in &mut text.lines {
-        for k in 1..line.spans.len() {
-            let content = &line.spans[k].content;
-            let marks = content.len() - content.trim_start_matches(no_width).len();
-            if marks == 0 {
-                continue;
-            }
-            let Some(before) = (0..k).rev().find(|&j| !line.spans[j].content.is_empty()) else {
-                continue;
-            };
-            let (moved, rest) = content.split_at(marks);
-            let (moved, rest) = (moved.to_string(), rest.to_string());
-            line.spans[before].content.to_mut().push_str(&moved);
-            line.spans[k].content = rest.into();
-        }
-    }
+    text.lines.iter_mut().for_each(join_marks);
     Paragraph::new(text)
 }
 
-/// Whether `c` takes no column of its own: a mark that draws on the character before it.
-fn no_width(c: char) -> bool {
-    unicode_width::UnicodeWidthChar::width(c) == Some(0)
+/// `line` with each span's leading marks moved onto the last span before it with text
+/// (`paragraph`).
+fn join_marks(line: &mut Line) {
+    for k in 1..line.spans.len() {
+        let content = &line.spans[k].content;
+        let marks = content.len() - content.trim_start_matches(attaches).len();
+        if marks == 0 {
+            continue;
+        }
+        let Some(before) = (0..k).rev().find(|&j| !line.spans[j].content.is_empty()) else {
+            continue;
+        };
+        let (moved, rest) = content.split_at(marks);
+        let (moved, rest) = (moved.to_string(), rest.to_string());
+        line.spans[before].content.to_mut().push_str(&moved);
+        line.spans[k].content = rest.into();
+    }
+}
+
+/// Whether `c` is a mark that draws on the character before it and takes no column of its
+/// own: a character the grapheme rules join to the one before it (Grapheme_Cluster_Break
+/// Extend, ZWJ or SpacingMark), with no width. Not a Prepend character such as U+0D4E,
+/// which joins the one after it, and not a mark with a width of its own, such as most
+/// SpacingMarks, which ratatui draws in a cell of its own already. ASCII is neither.
+fn attaches(c: char) -> bool {
+    !c.is_ascii()
+        && unicode_width::UnicodeWidthChar::width(c) == Some(0)
+        && matches!(
+            CodePointMapData::<GraphemeClusterBreak>::new().get(c),
+            GraphemeClusterBreak::Extend
+                | GraphemeClusterBreak::ZWJ
+                | GraphemeClusterBreak::SpacingMark
+        )
 }
 
 /// `text` on one line: every run of whitespace or control characters (line breaks, escape
@@ -641,6 +665,66 @@ fn keys_line(view: &View, l: &Layout, dash: &Dash, w: usize, depth: Depth) -> Li
         .find(|t| unicode_width::UnicodeWidthStr::width(t.as_str()) <= w)
         .unwrap_or_else(|| line(0));
     fit(vec![Span::styled(text, dim(depth))], w)
+}
+
+#[cfg(test)]
+mod join_marks_tests {
+    use super::*;
+    use std::borrow::Cow;
+
+    /// `spans` joined (`join_marks`), as their contents.
+    fn joined(spans: &[&'static str]) -> Vec<String> {
+        let mut line = Line::from(spans.iter().map(|s| Span::raw(*s)).collect::<Vec<_>>());
+        join_marks(&mut line);
+        line.spans.iter().map(|s| s.content.to_string()).collect()
+    }
+
+    #[test]
+    fn a_span_s_leading_marks_go_onto_the_last_span_before_it_with_text() {
+        // Invented text. U+05B8 (qamats) and U+05BC (dagesh) are Extend, U+0301 too.
+        assert_eq!(joined(&["a ", "\u{5b8}b"]), ["a \u{5b8}", "b"]);
+        // Several marks go together, in order.
+        assert_eq!(
+            joined(&["a", "\u{5b8}\u{5bc}\u{301}b"]),
+            ["a\u{5b8}\u{5bc}\u{301}", "b"]
+        );
+        // Past an empty span.
+        assert_eq!(joined(&["a", "", "\u{5b8}b"]), ["a\u{5b8}", "", "b"]);
+        // A span of only marks empties, and the marks of the next go after them.
+        assert_eq!(
+            joined(&["a", "\u{5b8}", "\u{5bc}b"]),
+            ["a\u{5b8}\u{5bc}", "", "b"]
+        );
+    }
+
+    #[test]
+    fn marks_with_no_span_with_text_before_them_stay() {
+        assert_eq!(joined(&["\u{5b8}b", "c"]), ["\u{5b8}b", "c"]);
+        assert_eq!(joined(&["", "\u{5b8}b"]), ["", "\u{5b8}b"]);
+        assert_eq!(joined(&["", "", "\u{5b8}"]), ["", "", "\u{5b8}"]);
+    }
+
+    #[test]
+    fn only_marks_that_join_the_character_before_them_with_no_width_move() {
+        // U+0D4E (MALAYALAM LETTER DOT REPH) is Prepend: it joins the letter after it, and
+        // the two draw as one cell where they are.
+        assert_eq!(
+            joined(&[" ", "\u{d4e}\u{d30} x"]),
+            [" ", "\u{d4e}\u{d30} x"]
+        );
+        // U+0903 (DEVANAGARI SIGN VISARGA) is a SpacingMark one column wide: it draws in a
+        // cell of its own where it is.
+        assert_eq!(joined(&[" ", "\u{903}b"]), [" ", "\u{903}b"]);
+        // Text with no leading mark is left as it is, not copied.
+        let mut line = Line::from(vec![Span::raw("a "), Span::raw("b \u{5b8}c")]);
+        join_marks(&mut line);
+        assert!(
+            line.spans
+                .iter()
+                .all(|s| matches!(s.content, Cow::Borrowed(_))),
+            "{line:?}"
+        );
+    }
 }
 
 #[cfg(test)]
