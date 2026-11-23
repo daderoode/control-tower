@@ -2296,7 +2296,8 @@ mod tests {
         // (Hebrew and the hyphens spaced to one column): after a hyphen between two Hebrew
         // letters, the first carrying a point (U+05BC) or not, and each of two (LB21a's
         // exception); not after one between a Hebrew letter and a letter or digit that is not
-        // Hebrew (LB21a), so such a word too wide for a line breaks where it ends.
+        // Hebrew (LB21a), so such a word moves whole to the next line. Each line is narrower
+        // than its width, as Chrome lays a `7ch` box out a little under 7 columns.
         let (he, he2) = ("\u{5d0}\u{5d1}\u{5d2}", "\u{5d3}\u{5d4}\u{5d5}");
         for x in HYPHENS {
             let rows: [(String, usize, Vec<String>); 6] = [
@@ -2325,13 +2326,13 @@ mod tests {
                 ),
                 (
                     format!("ab {he}{x}\u{e9}fg"),
-                    7,
-                    vec!["ab".into(), format!("{he}{x}\u{e9}f"), "g".into()],
+                    8,
+                    vec!["ab".into(), format!("{he}{x}\u{e9}fg")],
                 ),
                 (
                     format!("ab {he}{x}123"),
-                    7,
-                    vec!["ab".into(), format!("{he}{x}12"), "3".into()],
+                    8,
+                    vec!["ab".into(), format!("{he}{x}123")],
                 ),
             ];
             for (text, w, want) in &rows {
