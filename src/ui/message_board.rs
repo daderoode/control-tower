@@ -880,9 +880,10 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 ///   hyphen that starts the word (nothing or a no-break space before it) before a letter
 ///   (UAX #14's LB20a), for the hyphens Chrome applies it to, Unicode 17's HY and HH: `-`,
 ///   U+058A, U+05BE, U+1400, U+2010, U+2012, U+2013, U+2E17, U+2E40, U+2E5D, U+10D6E and
-///   U+10EAD (`icu_properties` 2.4 classes U+2012 and U+2013 BA), and a break before an
-///   opening `“` or `‘` between two East Asian characters, and after a closing `”` or `’`
-///   between two, as in `中“文”中` (LB19a).
+///   U+10EAD. A list, not the classes: `icu_properties` 2.4's data is Unicode 18, which moved
+///   U+2012 and U+2013 back to BA (and U+00AD to HH), and the list follows Chrome, whose ICU
+///   still applies Unicode 17. And a break before an opening `“` or `‘` between two East
+///   Asian characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
 fn breaks_between(
     before: Option<char>,
     c: char,
@@ -2167,8 +2168,8 @@ mod tests {
     ];
 
     /// The hyphens Chrome keeps to a letter after one starting a word (LB20a), Unicode 17's HY
-    /// and HH, each one column wide (`unicode-width`), so dropping one from `breaks_between`
-    /// fails a test.
+    /// and HH, each one column wide (`unicode-width`), so dropping any but U+10D6E from
+    /// `breaks_between` fails a test (`icu_segmenter` 2.4 never breaks after U+10D6E).
     const HYPHENS: [char; 12] = [
         '-',
         '\u{058a}',
@@ -2208,6 +2209,15 @@ mod tests {
                     assert_eq!(&wrapped(text, *w), want, "{how} {text:?} at {w}");
                 }
             }
+        }
+        // A dash not in the list, such as an em dash (U+2014, one column), breaks after it,
+        // as Chrome does.
+        for (how, wrapped) in WRAPS {
+            assert_eq!(
+                wrapped("ab \u{2014}\u{e9}fghij", 6),
+                ["ab \u{2014}", "\u{e9}fghij"],
+                "{how}"
+            );
         }
     }
 
