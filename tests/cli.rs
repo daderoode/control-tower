@@ -1749,6 +1749,20 @@ fn post_reads_the_message_from_stdin_when_it_is_a_dash() {
         ("qa", "--by qa -x\napproved")
     );
 
+    // A list keeps its first line's indent, so it reads in line (#16); leading blank lines
+    // and the end go, as the UI copy's composer drops them.
+    let list = "\n  - preheat the left oven\n  - proof the rye\n";
+    let out = tower_with_stdin(&db, &post, list);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let t = Store::open(&db)
+        .unwrap()
+        .thread("T1".parse().unwrap())
+        .unwrap();
+    assert_eq!(
+        t.messages.last().unwrap().text,
+        "  - preheat the left oven\n  - proof the rye"
+    );
+
     // Checked as any other post.
     assert_refused(&tower_with_stdin(&db, &post, " \n"), "the message is empty");
     assert_refused(

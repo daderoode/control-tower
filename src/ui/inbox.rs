@@ -86,11 +86,13 @@ pub(crate) fn alert_name(board: &Board, a: &Alert) -> String {
 
 /// What an alert says, unstyled, as its inbox row shows it: its message on at most
 /// `MESSAGE_LINES` lines, each with the byte ranges in it to mark in the row's red, and
-/// whether the message goes on past the last.
+/// whether the message goes on past the last, and whether its first line may tone a leading
+/// tag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Said {
     lines: Vec<(String, Vec<Range<usize>>)>,
     more: bool,
+    tagged: bool,
 }
 
 impl Said {
@@ -127,6 +129,9 @@ impl Said {
         Said {
             lines: lines.into_iter().zip(found).collect(),
             more,
+            // The copy tones the raw text, so an indented first line, folded here, stays
+            // plain.
+            tagged: !flat.starts_with(' '),
         }
     }
 
@@ -142,8 +147,9 @@ impl Said {
         let n = self.lines.len();
         (self.lines.iter().enumerate())
             .map(|(k, (piece, marks))| {
+                let head = k == 0 && self.tagged;
                 if !(self.more && k + 1 == n) {
-                    return highlight_marked(piece, marks, k == 0, awareness, depth);
+                    return highlight_marked(piece, marks, head, awareness, depth);
                 }
                 // The "…" in the row's text style, never a mark's: the piece is cut first, to
                 // leave it a column, and then styled.
@@ -152,7 +158,7 @@ impl Said {
                     .filter(|r| r.start < end)
                     .map(|r| r.start..r.end.min(end))
                     .collect();
-                let mut spans = highlight_marked(&piece[..end], &marks, k == 0, awareness, depth);
+                let mut spans = highlight_marked(&piece[..end], &marks, head, awareness, depth);
                 spans.push(Span::raw("…"));
                 spans
             })

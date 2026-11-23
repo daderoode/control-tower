@@ -7326,9 +7326,12 @@ mod tests {
         // Plain posts, the opening message included, are never the doing line.
         store.post(t1, "dev-2", "copy").unwrap();
         assert_eq!(doing(&mut store), [None, None]);
-        let posted = store.post_progress(t1, "dev-2", " step 1 done ").unwrap();
-        assert_eq!(posted.messages.last().unwrap().text, "step 1 done");
-        assert_eq!(doing(&mut store), [Some("step 1 done".into()), None]);
+        // Checked as any post: a leading blank line and the end go, the indent stays (#16).
+        let posted = store
+            .post_progress(t1, "dev-2", "\n step 1 done \n")
+            .unwrap();
+        assert_eq!(posted.messages.last().unwrap().text, " step 1 done");
+        assert_eq!(doing(&mut store), [Some(" step 1 done".into()), None]);
         // Anyone on the team, assigned or not; a later plain post leaves it.
         store
             .post_progress(t1, "qa", "testing: 3 of 4 pass")

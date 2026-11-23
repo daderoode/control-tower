@@ -106,9 +106,11 @@ pub fn stands(
         s.push(Span::raw(": "));
     }
     // Its spaces folded, as the copy's `nowrap` line draws them; a leading tag toned as in
-    // its bubble, by the whole message's tone.
+    // its bubble, by the whole message's tone, and only where the text itself starts with
+    // it: the copy tones the raw text, so an indented first line stays plain.
     let awareness = tone == Tone::Awareness;
-    s.extend(highlight(&fold_spaces(&text), true, awareness, depth));
+    let start = !text.starts_with(' ');
+    s.extend(highlight(&fold_spaces(&text), start, awareness, depth));
     Some(fit(s, w))
 }
 

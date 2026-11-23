@@ -9767,6 +9767,112 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
 }
 
 #[test]
+fn an_indented_first_line_is_classed_and_toned_by_its_raw_text_everywhere() {
+    // T4 gets a newest message from cat-lead whose first line is indented, as a post now
+    // keeps it (#16), starting with each leading tag in turn after the indent. The copy
+    // reads the raw text, so none starts with its tag: no tag is toned or shown, and each
+    // is classed by the build's rule on the raw text (it mentions the owner, so it is for
+    // your awareness, never a question).
+    let tags = [
+        (
+            "blocked:",
+            "   blocked: the second printer is out of ink too. @manager for your awareness",
+        ),
+        (
+            "decision:",
+            "   decision: the covers come from the second printer. @manager for your awareness",
+        ),
+        (
+            "question:",
+            "   question: the spine is late too. @manager can you call the binder?",
+        ),
+    ];
+    for (id, (tag, text)) in (430..).zip(tags) {
+        let mut board = board_fixture();
+        let t = (board.milestones[0].threads.iter_mut())
+            .find(|t| t.id == ThreadId(4))
+            .unwrap();
+        let mut messages = t.messages.clone();
+        messages.push(Message {
+            id,
+            author: "cat-lead".into(),
+            text: text.into(),
+            at: NOW - 5 * 60,
+        });
+        *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
+        with_alerts(&mut board, &[]);
+        let view: View = Ok(board);
+        let a = area(160, 50);
+        let bold = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::BOLD);
+        let mut dash = select(Item::Task(TaskId(14)));
+        dash.handle(&view, a, Input::Char('b'));
+        let buf = render_dash(&view, &dash, 160, 50, Depth::TrueColor);
+        let all = rows(&buf);
+        // The column and cell where `needle` first starts in row `y`, `skip` columns in.
+        let at = |y: usize, needle: &str, skip: &str| {
+            let x = all[y][..all[y].find(needle).unwrap()].width() + skip.width();
+            (x, buf[(x as u16, y as u16)].clone())
+        };
+        // The alert line and the strip: T4's question (402) still the only need-you item,
+        // this one for your awareness.
+        assert!(
+            all[0].starts_with(" ⚠ 1 need you · ⓘ 1 for your awareness"),
+            "{text:?} {all:#?}"
+        );
+        assert!(
+            (all.iter()).any(|r| r.contains("⚠ Needs you · 1")),
+            "{text:?} {all:#?}"
+        );
+        // Its bubble keeps the indent, its tag plain and no tag on its meta line above.
+        let bubble = (all.iter())
+            .rposition(|r| r.contains(&format!("▌    {tag}")))
+            .unwrap_or_else(|| panic!("{text:?} {all:#?}"));
+        let (_, got) = at(bubble, &format!("▌    {tag}"), "▌    ");
+        assert_eq!(got.symbol(), &tag[..1], "{text:?}");
+        assert!(!bold(&got), "{text:?} bubble");
+        let meta = &all[bubble - 1];
+        assert!(meta.contains("5m"), "{text:?} {all:#?}");
+        for word in ["needs you", "decision", "blocked"] {
+            assert!(!meta.contains(word), "{text:?} {word} {all:#?}");
+        }
+        // Where it stands, on the header and the list row, its spaces folded: plain.
+        let said = format!("cat-lead: {tag}");
+        let stands = format!("where it stands {said}");
+        let head = find_row_containing(&all, &stands);
+        let list = (all.iter())
+            .position(|r| r.split('│').next().unwrap().contains(&said))
+            .unwrap_or_else(|| panic!("{text:?} {all:#?}"));
+        for (y, needle, skip, place) in [
+            (
+                head,
+                stands.as_str(),
+                "where it stands cat-lead: ",
+                "header",
+            ),
+            (list, said.as_str(), "cat-lead: ", "list"),
+        ] {
+            let (_, got) = at(y, needle, skip);
+            assert_eq!(got.symbol(), &tag[..1], "{text:?} {place}");
+            assert!(!bold(&got), "{text:?} {place}");
+        }
+        // Its inbox row, under FOR YOUR AWARENESS, its spaces folded: plain.
+        let inbox = inbox_dash(&view, a);
+        let buf = render_dash(&view, &inbox, 160, 50, Depth::TrueColor);
+        let all = rows(&buf);
+        let need = find_row_containing(&all, " ⚠ 1 NEED YOU");
+        let aware = find_row_containing(&all, " ⓘ 1 FOR YOUR AWARENESS");
+        // Its first words, which no other item starts with (T4's question is in NEED YOU).
+        let folded = &text.trim_start()[..20];
+        let row = find_row_containing(&all, folded);
+        assert!(need < aware && aware < row, "{text:?} {all:#?}");
+        let x = all[row][..all[row].find(folded).unwrap()].width();
+        let got = &buf[(x as u16, row as u16)];
+        assert_eq!(got.symbol(), &tag[..1], "{text:?}");
+        assert!(!bold(got), "{text:?} inbox");
+    }
+}
+
+#[test]
 fn a_task_detail_tones_its_doing_lines_leading_tag_as_its_bubble_does() {
     // #14's doing post is T4's newest message, by cat-lead, starting with each leading tag
     // in turn, with whether its tag is bold. Each round's message has its own id, as in
