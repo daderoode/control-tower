@@ -2241,11 +2241,13 @@ mod tests {
         // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
         // (where the word overflows): no break after a hyphen starting a word, or after a
         // no-break space, before a letter, so such a word too wide for a line breaks where it
-        // ends. A letter that is not ASCII, as Blink's ASCII table breaks `-d`. A point on the
-        // hyphen (U+05BC, spaced to one column with it) changes nothing (LB9), so the word
-        // moves whole to the next line.
+        // ends. A letter that is not ASCII, as Blink's ASCII table breaks `-d`. A point
+        // (U+05BC, spaced to one column with what carries it) on the hyphen or on the no-break
+        // space before it changes nothing (LB9), so the word moves whole to the next line; but
+        // a point starting a word is a character of its own before the hyphen (LB10), so the
+        // word breaks after the hyphen.
         for x in HYPHENS {
-            let rows: [(String, usize, Vec<String>); 3] = [
+            let rows: [(String, usize, Vec<String>); 5] = [
                 (
                     format!("ab {x}\u{e9}fghij"),
                     6,
@@ -2262,6 +2264,24 @@ mod tests {
                     vec![
                         "aaaaaaaa bbbbbbbb cccccccccc".into(),
                         format!("{x}\u{5bc}\u{5d0}\u{5d1}\u{5d2} end"),
+                    ],
+                ),
+                (
+                    format!(
+                        "aaaaaaaa bbbbbbbb ccccccc dd\u{a0}\u{5bc}{x}\u{5d0}\u{5d1}\u{5d2} end"
+                    ),
+                    31,
+                    vec![
+                        "aaaaaaaa bbbbbbbb ccccccc".into(),
+                        format!("dd\u{a0}\u{5bc}{x}\u{5d0}\u{5d1}\u{5d2} end"),
+                    ],
+                ),
+                (
+                    format!("aaaaaaaa bbbbbbbb ccccccccc \u{5bc}{x}\u{5d0}\u{5d1}\u{5d2} end"),
+                    31,
+                    vec![
+                        format!("aaaaaaaa bbbbbbbb ccccccccc \u{5bc}{x}"),
+                        "\u{5d0}\u{5d1}\u{5d2} end".into(),
                     ],
                 ),
             ];
