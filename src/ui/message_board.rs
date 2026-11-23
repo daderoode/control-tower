@@ -505,6 +505,13 @@ pub(crate) fn highlight(
     highlight_marked(text, &owner_mentions(text), start, awareness, depth)
 }
 
+/// Whether a message whose raw text is `text` may tone a leading tag (`highlight`'s
+/// `start`): only when it starts with no whitespace, as the copy's highlighting reads the
+/// raw text. So an indented first line stays plain however its spaces are folded or wrapped.
+pub(crate) fn may_tone_tag(text: &str) -> bool {
+    !text.starts_with(char::is_whitespace)
+}
+
 /// `highlight` with the owner's mentions already found: `marks`, byte ranges of `text`,
 /// in order. A piece of a wrapped message is marked from the whole message, where a quote
 /// or code fence that began on an earlier line is known.

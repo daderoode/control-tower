@@ -14,7 +14,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use super::chat::event_words;
-use super::message_board::{fold_spaces, highlight, pill, status_style};
+use super::message_board::{fold_spaces, highlight, may_tone_tag, pill, status_style};
 use super::theme::{Depth, bad, bold, dim, fit, ok};
 use crate::board::{Talk, Thread, ThreadStatus, Tone, age, is_tower};
 use crate::inbox::Alert;
@@ -107,10 +107,14 @@ pub fn stands(
     }
     // Its spaces folded, as the copy's `nowrap` line draws them; a leading tag toned as in
     // its bubble, by the whole message's tone, and only where the text itself starts with
-    // it: the copy tones the raw text, so an indented first line stays plain.
+    // it (`may_tone_tag`).
     let awareness = tone == Tone::Awareness;
-    let start = !text.starts_with(' ');
-    s.extend(highlight(&fold_spaces(&text), start, awareness, depth));
+    s.extend(highlight(
+        &fold_spaces(&text),
+        may_tone_tag(&text),
+        awareness,
+        depth,
+    ));
     Some(fit(s, w))
 }
 

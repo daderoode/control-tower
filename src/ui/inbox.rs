@@ -18,7 +18,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::chat::{failed_to, marked};
 use super::control::Control;
-use super::message_board::{clamp_end, highlight_marked, wrap_line};
+use super::message_board::{clamp_end, highlight_marked, may_tone_tag, wrap_line};
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, ok, selected_bg};
 use super::tree::split_line;
 use crate::board::{
@@ -129,9 +129,8 @@ impl Said {
         Said {
             lines: lines.into_iter().zip(found).collect(),
             more,
-            // The copy tones the raw text, so an indented first line, folded here, stays
-            // plain.
-            tagged: !flat.starts_with(' '),
+            // Its first line folded here: toned only as `may_tone_tag` says.
+            tagged: may_tone_tag(&flat),
         }
     }
 
