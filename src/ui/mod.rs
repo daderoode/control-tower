@@ -43,7 +43,7 @@ use std::path::{Path, PathBuf};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Paragraph, Wrap};
 
 pub use chat::People;
@@ -206,11 +206,11 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
         if l.alert.is_some() {
             text.style = inbox::alert_bg(depth);
         }
-        frame.render_widget(Paragraph::new(text), c);
+        frame.render_widget(paragraph(text), c);
     }
     if area.height >= 5 {
         let rule = Line::styled("─".repeat(w), dim(depth));
-        frame.render_widget(Paragraph::new(rule), row(area.height - 2));
+        frame.render_widget(paragraph(rule), row(area.height - 2));
         let running = (dash.handing.clone())
             .or(dash.posting.map(|t| format!("posting to {t}…")))
             .map(|r| (r, false));
@@ -236,14 +236,14 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
                 None => keys_line(view, &l, dash, w, depth),
             },
         };
-        frame.render_widget(Paragraph::new(keys), row(area.height - 1));
+        frame.render_widget(paragraph(keys), row(area.height - 1));
     }
     let board = match view {
         Ok(board) => board,
         Err(problem) => {
             // The problem wraps over as many lines as it needs: it names the board's path,
             // which is too useful to cut off.
-            let p = Paragraph::new(Line::styled(
+            let p = paragraph(Line::styled(
                 format!(" {problem}"),
                 Style::new().fg(bad(depth)),
             ))
@@ -254,14 +254,11 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
     };
     if let Some(a) = l.alert {
         let aw = usize::from(a.width);
-        frame.render_widget(
-            Paragraph::new(inbox::alert_line(board, aw, Some(now), depth)),
-            a,
-        );
+        frame.render_widget(paragraph(inbox::alert_line(board, aw, Some(now), depth)), a);
     }
     if let Some(ib) = &l.inbox {
         let tw = usize::from(ib.top.width);
-        frame.render_widget(Paragraph::new(inbox::top_line(tw, depth)), ib.top);
+        frame.render_widget(paragraph(inbox::top_line(tw, depth)), ib.top);
         let sel = dash.inbox_target(board, ib);
         let lines = inbox::list_lines(board, sel, usize::from(ib.list.width), now, depth);
         render_scrolled(frame, lines, dash.inbox_scroll(), ib.list);
@@ -278,7 +275,7 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
         if l.right.is_some() {
             let sep = Rect::new(t.x + t.width, t.y, 1, t.height);
             let bar = vec![Line::styled("│", dim(depth)); usize::from(sep.height)];
-            frame.render_widget(Paragraph::new(bar), sep);
+            frame.render_widget(paragraph(bar), sep);
         }
     }
     let mut links = Vec::new();
@@ -324,10 +321,10 @@ fn draw_board(
     let m = &Talk::of_repo(board, r);
     let t = full_board::shown(m, b.thread);
     let top = full_board::top_line(&r.name(), m, usize::from(b.top.width), depth);
-    frame.render_widget(Paragraph::new(top), b.top);
+    frame.render_widget(paragraph(top), b.top);
     let sw = usize::from(b.strip.width);
     let strip = threads::strip(m, &m.needs, sw, b.strip_room, now, depth);
-    frame.render_widget(Paragraph::new(strip), b.strip);
+    frame.render_widget(paragraph(strip), b.strip);
     let list = full_board::list_lines(m, b, usize::from(b.list.width), now, depth);
     render_scrolled(frame, list, dash.list_scroll(), b.list);
     let (sep, bar) = if b.beside {
@@ -342,11 +339,11 @@ fn draw_board(
         (sep, vec![Line::styled(rule, dim(depth))])
     };
     if b.head.height > 0 || b.conv.height > 0 {
-        frame.render_widget(Paragraph::new(bar), sep);
+        frame.render_widget(paragraph(bar), sep);
     }
     let rw = usize::from(b.head.width);
     let head = full_board::head_lines(m, t, rw, b.beside, Some(now), depth);
-    frame.render_widget(Paragraph::new(head), b.head);
+    frame.render_widget(paragraph(head), b.head);
     let mut links = Vec::new();
     if let Some(t) = t {
         let (open, selected) = (dash.open_messages(), dash.board_message());
@@ -417,7 +414,40 @@ fn render_scrolled(frame: &mut Frame, lines: Vec<Line<'static>>, scroll: usize, 
         .skip(scroll)
         .take(usize::from(area.height))
         .collect();
-    frame.render_widget(Paragraph::new(shown), area);
+    frame.render_widget(paragraph(shown), area);
+}
+
+/// `text` as a paragraph, the one way a pane's lines are drawn: each span's leading marks
+/// (characters of no width, such as a Hebrew point) moved onto the end of the last span
+/// before it with text, so each draws in the cell before it, as the copy draws a point
+/// after a space at a line's start or after a mention or a tag. ratatui draws no grapheme of
+/// no width and a grapheme never crosses spans, so a span starting with a mark would lose
+/// it. The marks starting a line's first span have no cell before them and stay as they are.
+/// Only a line with such a span is changed.
+fn paragraph<'a>(text: impl Into<Text<'a>>) -> Paragraph<'a> {
+    let mut text = text.into();
+    for line in &mut text.lines {
+        for k in 1..line.spans.len() {
+            let content = &line.spans[k].content;
+            let marks = content.len() - content.trim_start_matches(no_width).len();
+            if marks == 0 {
+                continue;
+            }
+            let Some(before) = (0..k).rev().find(|&j| !line.spans[j].content.is_empty()) else {
+                continue;
+            };
+            let (moved, rest) = content.split_at(marks);
+            let (moved, rest) = (moved.to_string(), rest.to_string());
+            line.spans[before].content.to_mut().push_str(&moved);
+            line.spans[k].content = rest.into();
+        }
+    }
+    Paragraph::new(text)
+}
+
+/// Whether `c` takes no column of its own: a mark that draws on the character before it.
+fn no_width(c: char) -> bool {
+    unicode_width::UnicodeWidthChar::width(c) == Some(0)
 }
 
 /// `text` on one line: every run of whitespace or control characters (line breaks, escape

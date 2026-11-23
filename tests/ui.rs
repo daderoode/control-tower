@@ -2792,6 +2792,51 @@ fn b_opens_the_full_board_and_esc_returns_to_where_the_owner_came_from() {
 }
 
 #[test]
+fn a_point_after_a_space_a_mention_or_a_tag_is_drawn_as_the_copy_draws_it() {
+    // A point (U+05B8) draws on the cell before it: a line that breaks at the space before
+    // one starts with it, as the copy's does; after a mention or a tag it stays on the
+    // letter it was written on. Invented text, as the last message of the thread `b` opens.
+    let q = '\u{05b8}';
+    let breaks: Vec<String> = (1..=10)
+        .map(|n| format!("{} {q}xy", "k".repeat(n)))
+        .collect();
+    let cases = [
+        ("a line start", breaks.join(" "), 10),
+        (
+            "a mention",
+            format!("the shelf grid is ready for @manager{q} to check on a phone"),
+            1,
+        ),
+        ("a tag", format!("blocked:{q}x the shelf is late"), 1),
+    ];
+    for (what, text, points) in cases {
+        let mut board = board_fixture();
+        let thread = &mut board.milestones[0].threads[1];
+        assert_eq!(thread.id, ThreadId(3));
+        thread.messages.last_mut().unwrap().text = text.clone();
+        sync(&mut board);
+        let view: View = Ok(board);
+        for w in 60..=130 {
+            let a = area(w, 60);
+            let mut dash = select(Item::Milestone(MilestoneId(1)));
+            dash.handle(&view, a, Input::Char('b'));
+            let conv = layout(&view, &dash, a).board.unwrap().conv;
+            let buf = render_dash(&view, &dash, w, 60, Depth::TrueColor);
+            let drawn: usize = (conv.top()..conv.bottom())
+                .flat_map(|y| (conv.left()..conv.right()).map(move |x| (x, y)))
+                .map(|at| buf[at].symbol().matches(q).count())
+                .sum();
+            assert_eq!(
+                drawn,
+                points,
+                "{what} at {w}: {text:?}\n{}",
+                rows(&buf).join("\n")
+            );
+        }
+    }
+}
+
+#[test]
 fn clicking_a_thread_box_or_its_earlier_line_opens_that_thread() {
     let view: View = Ok(board_fixture());
     let a = area(120, 90);

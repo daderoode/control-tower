@@ -19,6 +19,12 @@ tag's date, and a new empty Unreleased goes above it.
   keeps them together. A hyphen that starts a word or follows a no-break space now keeps
   the letter after it when the hyphen or the no-break space carries a point, as it already
   did without one (#97).
+- **A point after a space no longer vanishes.** A point (a combining mark, such as a
+  qamats U+05B8) that followed a space was not drawn where a line broke at that space, so
+  text the author wrote went missing; nor was one written right after a mention of the
+  owner or a `blocked:` or `decision:` tag. It now starts the next line, as the UI design's
+  does, and stays on the letter it follows, in every message, title, event and inbox row.
+  Where every line breaks is unchanged (#102).
 
 ## [0.5.2] - 2026-11-23
 
