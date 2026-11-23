@@ -20,6 +20,10 @@ tag's date, and a new empty Unreleased goes above it.
   with an en dash (U+2013) or a figure dash (U+2012) broke right after it before a letter;
   it no longer does, as the UI design's does not and as a hyphen (U+2010) already did not
   (#93).
+- **A word breaks after a Garay hyphen inside it.** A word never broke after a Garay hyphen
+  (U+10D6E), so one too wide for its line was cut where the line ended. It now breaks after
+  it as after a hyphen (U+2010), and not between an ideograph and it, as the UI design's does
+  (#95).
 
 ## [0.5.1] - 2026-11-21
 
