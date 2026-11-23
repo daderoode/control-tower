@@ -841,7 +841,11 @@ fn task_lines(
             let pieces = wrap(&post.text, w.saturating_sub(VALUE_X));
             for (i, piece) in pieces.iter().enumerate() {
                 let label = if i == 0 { "doing" } else { "" };
-                let value = pen.highlight(piece, i == 0, awareness);
+                let value = pen.highlight(
+                    piece,
+                    i == 0 && message_board::may_tone_tag(&post.text),
+                    awareness,
+                );
                 lines.push(field(label, value, w, pen));
             }
         }

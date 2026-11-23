@@ -196,7 +196,7 @@ pub const MAX_TEXT_CHARS: usize = 2000;
 /// it trimmed, with Windows line ends made plain. As `check_line`, but a line break is
 /// allowed and the limit is `MAX_TEXT_CHARS`.
 pub fn check_text(what: &str, value: &str) -> Result<String> {
-    check_lines(what, &value.replace("\r\n", "\n"), MAX_TEXT_CHARS)
+    check_lines(what, value.replace("\r\n", "\n").trim(), MAX_TEXT_CHARS)
 }
 
 /// The longest message or evidence on a message board, in characters: room for a plan or a
@@ -205,19 +205,28 @@ pub const MAX_MESSAGE_CHARS: usize = 4000;
 
 /// Checks a message or evidence (`what` names it) as `check_text` does, but up to
 /// `MAX_MESSAGE_CHARS`. Pasted text works: CRLF and CR become LF and a tab four spaces
-/// first. Returns it so, trimmed.
+/// first. Returns it so, as the UI copy's composer submits it: its leading blank lines
+/// dropped and its end trimmed, its first line's indent kept, so a list reads in line. A
+/// hidden whitespace character before the text (a form feed from a pager) goes too, as it
+/// always did, since the board can store none.
 pub fn check_message(what: &str, value: &str) -> Result<String> {
     let normal = value
         .replace("\r\n", "\n")
         .replace('\r', "\n")
         .replace('\t', "    ");
-    check_lines(what, &normal, MAX_MESSAGE_CHARS)
+    // The copy's `replace(/^\s*\n/, "")`: the leading whitespace up to its last line break,
+    // or up to its last hidden character (`hidden` takes in a line break), so what is kept
+    // starts with plain spaces or the text.
+    let lead = normal.len() - normal.trim_start().len();
+    let start = (normal[..lead].char_indices())
+        .rfind(|(_, c)| hidden(c))
+        .map_or(0, |(at, c)| at + c.len_utf8());
+    check_lines(what, normal[start..].trim_end(), MAX_MESSAGE_CHARS)
 }
 
-/// Checks text whose line ends are already plain: not empty, no hidden character but line
-/// breaks, at most `most` characters. Returns it trimmed.
-fn check_lines(what: &str, text: &str, most: usize) -> Result<String> {
-    let trimmed = text.trim();
+/// Checks text already cut as it is stored, its line ends plain: not empty, no hidden
+/// character but line breaks, at most `most` characters. Returns it.
+fn check_lines(what: &str, trimmed: &str, most: usize) -> Result<String> {
     if trimmed.is_empty() {
         bail!("the {what} is empty");
     }
@@ -1930,9 +1939,39 @@ mod tests {
 
     #[test]
     fn check_message_takes_line_breaks_and_up_to_4000_characters() {
+        // As the UI copy's composer: leading blank lines dropped, the end trimmed, the first
+        // line's indent kept, so a list reads in line.
         assert_eq!(
             check_message("message", " Plan:\n1. layout\n\n2. tests \n").unwrap(),
-            "Plan:\n1. layout\n\n2. tests"
+            " Plan:\n1. layout\n\n2. tests"
+        );
+        assert_eq!(
+            check_message(
+                "message",
+                "\n  \n\n  - preheat the left oven\n  - proof the rye  \n\n"
+            )
+            .unwrap(),
+            "  - preheat the left oven\n  - proof the rye"
+        );
+        // A tab is four spaces first, so an indent made with one is kept as four.
+        assert_eq!(
+            check_message("message", "\r\n\tblocked: the rye\r\n").unwrap(),
+            "    blocked: the rye"
+        );
+        // A hidden whitespace character before the text goes, as it always did (the board
+        // stores none), with the leading run up to it; an indent after it stays.
+        assert_eq!(
+            check_message("message", "\u{c}the glue").unwrap(),
+            "the glue"
+        );
+        assert_eq!(
+            check_message("message", "\n\u{2028}  the glue").unwrap(),
+            "  the glue"
+        );
+        // A description still trims both ends.
+        assert_eq!(
+            check_text("description", "\n  - sift the flour\n  - weigh it\n").unwrap(),
+            "- sift the flour\n  - weigh it"
         );
         assert!(check_message("message", &"é".repeat(MAX_MESSAGE_CHARS)).is_ok());
         let err = check_message("message", &"é".repeat(MAX_MESSAGE_CHARS + 1)).unwrap_err();
