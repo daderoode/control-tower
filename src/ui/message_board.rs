@@ -838,13 +838,17 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     // U+10D6E (GARAY HYPHEN) read as U+10EAD, whose class (HH) it has in Unicode 17 and in
     // `icu_properties` 2.4 but not in `icu_segmenter` 2.4's own data, which reads it as a
     // letter and never breaks after it; both are 4 bytes, so the offsets are `word`'s. Once
-    // an `icu_segmenter` breaks after U+10D6E itself, this stand-in goes.
+    // an `icu_segmenter` breaks after U+10D6E itself, this stand-in goes. A word without one
+    // is segmented as it is.
     let found: Vec<usize> = if word.is_ascii() {
         Vec::new()
     } else {
-        SEGMENTER
-            .segment_str(&word.replace('\u{10d6e}', "\u{10ead}"))
-            .collect()
+        let read = if word.contains('\u{10d6e}') {
+            std::borrow::Cow::Owned(word.replace('\u{10d6e}', "\u{10ead}"))
+        } else {
+            std::borrow::Cow::Borrowed(word)
+        };
+        SEGMENTER.segment_str(&read).collect()
     };
     let chars: Vec<(usize, char)> = word.char_indices().collect();
     let mut out = Vec::new();
