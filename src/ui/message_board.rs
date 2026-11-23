@@ -854,33 +854,31 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut start = 0;
     // The units of UAX #14's LB9 so far: a mark (CM, ZWJ) goes with the character before it,
-    // unless there is none or that one takes no marks (BK, CR, LF, NL, SP, ZW), when it is a
-    // unit of its own (LB10). `unit` is the last, with whether it takes marks, and
-    // `unit_before` the one before it. ASCII is taken as no mark (its only CM are control
-    // characters), so it needs no lookup.
-    let mut unit: Option<(char, bool)> = None;
+    // and one starting the word is a unit of its own (LB10). `unit` is the last and
+    // `unit_before` the one before it. LB9's other case, a mark after a character that takes
+    // none (BK, CR, LF, NL, SP, ZW), needs nothing: no word here holds one (the board refuses
+    // control, format and separator characters, each line is wrapped alone and words split
+    // at spaces), and whatever unit such a mark joined, it is not a hyphen, a Hebrew letter
+    // or a no-break space, so neither hyphen rule could change. ASCII is taken as no mark
+    // (its only CM are control characters), so it needs no lookup.
+    let mut unit: Option<char> = None;
     let mut unit_before: Option<char> = None;
     for i in 1..chars.len() {
         let (at, next) = chars[i];
         let before = i.checked_sub(2).map(|j| chars[j].1);
         let after = chars.get(i + 1).map(|&(_, c)| c);
         let c = chars[i - 1].1;
-        let (mark, takes_marks) = if c.is_ascii() {
-            (false, !matches!(c, ' ' | '\n' | '\r' | '\u{b}' | '\u{c}'))
-        } else {
-            use LineBreak as L;
-            let class = CodePointMapData::<LineBreak>::new().get(c);
-            (
-                matches!(class, L::CM | L::ZWJ),
-                !matches!(class, L::BK | L::CR | L::LF | L::NL | L::SP | L::ZW),
-            )
-        };
-        let attached = mark && unit.is_some_and(|(_, takes)| takes);
+        let mark = !c.is_ascii()
+            && matches!(
+                CodePointMapData::<LineBreak>::new().get(c),
+                LineBreak::CM | LineBreak::ZWJ
+            );
+        let attached = mark && unit.is_some();
         if !attached {
-            unit_before = unit.map(|(u, _)| u);
-            unit = Some((c, takes_marks));
+            unit_before = unit;
+            unit = Some(c);
         }
-        let units = (unit_before, unit.map_or(c, |(u, _)| u));
+        let units = (unit_before, unit.unwrap_or(c));
         let after_path = paths.iter().any(|r| r.start < at && at <= r.end);
         let icu = found.binary_search(&at).is_ok();
         if (after_path && c == '/') || breaks_between(before, c, next, after, units, icu) {
