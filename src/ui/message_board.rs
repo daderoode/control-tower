@@ -853,14 +853,35 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     let chars: Vec<(usize, char)> = word.char_indices().collect();
     let mut out = Vec::new();
     let mut start = 0;
+    // The units of UAX #14's LB9 so far: a mark (CM, ZWJ) goes with the character before it,
+    // and one starting the word is a unit of its own (LB10). `unit` is the last and
+    // `unit_before` the one before it. LB9's other case, a mark after a character that takes
+    // none (BK, CR, LF, NL, SP, ZW), needs nothing: no word here holds one (the board refuses
+    // control, format and separator characters, each line is wrapped alone and words split
+    // at spaces), and whatever unit such a mark joined, it is not a hyphen, a Hebrew letter
+    // or a no-break space, so neither hyphen rule could change. ASCII is taken as no mark
+    // (its only CM are control characters), so it needs no lookup.
+    let mut unit: Option<char> = None;
+    let mut unit_before: Option<char> = None;
     for i in 1..chars.len() {
         let (at, next) = chars[i];
         let before = i.checked_sub(2).map(|j| chars[j].1);
         let after = chars.get(i + 1).map(|&(_, c)| c);
         let c = chars[i - 1].1;
+        let mark = !c.is_ascii()
+            && matches!(
+                CodePointMapData::<LineBreak>::new().get(c),
+                LineBreak::CM | LineBreak::ZWJ
+            );
+        let attached = mark && unit.is_some();
+        if !attached {
+            unit_before = unit;
+            unit = Some(c);
+        }
+        let units = (unit_before, unit.unwrap_or(c));
         let after_path = paths.iter().any(|r| r.start < at && at <= r.end);
         let icu = found.binary_search(&at).is_ok();
-        if (after_path && c == '/') || breaks_between(before, c, next, after, icu) {
+        if (after_path && c == '/') || breaks_between(before, c, next, after, units, icu) {
             out.push(&word[start..at]);
             start = at;
         }
@@ -870,11 +891,12 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 }
 
 /// Whether Chrome breaks a line between `c` and `next` inside a word, as the copy draws it,
-/// `before` and `after` being the characters around them, and `icu` whether `icu_segmenter`
-/// breaks there. Chrome (Blink) decides a break between two ASCII characters from a table
-/// of its own and hands any other to ICU, the Unicode line-breaking rules (UAX #14), here
-/// `icu_segmenter` at CSS `line-break: auto`'s strictness (`Normal`, so a small kana or a
-/// `ー` may start a line). So:
+/// `before` and `after` being the characters around them, `units` the unit of LB9 that ends
+/// with `c` and the one before it (`break_units`; `(before, c)` when neither is a mark), and
+/// `icu` whether `icu_segmenter` breaks there. Chrome (Blink) decides a break between two
+/// ASCII characters from a table of its own and hands any other to ICU, the Unicode
+/// line-breaking rules (UAX #14), here `icu_segmenter` at CSS `line-break: auto`'s
+/// strictness (`Normal`, so a small kana or a `ー` may start a line). So:
 /// - between two ASCII characters, as Blink's table does, a break only after a `-` or a
 ///   `?`, or before an opening bracket after a punctuation mark: after a `-` unless before
 ///   a character a line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after
@@ -886,20 +908,22 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 /// - between any other two, a break where `icu_segmenter` finds one: between two
 ///   ideographs, kana or hangul, between one and a letter or digit, but not before a
 ///   closing mark such as `。` `、` `」` nor after an opening one such as `「`, and around a
-///   U+10D6E as around the hyphens of its class (`break_units`). Two rules
+///   U+10D6E as around the hyphens of its class (`break_units`). Three rules
 ///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
-///   hyphen that starts the word (nothing or a no-break space before it) before a letter
-///   (UAX #14's LB20a), for the hyphens Chrome applies it to, Unicode 17's HY and HH: `-`,
-///   U+058A, U+05BE, U+1400, U+2010, U+2012, U+2013, U+2E17, U+2E40, U+2E5D, U+10D6E and
-///   U+10EAD. A list, not the classes: `icu_properties` 2.4's data is Unicode 18, which moved
-///   U+2012 and U+2013 back to BA (and U+00AD to HH), and the list follows Chrome, whose ICU
-///   still applies Unicode 17. And a break before an opening `“` or `‘` between two East
-///   Asian characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
+///   hyphen (`hyphen`) that starts the word (nothing or a no-break space before it) before
+///   a letter (UAX #14's LB20a); a break after a hyphen between two Hebrew letters, as in
+///   `אבג-דהו` (LB21a's exception, `HL (HY | HH) × [^HL]`: `icu_segmenter` keeps a Hebrew
+///   letter's hyphen to any letter after it); and a break before an opening `“` or `‘`
+///   between two East Asian characters, and after a closing `”` or `’` between two, as in
+///   `中“文”中` (LB19a). Both hyphen rules see a letter or a hyphen with the marks it carries
+///   as one (LB9, `units`), so a point on either, as in `אבּ-דהו` or `אבג-ּדהו`, changes
+///   nothing.
 fn breaks_between(
     before: Option<char>,
     c: char,
     next: char,
     after: Option<char>,
+    units: (Option<char>, char),
     icu: bool,
 ) -> bool {
     if c.is_ascii() && next.is_ascii() {
@@ -920,28 +944,23 @@ fn breaks_between(
             )
         })
     };
-    // LB20a, for Unicode 17's HY and HH, the hyphens Chrome applies it to: a letter is what
-    // UAX #14 takes as AL (AI and XX resolve to it) or HL.
-    if matches!(
-        c,
-        '-' | '\u{058a}'
-            | '\u{05be}'
-            | '\u{1400}'
-            | '\u{2010}'
-            | '\u{2012}'
-            | '\u{2013}'
-            | '\u{2e17}'
-            | '\u{2e40}'
-            | '\u{2e5d}'
-            | '\u{10d6e}'
-            | '\u{10ead}'
-    ) && before.is_none_or(|c| c == '\u{a0}')
+    let (unit_before, unit) = units;
+    // LB20a: a letter is what UAX #14 takes as AL (AI and XX resolve to it) or HL.
+    if hyphen(unit)
+        && unit_before.is_none_or(|c| c == '\u{a0}')
         && matches!(
             class(next),
             LineBreak::AL | LineBreak::HL | LineBreak::AI | LineBreak::XX
         )
     {
         return false;
+    }
+    // LB21a's exception.
+    if hyphen(unit)
+        && class(next) == LineBreak::HL
+        && unit_before.is_some_and(|c| class(c) == LineBreak::HL)
+    {
+        return true;
     }
     // LB19a, short of the rules before it that keep the two together.
     if class(next) == LineBreak::QU && category(next) == GeneralCategory::InitialPunctuation {
@@ -971,6 +990,28 @@ fn breaks_between(
         return east_asian(before) && east_asian(Some(next)) && !kept.contains(&class(next));
     }
     icu
+}
+
+/// Whether `c` is a hyphen Chrome applies LB20a and LB21a to (`breaks_between`), Unicode 17's
+/// HY and HH: `-`, U+058A, U+05BE, U+1400, U+2010, U+2012, U+2013, U+2E17, U+2E40, U+2E5D,
+/// U+10D6E and U+10EAD. A list, not the classes: `icu_properties` 2.4's data is Unicode 18,
+/// which moved U+2012 and U+2013 back to BA (and U+00AD to HH), and the list follows Chrome,
+/// whose ICU still applies Unicode 17.
+fn hyphen(c: char) -> bool {
+    matches!(
+        c,
+        '-' | '\u{058a}'
+            | '\u{05be}'
+            | '\u{1400}'
+            | '\u{2010}'
+            | '\u{2012}'
+            | '\u{2013}'
+            | '\u{2e17}'
+            | '\u{2e40}'
+            | '\u{2e5d}'
+            | '\u{10d6e}'
+            | '\u{10ead}'
+    )
 }
 
 /// The byte ranges of the paths in `word` as the copy marks them in a message: the matches
@@ -2178,9 +2219,8 @@ mod tests {
         ("event", wrap_event_line),
     ];
 
-    /// The hyphens Chrome keeps to a letter after one starting a word (LB20a), Unicode 17's HY
-    /// and HH, each one column wide (`unicode-width`), so dropping any from `breaks_between`
-    /// fails a test.
+    /// The hyphens Chrome applies LB20a and LB21a to, Unicode 17's HY and HH, each one column
+    /// wide (`unicode-width`), so dropping any from `hyphen` fails a test.
     const HYPHENS: [char; 12] = [
         '-',
         '\u{058a}',
@@ -2201,9 +2241,13 @@ mod tests {
         // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
         // (where the word overflows): no break after a hyphen starting a word, or after a
         // no-break space, before a letter, so such a word too wide for a line breaks where it
-        // ends. A letter that is not ASCII, as Blink's ASCII table breaks `-d`.
+        // ends. A letter that is not ASCII, as Blink's ASCII table breaks `-d`. A point
+        // (U+05BC, spaced to one column with what carries it) on the hyphen or on the no-break
+        // space before it changes nothing (LB9), so the word moves whole to the next line; but
+        // a point starting a word is a character of its own before the hyphen (LB10), so the
+        // word breaks after the hyphen.
         for x in HYPHENS {
-            let rows: [(String, usize, Vec<String>); 2] = [
+            let rows: [(String, usize, Vec<String>); 5] = [
                 (
                     format!("ab {x}\u{e9}fghij"),
                     6,
@@ -2213,6 +2257,32 @@ mod tests {
                     format!("ab \u{a0}{x}\u{e9}fghij"),
                     6,
                     vec!["ab".into(), format!("\u{a0}{x}\u{e9}fgh"), "ij".into()],
+                ),
+                (
+                    format!("aaaaaaaa bbbbbbbb cccccccccc {x}\u{5bc}\u{5d0}\u{5d1}\u{5d2} end"),
+                    31,
+                    vec![
+                        "aaaaaaaa bbbbbbbb cccccccccc".into(),
+                        format!("{x}\u{5bc}\u{5d0}\u{5d1}\u{5d2} end"),
+                    ],
+                ),
+                (
+                    format!(
+                        "aaaaaaaa bbbbbbbb ccccccc dd\u{a0}\u{5bc}{x}\u{5d0}\u{5d1}\u{5d2} end"
+                    ),
+                    31,
+                    vec![
+                        "aaaaaaaa bbbbbbbb ccccccc".into(),
+                        format!("dd\u{a0}\u{5bc}{x}\u{5d0}\u{5d1}\u{5d2} end"),
+                    ],
+                ),
+                (
+                    format!("aaaaaaaa bbbbbbbb ccccccccc \u{5bc}{x}\u{5d0}\u{5d1}\u{5d2} end"),
+                    31,
+                    vec![
+                        format!("aaaaaaaa bbbbbbbb ccccccccc \u{5bc}{x}"),
+                        "\u{5d0}\u{5d1}\u{5d2} end".into(),
+                    ],
                 ),
             ];
             for (text, w, want) in &rows {
@@ -2258,6 +2328,69 @@ mod tests {
                     format!("ab abc{x}.def"),
                     8,
                     vec!["ab".into(), format!("abc{x}.def")],
+                ),
+            ];
+            for (text, w, want) in &rows {
+                for (how, wrapped) in WRAPS {
+                    assert_eq!(&wrapped(text, *w), want, "{how} {text:?} at {w}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_word_breaks_after_a_hyphen_between_two_hebrew_letters_as_the_copy_does() {
+        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
+        // (Hebrew, its points and the hyphens spaced to one column): after a hyphen between two
+        // Hebrew letters, a point (U+05BC) on the first or on the hyphen or none, and after
+        // each of two (LB21a's exception); not after one between a Hebrew letter and a letter
+        // or digit that is not Hebrew (LB21a), so such a word moves whole to the next line.
+        // Each line is narrower than its width, as Chrome lays a `7ch` box out a little under
+        // 7 columns.
+        let (he, he2) = ("\u{5d0}\u{5d1}\u{5d2}", "\u{5d3}\u{5d4}\u{5d5}");
+        for x in HYPHENS {
+            let rows: [(String, usize, Vec<String>); 7] = [
+                (
+                    format!("aaaaaaaa bbbbbbbb ccccccc {he}{x}{he2} end"),
+                    31,
+                    vec![
+                        format!("aaaaaaaa bbbbbbbb ccccccc {he}{x}"),
+                        format!("{he2} end"),
+                    ],
+                ),
+                (
+                    format!("ab {he}{x}{he2}"),
+                    8,
+                    vec![format!("ab {he}{x}"), he2.into()],
+                ),
+                (
+                    format!("ab \u{5d0}\u{5d1}\u{5bc}{x}{he2}"),
+                    7,
+                    vec![format!("ab \u{5d0}\u{5d1}\u{5bc}{x}"), he2.into()],
+                ),
+                (
+                    format!("ab {he}{x}\u{5bc}{he2}"),
+                    8,
+                    vec![format!("ab {he}{x}\u{5bc}"), he2.into()],
+                ),
+                (
+                    format!("ab {he}{x}{he2}{x}{he}{he2}"),
+                    9,
+                    vec![
+                        format!("ab {he}{x}"),
+                        format!("{he2}{x}"),
+                        format!("{he}{he2}"),
+                    ],
+                ),
+                (
+                    format!("ab {he}{x}\u{e9}fg"),
+                    8,
+                    vec!["ab".into(), format!("{he}{x}\u{e9}fg")],
+                ),
+                (
+                    format!("ab {he}{x}123"),
+                    8,
+                    vec!["ab".into(), format!("{he}{x}123")],
                 ),
             ];
             for (text, w, want) in &rows {
@@ -2653,11 +2786,13 @@ mod tests {
             for before in [Some('a'), Some('1'), None] {
                 for after in ['d', '5', ')'] {
                     for c in "!\"#%&)*+,.:;=>\\]|}~".chars() {
-                        let broken = breaks_between(before, c, bracket, Some(after), false);
+                        let broken =
+                            breaks_between(before, c, bracket, Some(after), (before, c), false);
                         assert!(broken, "{before:?} {c} {bracket} {after}");
                     }
                     for c in "$'/@^_`([{<".chars() {
-                        let broken = breaks_between(before, c, bracket, Some(after), false);
+                        let broken =
+                            breaks_between(before, c, bracket, Some(after), (before, c), false);
                         assert!(!broken, "{before:?} {c} {bracket} {after}");
                     }
                 }
