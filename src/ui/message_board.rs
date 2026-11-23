@@ -719,6 +719,40 @@ fn put_hung(line: &mut String, out: &mut Vec<String>, hung: &str, w: usize) {
     }
 }
 
+const SOFT_HYPHEN: char = '\u{ad}';
+
+/// Whether `pieces[0]`, the pieces left of a word (`own_breaks`), fits on a line `w` wide at
+/// column `at`. A piece ending with a soft hyphen, other than the word's last, needs a column
+/// more where the line breaks after it, for the hyphen Chrome draws there (`end_line`): that
+/// is, where the next piece does not fit after it.
+fn piece_fits(pieces: &[&str], mut at: usize, w: usize) -> bool {
+    for (i, piece) in pieces.iter().enumerate() {
+        let end = at + hang(piece).0.width();
+        if end > w {
+            return false;
+        }
+        let hyphen = i + 1 < pieces.len() && piece.ends_with(SOFT_HYPHEN);
+        if !hyphen || end < w {
+            return true;
+        }
+        at = end;
+    }
+    true
+}
+
+/// `line` onto `out`. Where it breaks after a soft hyphen ending a piece of a word, `hyphen`,
+/// it ends with the hyphen Chrome draws there, a `-` in the soft hyphen's place (so the lines
+/// keep the text's characters one for one, as `rest_after` and `chat::marked` count them),
+/// when the line has a column left for it.
+fn end_line(out: &mut Vec<String>, line: &mut String, hyphen: bool, w: usize) {
+    let mut line = std::mem::take(line);
+    if hyphen && line.ends_with(SOFT_HYPHEN) && line.width() < w {
+        line.pop();
+        line.push('-');
+    }
+    out.push(line);
+}
+
 /// The width of what the copy's folded text keeps on one line with a run of ideographic
 /// spaces starting `word`, a word after a space, `next` the words after it: the run and the
 /// first piece of the rest of the word (`own_breaks`). For a word that is only a run, that
@@ -878,8 +912,10 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 ///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
 ///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
 ///   hyphen that starts the word (nothing or a no-break space before it) before a letter
-///   (UAX #14's LB20a), and a break before an opening `“` or `‘` between two East Asian
-///   characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
+///   (UAX #14's LB20a), for the hyphens Chrome keeps so, `-`, U+2010, U+2012, U+2013 and
+///   U+058A (not a soft hyphen, U+00AD, nor U+2014), and a break before an opening `“` or
+///   `‘` between two East Asian characters, and after a closing `”` or `’` between two, as
+///   in `中“文”中` (LB19a).
 fn breaks_between(
     before: Option<char>,
     c: char,
@@ -905,8 +941,9 @@ fn breaks_between(
             )
         })
     };
-    // LB20a: a letter is what UAX #14 takes as AL (AI and XX resolve to it) or HL.
-    if matches!(class(c), LineBreak::HY | LineBreak::HH)
+    // LB20a, for the hyphens Chrome applies it to: a letter is what UAX #14 takes as AL (AI
+    // and XX resolve to it) or HL.
+    if matches!(c, '-' | '\u{2010}' | '\u{2012}' | '\u{2013}' | '\u{058a}')
         && before.is_none_or(|c| c == '\u{a0}')
         && matches!(
             class(next),
@@ -1024,7 +1061,9 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// of its own and breaks where a line ends, unless it has breaks of its own (`own_breaks`):
 /// such a word starts where the line is when its first piece fits there, and breaks only
 /// between its pieces, or inside a piece too wide for a line of its own, after which, in
-/// `Wrap::Event` text, its line ends.
+/// `Wrap::Event` text, its line ends. A line that breaks after a soft hyphen ending a piece
+/// ends with the hyphen Chrome draws there, and the piece needs a column for it to end a
+/// line there (`piece_fits`, `end_line`).
 /// The text's leading spaces, when narrower than a line, start its first line, as the
 /// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
 /// next line as any other word does, leaving them alone on the first. Each run of spaces
@@ -1123,25 +1162,32 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         let own = own_breaks(word, how);
         let here = own.is_some();
         let pieces = own.unwrap_or_else(|| vec![word]);
-        if here && !line.is_empty() && line.width() + gap.width() + hang(pieces[0]).0.width() <= w {
+        if here && !line.is_empty() && piece_fits(&pieces, line.width() + gap.width(), w) {
             line.push_str(&gap);
         } else if !line.is_empty() {
             out.push(std::mem::take(&mut line));
         }
-        for unit in pieces {
+        for (i, &unit) in pieces.iter().enumerate() {
+            // Whether a line breaking after it ends with a hyphen (`end_line`).
+            let hyphen = i + 1 < pieces.len() && unit.ends_with(SOFT_HYPHEN);
             let (unit, hung) = hang(unit);
-            if !line.is_empty() && line.width() + unit.width() > w {
-                out.push(std::mem::take(&mut line));
+            if !line.is_empty() && !piece_fits(&pieces[i..], line.width(), w) {
+                // The line ends with the piece before, so after a soft hyphen if it ends so.
+                end_line(&mut out, &mut line, true, w);
             }
-            let wide = unit.width() > w;
+            let wide = !piece_fits(&pieces[i..], 0, w);
+            // A piece too wide with its hyphen keeps the character before its soft hyphen
+            // on the line it ends with, with a column left for the hyphen, as Chrome does.
+            let glued = hyphen.then(|| unit.trim_end_matches(SOFT_HYPHEN).len());
             // Whether a run of ideographic spaces the line broke at hangs past its end.
             let mut hanging = false;
-            for c in unit.chars() {
+            for (at, c) in unit.char_indices() {
                 if hanging && c == IDEOGRAPHIC_SPACE {
                     continue;
                 }
                 hanging = false;
-                if !line.is_empty() && line.width() + c.width().unwrap_or(0) > w {
+                let need = c.width().unwrap_or(0) + usize::from(glued == Some(at + c.len_utf8()));
+                if !line.is_empty() && line.width() + need > w {
                     out.push(std::mem::take(&mut line));
                     if c == IDEOGRAPHIC_SPACE {
                         hanging = true;
@@ -1154,7 +1200,7 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
                 // Its last line ends with it, any run after it hanging there. A piece that
                 // is only a run hung past the line before, which leaves no line to end.
                 if !line.is_empty() {
-                    out.push(std::mem::take(&mut line));
+                    end_line(&mut out, &mut line, hyphen, w);
                 }
                 continue;
             }
@@ -2136,6 +2182,103 @@ mod tests {
         let title = "sent abc.[defg] to qa";
         assert_eq!(wrap_event_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
         assert_eq!(wrap_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
+    }
+
+    /// Each way text is wrapped, after the copy's element for it: a message body, a delivery
+    /// failure's details, folded `.clamp2` text, and events and acks.
+    const WRAPS: [(&str, fn(&str, usize) -> Vec<String>); 4] = [
+        ("body", wrap_line_paths),
+        ("details", wrap),
+        ("folded", wrap_line),
+        ("event", wrap_event_line),
+    ];
+
+    #[test]
+    fn a_word_breaks_after_a_hyphen_or_an_en_dash_where_the_copy_does() {
+        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`:
+        // after a hyphen (U+2010) or an en dash (U+2013) inside a word, after the last of a
+        // run, not before a `.`, and not after one starting a word before a letter (LB20a),
+        // also after a no-break space; such a word too wide for a line breaks where it ends.
+        for x in ['\u{2010}', '\u{2013}'] {
+            let rows: [(String, usize, Vec<String>); 6] = [
+                (
+                    format!("ab abc{x}def"),
+                    8,
+                    vec![format!("ab abc{x}"), "def".into()],
+                ),
+                (
+                    format!("ab abc{x}123"),
+                    8,
+                    vec![format!("ab abc{x}"), "123".into()],
+                ),
+                (
+                    format!("ab ab{x}{x}def"),
+                    8,
+                    vec![format!("ab ab{x}{x}"), "def".into()],
+                ),
+                (
+                    format!("ab abc{x}.def"),
+                    8,
+                    vec!["ab".into(), format!("abc{x}.def")],
+                ),
+                (
+                    format!("ab {x}defghi"),
+                    6,
+                    vec!["ab".into(), format!("{x}defgh"), "i".into()],
+                ),
+                (
+                    format!("ab \u{a0}{x}defghi"),
+                    6,
+                    vec!["ab".into(), format!("\u{a0}{x}defg"), "hi".into()],
+                ),
+            ];
+            for (text, w, want) in &rows {
+                for (how, wrapped) in WRAPS {
+                    assert_eq!(&wrapped(text, *w), want, "{how} {text:?} at {w}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_breaking_after_a_soft_hyphen_ends_with_a_hyphen_as_the_copys_does() {
+        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`:
+        // a line breaks after a soft hyphen (U+00AD) only with a column left for the hyphen it
+        // draws there, also after one starting a word; where the line goes on, nothing shows.
+        let rows: [(&str, usize, &[&str]); 9] = [
+            ("ab abc\u{ad}def", 8, &["ab abc-", "def"]),
+            ("ab abc\u{ad}def", 7, &["ab abc-", "def"]),
+            ("ab abc\u{ad}def", 6, &["ab", "abc\u{ad}def"]),
+            ("ab abcdefg\u{ad}hij", 8, &["ab", "abcdefg-", "hij"]),
+            ("ab \u{ad}defghi", 6, &["ab -", "defghi"]),
+            ("ab abc \u{ad}def", 8, &["ab abc -", "def"]),
+            ("ab abc\u{ad}.def", 8, &["ab", "abc\u{ad}.def"]),
+            ("ab abc\u{ad}中文", 8, &["ab abc\u{ad}中", "文"]),
+            ("ab ab\u{ad}\u{ad}def", 8, &["ab ab\u{ad}\u{ad}def"]),
+        ];
+        for (text, w, want) in rows {
+            for (how, wrapped) in WRAPS {
+                assert_eq!(wrapped(text, w), want, "{how} {text:?} at {w}");
+            }
+        }
+        // A piece too wide for a line with its hyphen keeps its last character with the soft
+        // hyphen, the line before it leaving a column; where the copy lets the piece overflow
+        // (`.evt`), its last line ends with it.
+        let text = "ab abcdefg\u{ad}hij";
+        for (how, wrapped) in &WRAPS[..3] {
+            assert_eq!(wrapped(text, 7), ["ab", "abcdef", "g\u{ad}hij"], "{how}");
+        }
+        assert_eq!(wrap_event_line(text, 7), ["ab", "abcdef", "g-", "hij"]);
+        // A clamped line ends in "…" after the hyphen, or in its place where the line is full,
+        // as the copy's `.clamp2` does.
+        assert_eq!(
+            clamp("abcdefgh ab cde\u{ad}fghij klm", 8, 2),
+            ["abcdefgh", "ab cde-…"]
+        );
+        assert_eq!(
+            clamp("abcdefgh ab cdef\u{ad}ghij klm", 8, 2),
+            ["abcdefgh", "ab cdef…"]
+        );
     }
 
     #[test]
