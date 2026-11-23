@@ -258,8 +258,8 @@ the dashboard, so `tower post`, `tower thread new` and `tower thread resolve` re
 messages and evidence are plain text up to 4000 characters and may span lines, which the
 board keeps as it wraps them. Pasted text works: Windows (CRLF) and old Mac (CR) line ends
 become plain line breaks and a tab becomes four spaces before the text is checked. Leading
-blank lines and the end's spaces and blank lines go; an indented first line keeps its indent,
-so a list reads in line. A leading `blocked:`, `decision:` or `question:` counts only at the
+blank lines, a hidden whitespace character such as a form feed before the text, and the end's
+spaces and blank lines go; an indented first line keeps its indent, so a list reads in line. A leading `blocked:`, `decision:` or `question:` counts only at the
 very start: after an indent it is plain text.
 
     tower task add "Sort the poetry shelf by poet"

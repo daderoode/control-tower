@@ -206,15 +206,21 @@ pub const MAX_MESSAGE_CHARS: usize = 4000;
 /// Checks a message or evidence (`what` names it) as `check_text` does, but up to
 /// `MAX_MESSAGE_CHARS`. Pasted text works: CRLF and CR become LF and a tab four spaces
 /// first. Returns it so, as the UI copy's composer submits it: its leading blank lines
-/// dropped and its end trimmed, its first line's indent kept, so a list reads in line.
+/// dropped and its end trimmed, its first line's indent kept, so a list reads in line. A
+/// hidden whitespace character before the text (a form feed from a pager) goes too, as it
+/// always did, since the board can store none.
 pub fn check_message(what: &str, value: &str) -> Result<String> {
     let normal = value
         .replace("\r\n", "\n")
         .replace('\r', "\n")
         .replace('\t', "    ");
-    // The copy's `replace(/^\s*\n/, "")`: the leading whitespace up to its last line break.
+    // The copy's `replace(/^\s*\n/, "")`: the leading whitespace up to its last line break,
+    // or up to its last hidden character (`hidden` takes in a line break), so what is kept
+    // starts with plain spaces or the text.
     let lead = normal.len() - normal.trim_start().len();
-    let start = normal[..lead].rfind('\n').map_or(0, |at| at + 1);
+    let start = (normal[..lead].char_indices())
+        .rfind(|(_, c)| hidden(c))
+        .map_or(0, |(at, c)| at + c.len_utf8());
     check_lines(what, normal[start..].trim_end(), MAX_MESSAGE_CHARS)
 }
 
@@ -1951,6 +1957,16 @@ mod tests {
         assert_eq!(
             check_message("message", "\r\n\tblocked: the rye\r\n").unwrap(),
             "    blocked: the rye"
+        );
+        // A hidden whitespace character before the text goes, as it always did (the board
+        // stores none), with the leading run up to it; an indent after it stays.
+        assert_eq!(
+            check_message("message", "\u{c}the glue").unwrap(),
+            "the glue"
+        );
+        assert_eq!(
+            check_message("message", "\n\u{2028}  the glue").unwrap(),
+            "  the glue"
         );
         // A description still trims both ends.
         assert_eq!(

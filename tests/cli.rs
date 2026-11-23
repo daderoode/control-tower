@@ -1762,6 +1762,14 @@ fn post_reads_the_message_from_stdin_when_it_is_a_dash() {
         t.messages.last().unwrap().text,
         "  - preheat the left oven\n  - proof the rye"
     );
+    // A form feed first, as text pasted from a pager can start: it goes, as it always did.
+    let out = tower_with_stdin(&db, &post, "\u{c}the glue is late\n");
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let t = Store::open(&db)
+        .unwrap()
+        .thread("T1".parse().unwrap())
+        .unwrap();
+    assert_eq!(t.messages.last().unwrap().text, "the glue is late");
 
     // Checked as any other post.
     assert_refused(&tower_with_stdin(&db, &post, " \n"), "the message is empty");
