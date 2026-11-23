@@ -2184,9 +2184,12 @@ mod tests {
         assert_eq!(wrap_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
     }
 
+    /// A way text is wrapped: text and a width to its lines.
+    type Wrapper = fn(&str, usize) -> Vec<String>;
+
     /// Each way text is wrapped, after the copy's element for it: a message body, a delivery
     /// failure's details, folded `.clamp2` text, and events and acks.
-    const WRAPS: [(&str, fn(&str, usize) -> Vec<String>); 4] = [
+    const WRAPS: [(&str, Wrapper); 4] = [
         ("body", wrap_line_paths),
         ("details", wrap),
         ("folded", wrap_line),
