@@ -1875,6 +1875,43 @@ mod tests {
         assert_eq!(at7("\u{3000}ab"), ["", "ab"]);
         assert_eq!(at7("\u{3000} ab"), ["", "ab"]);
         assert_eq!(at7("\u{3000}"), [""]);
+        // After a narrower indent, such a run goes with the indent too: it hangs there when
+        // the first word's first piece does not fit after it, and the words start the next
+        // row.
+        let (i3, i5, i28, i30) = (sp(3), sp(5), sp(28), sp(30));
+        let (i3, i5, i28, i30) = (i3.as_str(), i5.as_str(), i28.as_str(), i30.as_str());
+        let fits27 = format!("{}\u{3000}ab", sp(27));
+        let cases: [(String, usize, &[&str]); 12] = [
+            (format!("{i30}\u{3000}ab"), 31, &[i30, "ab"]),
+            (format!("{i30}\u{3000}\u{3000}ab"), 31, &[i30, "ab"]),
+            (format!("{i30}\u{3000}ab cd ef"), 31, &[i30, "ab cd ef"]),
+            (
+                format!("x first\n{i30}\u{3000}ab"),
+                31,
+                &["x first", i30, "ab"],
+            ),
+            (format!("{i28}\u{3000}ab"), 31, &[i28, "ab"]),
+            (format!("{i5}\u{3000}ab"), 7, &[i5, "ab"]),
+            (format!("{i3}\u{3000}abcdef"), 7, &[i3, "abcdef"]),
+            (
+                format!("{i3}\u{3000}abcdefghij"),
+                7,
+                &[i3, "abcdefg", "hij"],
+            ),
+            (format!("{i3}\u{3000} ab"), 7, &[i3, "ab"]),
+            // Where the run and the word, or its first piece, fit, they stay on the row.
+            (fits27.clone(), 31, &[fits27.as_str()]),
+            (format!("{i3}\u{3000} ab"), 10, &["   \u{3000} ab"]),
+            (
+                format!("{i3}\u{3000}ab-cdefgh"),
+                8,
+                &["   \u{3000}ab-", "cdefgh"],
+            ),
+        ];
+        for (text, w, want) in cases {
+            assert_eq!(texts(&text, w), want, "{text:?} at {w}");
+        }
+        assert_eq!(wrap(&format!("{i30}\u{3000}ab"), 31), [i30, "ab"]);
         // On a later line too.
         assert_eq!(
             texts(&format!("ab\n{}cd ef", sp(9)), 7),

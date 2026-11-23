@@ -1104,9 +1104,10 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// The text's leading spaces, when narrower than a line, start its first line, as the
 /// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
 /// next line as any other word does, leaving them alone on the first. As wide as a line or
-/// wider, they hang on a blank line of their own, as `pre-wrap` hangs them, with any run of
-/// ideographic spaces starting the first word, and the words start the next line at the
-/// text's column. Each run of spaces
+/// wider, they hang on a blank line of their own, as `pre-wrap` hangs them, and the words
+/// start the next line at the text's column. Either way a run of ideographic spaces starting
+/// the first word goes with them, and hangs with them when the word's first piece does not
+/// fit after it. Each run of spaces
 /// between words stays as written, and counts toward the line's width; a line that breaks
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
@@ -1136,8 +1137,9 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     // ideographic spaces starting a word after it.
     let mut run = String::new();
     // Whether a word is down yet, so a run before the next one is between words. An indent
-    // that hung is such a run: it takes a run of ideographic spaces starting the first word.
-    let mut placed = hung_indent;
+    // is such a run: in `pre_wrap` text it takes a run of ideographic spaces starting the
+    // first word, which the line may break after.
+    let mut placed = indent > 0;
     // Whether the word before ended with a run of ideographic spaces.
     let mut after_run = false;
     let mut words = body.split(' ');
@@ -1186,8 +1188,10 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             && word.chars().eq([IDEOGRAPHIC_SPACE])
             && chain_starts(words.clone(), w, how);
         after_run = ends_run && !text_run;
-        // No space between the indent and the first word, or at the start of a line.
-        let gap = if after_text {
+        // No space at the start of a line. After the indent, the line's only spaces, the
+        // run is the ideographic spaces the first word started with: on the line with the
+        // word when both fit, else hung past the indent's end.
+        let gap = if after_text || !line.is_empty() {
             std::mem::take(&mut run)
         } else {
             String::new()

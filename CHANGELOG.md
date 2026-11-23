@@ -21,8 +21,10 @@ tag's date, and a new empty Unreleased goes above it.
   blocked, a question or a decision (#16).
 - **An indent as wide as a bubble's text hangs on a blank row.** A message line, or a line
   of a delivery failure's details, indented as wide as its text or wider lost the indent with
-  no row for it. It now hangs on a blank row and the words start the next at the text's
-  column, as the UI design (v0.1.14) draws it (#103).
+  no row for it, and a task's doing line could lose its first word to it. It now hangs on a
+  blank row and the words start the next at the text's column, as the UI design (v0.1.14)
+  draws it; a run of ideographic spaces starting the words hangs with the indent when the
+  first word does not fit after it. The doing line wraps as its bubble does (#103).
 
 ### Fixed
 

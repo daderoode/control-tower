@@ -4251,35 +4251,43 @@ fn the_task_detail_shows_the_doing_post_in_full_and_the_blocked_flag_on_its_own_
 
 #[test]
 fn a_doing_posts_indent_as_wide_as_its_value_hangs_on_a_blank_row() {
-    // At 60 the value is 48 columns: an indent of 50 spaces hangs on the doing row, drawn
-    // blank, and the words start the next row at the value's column, as the copy's bubble
-    // hangs it. A narrower indent stays before the words on the doing row.
+    // The doing post wraps as its bubble's text does: an indent as wide as the value, or
+    // one the first word does not fit after, hangs on the doing row, drawn blank, and the
+    // words start the next row at the value's column, as the copy's bubble draws them. With
+    // them goes a run of ideographic spaces starting the first word. A narrower indent stays
+    // before the words on the doing row.
     let mut board = blocked_fixture();
-    let rows = |board: &Board| -> Vec<String> {
+    // The detail `w` wide (its value 12 columns narrower) with `text` as #13's doing post:
+    // its doing row and the one after it.
+    let mut doing = |text: &str, w: usize| -> Vec<String> {
+        board.milestones[0].tasks[1].details.doing = progress(text);
         let m = &board.milestones[0];
         let t = m.tasks.iter().find(|t| t.id == TaskId(13)).unwrap();
-        let d = task_detail(board, Some(m), t, 60, NOW, Depth::TrueColor);
-        d.lines.iter().map(|l| l.to_string()).collect()
+        let d = task_detail(&board, Some(m), t, w, NOW, Depth::TrueColor);
+        let rows: Vec<String> = d.lines.iter().map(|l| l.to_string()).collect();
+        let at = find_row(&rows, " doing ");
+        rows[at..at + 2].to_vec()
     };
-    let indent = " ".repeat(50);
-    board.milestones[0].tasks[1].details.doing = progress(format!("{indent}the press is jammed"));
-    let wide = rows(&board);
-    let at = find_row(&wide, " doing ");
-    assert_eq!(
-        wide[at..at + 2],
+    let hung = |words: &str, w: usize| {
         [
-            format!("{:<60}", " doing"),
-            format!("{:<60}", "            the press is jammed"),
-        ],
-        "{wide:#?}"
-    );
-    board.milestones[0].tasks[1].details.doing = progress("  the press is jammed");
-    let narrow = rows(&board);
-    let at = find_row(&narrow, " doing ");
+            format!("{:<w$}", " doing"),
+            format!("{:<w$}", format!("{:12}{words}", "")),
+        ]
+    };
+    let sp = |n: usize| " ".repeat(n);
+    for n in [92, 93] {
+        let text = format!("{}the press is jammed", sp(n));
+        assert_eq!(doing(&text, 105), hung("the press is jammed", 105), "{n}");
+    }
+    assert_eq!(doing(&format!("{}a b c", sp(60)), 72), hung("a b c", 72));
+    for w in [105, 72] {
+        let text = format!("{}\u{3000}ab cd", sp(93));
+        assert_eq!(doing(&text, w), hung("ab cd", w), "{w}");
+    }
+    let narrow = doing("  the press is jammed", 60);
     assert_eq!(
-        narrow[at],
-        format!("{:<60}", " doing        the press is jammed"),
-        "{narrow:#?}"
+        narrow[0],
+        format!("{:<60}", " doing        the press is jammed")
     );
 }
 
