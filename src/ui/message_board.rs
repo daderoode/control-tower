@@ -878,8 +878,12 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 ///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
 ///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
 ///   hyphen that starts the word (nothing or a no-break space before it) before a letter
-///   (UAX #14's LB20a), and a break before an opening `“` or `‘` between two East Asian
-///   characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
+///   (UAX #14's LB20a), for the hyphens Chrome applies it to, Unicode 17's HY and HH: `-`,
+///   U+058A, U+05BE, U+1400, U+2010, U+2012, U+2013, U+2E17, U+2E40, U+2E5D, U+10D6E and
+///   U+10EAD. A list, not the classes: `icu_properties` 2.4's data is Unicode 18, which moved
+///   U+2012 and U+2013 back to BA (and U+00AD to HH), and the list follows Chrome, whose ICU
+///   still applies Unicode 17. And a break before an opening `“` or `‘` between two East
+///   Asian characters, and after a closing `”` or `’` between two, as in `中“文”中` (LB19a).
 fn breaks_between(
     before: Option<char>,
     c: char,
@@ -905,9 +909,22 @@ fn breaks_between(
             )
         })
     };
-    // LB20a: a letter is what UAX #14 takes as AL (AI and XX resolve to it) or HL.
-    if matches!(class(c), LineBreak::HY | LineBreak::HH)
-        && before.is_none_or(|c| c == '\u{a0}')
+    // LB20a, for Unicode 17's HY and HH, the hyphens Chrome applies it to: a letter is what
+    // UAX #14 takes as AL (AI and XX resolve to it) or HL.
+    if matches!(
+        c,
+        '-' | '\u{058a}'
+            | '\u{05be}'
+            | '\u{1400}'
+            | '\u{2010}'
+            | '\u{2012}'
+            | '\u{2013}'
+            | '\u{2e17}'
+            | '\u{2e40}'
+            | '\u{2e5d}'
+            | '\u{10d6e}'
+            | '\u{10ead}'
+    ) && before.is_none_or(|c| c == '\u{a0}')
         && matches!(
             class(next),
             LineBreak::AL | LineBreak::HL | LineBreak::AI | LineBreak::XX
@@ -2136,6 +2153,108 @@ mod tests {
         let title = "sent abc.[defg] to qa";
         assert_eq!(wrap_event_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
         assert_eq!(wrap_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
+    }
+
+    /// A way text is wrapped: text and a width to its lines.
+    type Wrapper = fn(&str, usize) -> Vec<String>;
+
+    /// Each way text is wrapped, after the copy's element for it: a message body, a delivery
+    /// failure's details, folded `.clamp2` text, and events and acks.
+    const WRAPS: [(&str, Wrapper); 4] = [
+        ("body", wrap_line_paths),
+        ("details", wrap),
+        ("folded", wrap_line),
+        ("event", wrap_event_line),
+    ];
+
+    /// The hyphens Chrome keeps to a letter after one starting a word (LB20a), Unicode 17's HY
+    /// and HH, each one column wide (`unicode-width`), so dropping any but U+10D6E from
+    /// `breaks_between` fails a test (`icu_segmenter` 2.4 never breaks after U+10D6E).
+    const HYPHENS: [char; 12] = [
+        '-',
+        '\u{058a}',
+        '\u{05be}',
+        '\u{1400}',
+        '\u{2010}',
+        '\u{2012}',
+        '\u{2013}',
+        '\u{2e17}',
+        '\u{2e40}',
+        '\u{2e5d}',
+        '\u{10d6e}',
+        '\u{10ead}',
+    ];
+
+    #[test]
+    fn a_word_starting_with_a_hyphen_keeps_it_with_the_letter_after_it_as_the_copy_does() {
+        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
+        // (where the word overflows): no break after a hyphen starting a word, or after a
+        // no-break space, before a letter, so such a word too wide for a line breaks where it
+        // ends. A letter that is not ASCII, as Blink's ASCII table breaks `-d`.
+        for x in HYPHENS {
+            let rows: [(String, usize, Vec<String>); 2] = [
+                (
+                    format!("ab {x}\u{e9}fghij"),
+                    6,
+                    vec!["ab".into(), format!("{x}\u{e9}fghi"), "j".into()],
+                ),
+                (
+                    format!("ab \u{a0}{x}\u{e9}fghij"),
+                    6,
+                    vec!["ab".into(), format!("\u{a0}{x}\u{e9}fgh"), "ij".into()],
+                ),
+            ];
+            for (text, w, want) in &rows {
+                for (how, wrapped) in WRAPS {
+                    assert_eq!(&wrapped(text, *w), want, "{how} {text:?} at {w}");
+                }
+            }
+        }
+        // A dash not in the list, such as an em dash (U+2014, one column), breaks after it,
+        // as Chrome does.
+        for (how, wrapped) in WRAPS {
+            assert_eq!(
+                wrapped("ab \u{2014}\u{e9}fghij", 6),
+                ["ab \u{2014}", "\u{e9}fghij"],
+                "{how}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_word_breaks_after_a_hyphen_inside_it_as_the_copy_does() {
+        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`:
+        // after a hyphen inside a word, before a letter or a digit, after the last of a run,
+        // and not before a `.`. Not U+10D6E, after which `icu_segmenter` 2.4 finds no break.
+        for x in HYPHENS.into_iter().filter(|&x| x != '\u{10d6e}') {
+            let rows: [(String, usize, Vec<String>); 4] = [
+                (
+                    format!("ab abc{x}def"),
+                    8,
+                    vec![format!("ab abc{x}"), "def".into()],
+                ),
+                (
+                    format!("ab abc{x}123"),
+                    8,
+                    vec![format!("ab abc{x}"), "123".into()],
+                ),
+                (
+                    format!("ab ab{x}{x}def"),
+                    8,
+                    vec![format!("ab ab{x}{x}"), "def".into()],
+                ),
+                (
+                    format!("ab abc{x}.def"),
+                    8,
+                    vec!["ab".into(), format!("abc{x}.def")],
+                ),
+            ];
+            for (text, w, want) in &rows {
+                for (how, wrapped) in WRAPS {
+                    assert_eq!(&wrapped(text, *w), want, "{how} {text:?} at {w}");
+                }
+            }
+        }
     }
 
     #[test]
