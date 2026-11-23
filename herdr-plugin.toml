@@ -4,7 +4,7 @@
 
 id = "control-tower"
 name = "control-tower"
-version = "0.5.1"
+version = "0.5.2"
 description = "A taskboard for a team of Claude Code agents: the board's milestones and tasks."
 # The herdr this plugin was built and checked against (`herdr --version`); older ones are
 # untested.

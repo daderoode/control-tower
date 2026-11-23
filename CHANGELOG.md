@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-23
+
 ### Fixed
 
 - **A path in a message breaks after a `-` too.** A path in a message (16 characters or more
