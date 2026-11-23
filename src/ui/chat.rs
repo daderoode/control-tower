@@ -407,9 +407,8 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// its own too wide for a line starts on a line of its own (`wrap_line_paths`). The line's
 /// leading spaces stay on its first line of text and its runs of spaces between words stay
 /// as written; a URL's line starts at the text's column, as the copy's block URL does.
-/// Spaces are all that is added, what `dropped` names all that is dropped, and a soft
-/// hyphen a line breaks after becomes a `-` in its place, so `marked` can find the owner's
-/// mentions in the pieces.
+/// Spaces are all that is added, and what `dropped` names all that is dropped, so `marked`
+/// can find the owner's mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -508,8 +507,7 @@ pub(crate) fn message_pieces(text: &str, w: usize) -> Vec<Piece> {
 
 /// The owner's mentions `marks` (byte ranges of the whole text, its line `raw` starting at
 /// `base`) in each of `lines`, `raw` wrapped: wrapping adds spaces or drops them (`dropped`)
-/// and draws a soft hyphen it breaks after as a `-` only, so the lines' other characters
-/// are `raw`'s, one for one, in order.
+/// only, so the lines' other characters are `raw`'s, in order.
 pub(crate) fn marked<'a>(
     raw: &str,
     base: usize,

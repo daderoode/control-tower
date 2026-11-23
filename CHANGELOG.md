@@ -16,12 +16,10 @@ tag's date, and a new empty Unreleased goes above it.
   whole to the next line. It now also breaks after a `-`, as the UI design's does (not before a
   `.` or a `/`, nor between a minus sign and a digit); a piece too wide for its line is still
   cut where the line ends. URLs keep their own breaks (#24).
-- **A word breaks after an en dash and a soft hyphen as the design's does.** A soft hyphen
-  (U+00AD) a line broke after was drawn as nothing and its column not counted; a line now
-  breaks there only with a column left for a `-`, and draws it, as the UI design's does, also
-  after a soft hyphen that starts a word. A word that starts with an en dash (U+2013) or a
-  figure dash (U+2012) no longer breaks right after it before a letter, as a hyphen (U+2010)
-  already did not (#93).
+- **A word that starts with an en dash keeps it with the letter after it.** A word starting
+  with an en dash (U+2013) or a figure dash (U+2012) broke right after it before a letter;
+  it no longer does, as the UI design's does not and as a hyphen (U+2010) already did not
+  (#93).
 
 ## [0.5.1] - 2026-11-21
 
