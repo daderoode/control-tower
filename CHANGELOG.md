@@ -19,6 +19,17 @@ tag's date, and a new empty Unreleased goes above it.
   the inbox no longer tone it once its spaces are folded, and it never makes a message
   blocked, a question or a decision (#16).
 
+### Fixed
+
+- **A word breaks after a hyphen between two Hebrew letters.** A word with a hyphen (`-`, a
+  maqaf U+05BE, U+2010, an en dash and the like) between two Hebrew letters never broke
+  there, so it moved whole to the next line or was cut where the line ended. It now breaks
+  after the hyphen, as the UI design's does, also with a point (niqqud) on the letter or on
+  the hyphen; a Hebrew letter's hyphen before a letter or digit that is not Hebrew still
+  keeps them together. A hyphen that starts a word or follows a no-break space now keeps
+  the letter after it when the hyphen or the no-break space carries a point, as it already
+  did without one (#97).
+
 ## [0.5.2] - 2026-11-23
 
 ### Fixed
