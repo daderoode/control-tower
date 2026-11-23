@@ -9,6 +9,14 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A word breaks after a hyphen between two Hebrew letters.** A word with a hyphen (`-`, a
+  maqaf U+05BE, U+2010, an en dash and the like) between two Hebrew letters never broke
+  there, so it moved whole to the next line or was cut where the line ended. It now breaks
+  after the hyphen, as the UI design's does; a Hebrew letter's hyphen before a letter or
+  digit that is not Hebrew still keeps them together (#97).
+
 ## [0.5.2] - 2026-11-23
 
 ### Fixed
