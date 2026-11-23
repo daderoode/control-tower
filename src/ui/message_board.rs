@@ -835,10 +835,20 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
         options.strictness = Some(LineBreakStrictness::Normal);
         LineSegmenter::new_for_non_complex_scripts(options)
     };
+    // U+10D6E (GARAY HYPHEN) read as U+10EAD, whose class (HH) it has in Unicode 17 and in
+    // `icu_properties` 2.4 but not in `icu_segmenter` 2.4's own data, which reads it as a
+    // letter and never breaks after it; both are 4 bytes, so the offsets are `word`'s. Once
+    // an `icu_segmenter` breaks after U+10D6E itself, this stand-in goes. A word without one
+    // is segmented as it is.
     let found: Vec<usize> = if word.is_ascii() {
         Vec::new()
     } else {
-        SEGMENTER.segment_str(word).collect()
+        let read = if word.contains('\u{10d6e}') {
+            std::borrow::Cow::Owned(word.replace('\u{10d6e}', "\u{10ead}"))
+        } else {
+            std::borrow::Cow::Borrowed(word)
+        };
+        SEGMENTER.segment_str(&read).collect()
     };
     let chars: Vec<(usize, char)> = word.char_indices().collect();
     let mut out = Vec::new();
@@ -875,7 +885,8 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
 ///   bracket, one of `$ ' / @ ^ _` or a backquote;
 /// - between any other two, a break where `icu_segmenter` finds one: between two
 ///   ideographs, kana or hangul, between one and a letter or digit, but not before a
-///   closing mark such as `。` `、` `」` nor after an opening one such as `「`. Two rules
+///   closing mark such as `。` `、` `」` nor after an opening one such as `「`, and around a
+///   U+10D6E as around the hyphens of its class (`break_units`). Two rules
 ///   Chrome's ICU has and `icu_segmenter` (2.4) does not apply are added: no break after a
 ///   hyphen that starts the word (nothing or a no-break space before it) before a letter
 ///   (UAX #14's LB20a), for the hyphens Chrome applies it to, Unicode 17's HY and HH: `-`,
@@ -2168,8 +2179,8 @@ mod tests {
     ];
 
     /// The hyphens Chrome keeps to a letter after one starting a word (LB20a), Unicode 17's HY
-    /// and HH, each one column wide (`unicode-width`), so dropping any but U+10D6E from
-    /// `breaks_between` fails a test (`icu_segmenter` 2.4 never breaks after U+10D6E).
+    /// and HH, each one column wide (`unicode-width`), so dropping any from `breaks_between`
+    /// fails a test.
     const HYPHENS: [char; 12] = [
         '-',
         '\u{058a}',
@@ -2225,8 +2236,8 @@ mod tests {
     fn a_word_breaks_after_a_hyphen_inside_it_as_the_copy_does() {
         // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`:
         // after a hyphen inside a word, before a letter or a digit, after the last of a run,
-        // and not before a `.`. Not U+10D6E, after which `icu_segmenter` 2.4 finds no break.
-        for x in HYPHENS.into_iter().filter(|&x| x != '\u{10d6e}') {
+        // and not before a `.`.
+        for x in HYPHENS {
             let rows: [(String, usize, Vec<String>); 4] = [
                 (
                     format!("ab abc{x}def"),
@@ -2253,6 +2264,37 @@ mod tests {
                 for (how, wrapped) in WRAPS {
                     assert_eq!(&wrapped(text, *w), want, "{how} {text:?} at {w}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn a_word_breaks_around_a_garay_hyphen_as_the_copy_does() {
+        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
+        // (U+10D6E spaced to one column): around U+10D6E as around the other hyphens of its
+        // class (HH), which `icu_segmenter` 2.4 takes it out of: a break after it before an
+        // opening bracket or a no-break space, and none between an ideograph and it.
+        let x = '\u{10d6e}';
+        let rows: [(String, usize, Vec<String>); 3] = [
+            (
+                format!("ab abc{x}(def"),
+                8,
+                vec![format!("ab abc{x}"), "(def".into()],
+            ),
+            (
+                format!("ab ab{x}\u{a0}def"),
+                8,
+                vec![format!("ab ab{x}"), "\u{a0}def".into()],
+            ),
+            (
+                format!("ab \u{4e2d}{x}def"),
+                5,
+                vec!["ab".into(), format!("\u{4e2d}{x}"), "def".into()],
+            ),
+        ];
+        for (text, w, want) in &rows {
+            for (how, wrapped) in WRAPS {
+                assert_eq!(&wrapped(text, *w), want, "{how} {text:?} at {w}");
             }
         }
     }
