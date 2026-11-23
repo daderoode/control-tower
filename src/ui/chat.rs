@@ -402,8 +402,8 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a line of
 /// its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
-/// own too; a path in the text breaks only after a `/`, and other text where Chrome breaks
-/// the copy's, such as after a `-` or between two CJK characters; a word with no break of
+/// own too; a path in the text breaks after a `/` and where Chrome breaks the copy's, such
+/// as after a `-`, and other text where Chrome breaks it, such as between two CJK characters; a word with no break of
 /// its own too wide for a line starts on a line of its own (`wrap_line_paths`). The line's
 /// leading spaces stay on its first line of text and its runs of spaces between words stay
 /// as written; a URL's line starts at the text's column, as the copy's block URL does.
@@ -1910,8 +1910,8 @@ mod tests {
             wrap_message_line("abcdefghij", 8),
             [pair("abcdefgh"), pair("ij")]
         );
-        // A path still starts where the line is and breaks only after a `/`, as the copy's
-        // path does.
+        // A path still starts where the line is and breaks after a `/`, as the copy's path
+        // does.
         assert_eq!(
             wrap_message_line("ab assets/icons/bookmarks/outline", 12),
             [

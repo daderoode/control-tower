@@ -413,7 +413,7 @@ of its own, whole, in the accent and underlined; wider than the bubble, it break
 after `/`, `?`, `&` or `-`, the rest indented two columns, and the text after it starts a
 line of its own too. In a terminal that supports OSC 8 hyperlinks, every piece of it is one
 link to the whole URL, in a preview too where only its first line shows. A path (16
-characters or more with two `/`) stays in its line and breaks only after a `/`. A long message shows its first four lines (two in a preview) and "read
+characters or more with two `/`) stays in its line and breaks after a `/` or a `-`. A long message shows its first four lines (two in a preview) and "read
 more", which opens it in place, in a preview too; a message that would hide one line only
 shows in full. A short ack ("copy", "ok", "plan approved", up to 40 characters, never one
 mentioning `@manager`) is a "↳ qa: copy" reply under the bubble it answers, wrapping when

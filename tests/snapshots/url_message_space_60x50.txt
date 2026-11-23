@@ -42,8 +42,8 @@
  ▌   merge_requests/27                                      
  ▌ It adds the bookmark list and the reading reminder.      
  ▌ 8m                                                       
- ▌ Icons live in assets/icons/bookmarks/outline/            
- ▌ bookmark-ribbon.svg, one file an icon.                   
+ ▌ Icons live in assets/icons/bookmarks/outline/bookmark-   
+ ▌ ribbon.svg, one file an icon.                            
 ────────────────────────────────────────────────────────────
  manager ▌Type to write to the team, e.g. copy, app…  Post  
 ────────────────────────────────────────────────────────────
