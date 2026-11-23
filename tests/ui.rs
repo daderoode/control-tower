@@ -4250,6 +4250,40 @@ fn the_task_detail_shows_the_doing_post_in_full_and_the_blocked_flag_on_its_own_
 }
 
 #[test]
+fn a_doing_posts_indent_as_wide_as_its_value_hangs_on_a_blank_row() {
+    // At 60 the value is 48 columns: an indent of 50 spaces hangs on the doing row, drawn
+    // blank, and the words start the next row at the value's column, as the copy's bubble
+    // hangs it. A narrower indent stays before the words on the doing row.
+    let mut board = blocked_fixture();
+    let rows = |board: &Board| -> Vec<String> {
+        let m = &board.milestones[0];
+        let t = m.tasks.iter().find(|t| t.id == TaskId(13)).unwrap();
+        let d = task_detail(board, Some(m), t, 60, NOW, Depth::TrueColor);
+        d.lines.iter().map(|l| l.to_string()).collect()
+    };
+    let indent = " ".repeat(50);
+    board.milestones[0].tasks[1].details.doing = progress(format!("{indent}the press is jammed"));
+    let wide = rows(&board);
+    let at = find_row(&wide, " doing ");
+    assert_eq!(
+        wide[at..at + 2],
+        [
+            format!("{:<60}", " doing"),
+            format!("{:<60}", "            the press is jammed"),
+        ],
+        "{wide:#?}"
+    );
+    board.milestones[0].tasks[1].details.doing = progress("  the press is jammed");
+    let narrow = rows(&board);
+    let at = find_row(&narrow, " doing ");
+    assert_eq!(
+        narrow[at],
+        format!("{:<60}", " doing        the press is jammed"),
+        "{narrow:#?}"
+    );
+}
+
+#[test]
 fn a_blocked_standalone_task_shows_its_bang_before_its_ticket() {
     let mut board = standalone_fixture();
     board.standalone[0].details.blocked = Some("no lead yet".into());

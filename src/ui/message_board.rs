@@ -1103,7 +1103,10 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// `Wrap::Event` text, its line ends.
 /// The text's leading spaces, when narrower than a line, start its first line, as the
 /// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
-/// next line as any other word does, leaving them alone on the first. Each run of spaces
+/// next line as any other word does, leaving them alone on the first. As wide as a line or
+/// wider, they hang on a blank line of their own, as `pre-wrap` hangs them, with any run of
+/// ideographic spaces starting the first word, and the words start the next line at the
+/// text's column. Each run of spaces
 /// between words stays as written, and counts toward the line's width; a line that breaks
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
@@ -1118,7 +1121,12 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let mut out = Vec::new();
     let body = text.trim_start_matches(' ');
     let indent = text.len() - body.len();
-    let mut line = if body.is_empty() || indent >= w {
+    // An indent as wide as a line hangs on a blank one of its own before the words.
+    let hung_indent = !body.is_empty() && indent >= w;
+    if hung_indent {
+        out.push(String::new());
+    }
+    let mut line = if body.is_empty() || hung_indent {
         String::new()
     } else {
         " ".repeat(indent)
@@ -1127,8 +1135,9 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     // more for each empty piece `split` leaves after it, and in `pre_wrap` text a run of
     // ideographic spaces starting a word after it.
     let mut run = String::new();
-    // Whether a word is down yet, so a run before the next one is between words.
-    let mut placed = false;
+    // Whether a word is down yet, so a run before the next one is between words. An indent
+    // that hung is such a run: it takes a run of ideographic spaces starting the first word.
+    let mut placed = hung_indent;
     // Whether the word before ended with a run of ideographic spaces.
     let mut after_run = false;
     let mut words = body.split(' ');
