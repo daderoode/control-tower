@@ -1103,7 +1103,12 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// `Wrap::Event` text, its line ends.
 /// The text's leading spaces, when narrower than a line, start its first line, as the
 /// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
-/// next line as any other word does, leaving them alone on the first. Each run of spaces
+/// next line as any other word does, leaving them alone on the first. As wide as a line or
+/// wider, they hang on a blank line of their own, as `pre-wrap` hangs them, and the words
+/// start the next line at the text's column. Either way a run of ideographic spaces starting
+/// the first word goes with them, and hangs with them when the word's first piece does not
+/// fit after it; a run with no word after it is drawn after a narrower indent where it fits
+/// there, and hangs with a wider one. Each run of spaces
 /// between words stays as written, and counts toward the line's width; a line that breaks
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
@@ -1118,7 +1123,12 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     let mut out = Vec::new();
     let body = text.trim_start_matches(' ');
     let indent = text.len() - body.len();
-    let mut line = if body.is_empty() || indent >= w {
+    // An indent as wide as a line hangs on a blank one of its own before the words.
+    let hung_indent = !body.is_empty() && indent >= w;
+    if hung_indent {
+        out.push(String::new());
+    }
+    let mut line = if body.is_empty() || hung_indent {
         String::new()
     } else {
         " ".repeat(indent)
@@ -1127,8 +1137,10 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
     // more for each empty piece `split` leaves after it, and in `pre_wrap` text a run of
     // ideographic spaces starting a word after it.
     let mut run = String::new();
-    // Whether a word is down yet, so a run before the next one is between words.
-    let mut placed = false;
+    // Whether a word is down yet, so a run before the next one is between words. An indent
+    // is such a run: in `pre_wrap` text it takes a run of ideographic spaces starting the
+    // first word, which the line may break after.
+    let mut placed = indent > 0;
     // Whether the word before ended with a run of ideographic spaces.
     let mut after_run = false;
     let mut words = body.split(' ');
@@ -1177,8 +1189,10 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             && word.chars().eq([IDEOGRAPHIC_SPACE])
             && chain_starts(words.clone(), w, how);
         after_run = ends_run && !text_run;
-        // No space between the indent and the first word, or at the start of a line.
-        let gap = if after_text {
+        // No space at the start of a line. After the indent, the line's only spaces, the
+        // run is the ideographic spaces the first word started with: on the line with the
+        // word when both fit, else hung past the indent's end.
+        let gap = if after_text || !line.is_empty() {
             std::mem::take(&mut run)
         } else {
             String::new()
@@ -1237,14 +1251,12 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             put_hung(&mut line, &mut out, hung, w);
         }
     }
-    // A run of ideographic spaces ending the text after a space is drawn where it fits on
-    // the line, as the copy's is, and otherwise hangs past its end; the spaces after it are
-    // the text's trailing ones. Only `pre_wrap` text joins one to the run.
+    // A run of ideographic spaces ending the text after a space, or after an indent the line
+    // still holds, is drawn where it fits on the line, as the copy's is, and otherwise hangs
+    // past its end; the spaces after it are the text's trailing ones. Only `pre_wrap` text
+    // joins one to the run.
     let tail = run.trim_end_matches(' ');
-    if tail.contains(IDEOGRAPHIC_SPACE)
-        && line.bytes().any(|b| b != b' ')
-        && line.width() + tail.width() <= w
-    {
+    if tail.contains(IDEOGRAPHIC_SPACE) && !line.is_empty() && line.width() + tail.width() <= w {
         line.push_str(tail);
     }
     if !line.is_empty() || out.is_empty() {

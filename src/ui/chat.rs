@@ -1138,9 +1138,8 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
                     Span::styled(text.to_string(), style),
                 ]
             } else {
-                // A leading tag toned on its first piece only as `may_tone_tag` says: a
-                // wide indent is dropped where it wraps, so the piece's own start is not
-                // the message's.
+                // A leading tag toned on its first piece only as `may_tone_tag` says: the
+                // piece's own start is not the message's once its indent is wrapped.
                 let awareness = tone_of(m) == Tone::Awareness;
                 let head = *head && may_tone_tag(&m.text);
                 highlight_marked(piece, marks, head, awareness, depth)
@@ -1708,6 +1707,11 @@ mod tests {
         // A line the clip hides counts, as the copy's clipped body still measures it.
         let clipped = format!("aa\nbb\ncc\ndd\nee\n{}", "d".repeat(30));
         assert_eq!(bw("dev-1", &clipped), 33);
+        // A run of U+3000 after an indent, with no word after it, counts as the copy's
+        // does (32ch of text): the bubble is as wide as for an indent and a word.
+        let sp = " ".repeat(30);
+        assert_eq!(bw("dev-1", &format!("hi\n{sp}\u{3000}\nyo")), 35);
+        assert_eq!(bw("dev-1", &format!("hi\n{sp}ab\nyo")), 35);
     }
 
     #[test]
@@ -1822,8 +1826,12 @@ mod tests {
             wrap_message_line(&format!("    {hash} sha"), 40),
             [pair("    ", None), pair(hash, None), pair("sha", None)]
         );
-        // An indent as wide as the line is dropped, so no line is wider than the bubble.
-        assert_eq!(wrap_message_line("      ab cd", 6), [pair("ab cd", None)]);
+        // An indent as wide as the line hangs on a blank line of its own, so no line is
+        // wider than the bubble.
+        assert_eq!(
+            wrap_message_line("      ab cd", 6),
+            [pair("", None), pair("ab cd", None)]
+        );
         // A line of spaces alone is a blank line, as before.
         assert_eq!(wrap_message_line("   ", 40), [pair("", None)]);
         // The owner's mentions stay marked after an indent.
@@ -1833,6 +1841,116 @@ mod tests {
             (p[0].text.as_str(), marks),
             ("  - ask @manager", vec![(8, 16)])
         );
+    }
+
+    #[test]
+    fn an_indent_as_wide_as_the_text_hangs_on_a_blank_row_before_the_words() {
+        // The rows Chrome draws the copy's bubble with (`.seg .body`, `pre-wrap`): the
+        // indent hangs on a blank row and the words start the next at the text's column,
+        // breaking there as they would from any line's start.
+        let texts = |text: &str, w: usize| -> Vec<String> {
+            (message_pieces(text, w).into_iter())
+                .map(|p| p.text)
+                .collect()
+        };
+        let sp = |n: usize| " ".repeat(n);
+        let words = "after a wide indent the words go on";
+        assert_eq!(
+            texts(&format!("x first\n{}{words}", sp(40)), 31),
+            ["x first", "", "after a wide indent the words", "go on"]
+        );
+        assert_eq!(
+            texts(&format!("{}{words}", sp(40)), 31),
+            ["", "after a wide indent the words", "go on"]
+        );
+        for n in [31, 32] {
+            assert_eq!(
+                texts(&format!("{}after a wide indent", sp(n)), 31),
+                ["", "after a wide indent"],
+                "indent {n}"
+            );
+        }
+        for n in [7, 9, 20] {
+            assert_eq!(texts(&format!("{}ab cd", sp(n)), 7), ["", "ab cd"], "{n}");
+        }
+        let at7 = |rest: &str| texts(&format!("{}{rest}", sp(7)), 7);
+        assert_eq!(at7("abcdefghijklmn"), ["", "abcdefg", "hijklmn"]);
+        assert_eq!(at7("ab-cd-ef"), ["", "ab-cd-", "ef"]);
+        // A run of ideographic spaces starting the first word hangs with the indent.
+        assert_eq!(at7("\u{3000}ab"), ["", "ab"]);
+        assert_eq!(at7("\u{3000} ab"), ["", "ab"]);
+        assert_eq!(at7("\u{3000}"), [""]);
+        // After a narrower indent, such a run goes with the indent too: it hangs there when
+        // the first word's first piece does not fit after it, and the words start the next
+        // row.
+        let (i3, i5, i28, i30) = (sp(3), sp(5), sp(28), sp(30));
+        let (i3, i5, i28, i30) = (i3.as_str(), i5.as_str(), i28.as_str(), i30.as_str());
+        let fits27 = format!("{}\u{3000}ab", sp(27));
+        let cases: [(String, usize, &[&str]); 12] = [
+            (format!("{i30}\u{3000}ab"), 31, &[i30, "ab"]),
+            (format!("{i30}\u{3000}\u{3000}ab"), 31, &[i30, "ab"]),
+            (format!("{i30}\u{3000}ab cd ef"), 31, &[i30, "ab cd ef"]),
+            (
+                format!("x first\n{i30}\u{3000}ab"),
+                31,
+                &["x first", i30, "ab"],
+            ),
+            (format!("{i28}\u{3000}ab"), 31, &[i28, "ab"]),
+            (format!("{i5}\u{3000}ab"), 7, &[i5, "ab"]),
+            (format!("{i3}\u{3000}abcdef"), 7, &[i3, "abcdef"]),
+            (
+                format!("{i3}\u{3000}abcdefghij"),
+                7,
+                &[i3, "abcdefg", "hij"],
+            ),
+            (format!("{i3}\u{3000} ab"), 7, &[i3, "ab"]),
+            // Where the run and the word, or its first piece, fit, they stay on the row.
+            (fits27.clone(), 31, &[fits27.as_str()]),
+            (format!("{i3}\u{3000} ab"), 10, &["   \u{3000} ab"]),
+            (
+                format!("{i3}\u{3000}ab-cdefgh"),
+                8,
+                &["   \u{3000}ab-", "cdefgh"],
+            ),
+        ];
+        for (text, w, want) in cases {
+            assert_eq!(texts(&text, w), want, "{text:?} at {w}");
+        }
+        assert_eq!(wrap(&format!("{i30}\u{3000}ab"), 31), [i30, "ab"]);
+        // A run with no word after it stays after a narrower indent where it fits.
+        assert_eq!(wrap_line_paths("   \u{3000}", 10), ["   \u{3000}"]);
+        // On a later line too.
+        assert_eq!(
+            texts(&format!("ab\n{}cd ef", sp(9)), 7),
+            ["ab", "", "cd ef"]
+        );
+        // Narrower, the indent starts the first row, as before; a line of spaces alone is
+        // one blank row.
+        assert_eq!(
+            texts(&format!("{}after a wide indent", sp(30)), 31),
+            [sp(30).as_str(), "after a wide indent"]
+        );
+        assert_eq!(
+            texts(&format!("{}ab cd", sp(29)), 31),
+            [format!("{}ab", sp(29)).as_str(), "cd"]
+        );
+        assert_eq!(texts(&sp(9), 7), [""]);
+        // The owner's mention after the blank row stays marked.
+        let p = message_pieces(&format!("{}ask @manager", sp(12)), 12);
+        let got: Vec<(&str, Vec<(usize, usize)>)> = (p.iter())
+            .map(|p| {
+                let marks = p.marks.iter().map(|r| (r.start, r.end)).collect();
+                (p.text.as_str(), marks)
+            })
+            .collect();
+        assert_eq!(got, [("", vec![]), ("ask @manager", vec![(4, 12)])]);
+        // A delivery failure's details (`.evtdetail`, `pre-wrap`) hang it the same way.
+        assert_eq!(wrap(&format!("{}ab cd", sp(7)), 7), ["", "ab cd"]);
+        assert_eq!(
+            wrap(&format!("ab\n{}exit 1", sp(9)), 7),
+            ["ab", "", "exit 1"]
+        );
+        assert_eq!(wrap(&format!("{}\u{3000}ab", sp(7)), 7), ["", "ab"]);
     }
 
     #[test]
@@ -2635,8 +2753,8 @@ mod tests {
 
     #[test]
     fn a_first_lines_tag_after_an_indent_wider_than_the_bubble_stays_plain() {
-        // At chat 40 an indent of 44 spaces is wider than the bubble's text, so the wrap
-        // drops it and the first piece starts with the tag. The copy tones the raw text,
+        // At chat 40 an indent of 44 spaces is wider than the bubble's text, so it hangs on
+        // a blank row and the next piece starts with the tag. The copy tones the raw text,
         // which starts with spaces: both draw plain, as the name lines show no tag. The
         // control, with no indent, is toned.
         let indent = " ".repeat(44);
