@@ -13,13 +13,15 @@ tag's date, and a new empty Unreleased goes above it.
 
 - **"Lead not listening" asks no terminal.** The watch judges whether a lead's session is
   alive and working by `claude agents --json`, and whether it finished a turn without
-  re-arming by its Stop hook, which now counts on the board each turn the lead's attached
-  session ends with no waiter running, so a short turn between two looks is seen. The check
-  is right with the team in Rex and runs even when herdr does not answer. A lead
-  Claude no longer lists is raised as "its Claude session is gone". A `claude agents --json`
-  that cannot be read skips the check for that look with one log line. The board's schema
-  moves to 19: an upgraded board keeps its "Lead not listening" episodes and raises nothing
-  new.
+  re-arming by the lead's hooks, which now count on the board each turn the lead's attached
+  session ends with no waiter running: its Stop hook, and a new StopFailure hook for a turn
+  that ends on an API error (a turn the user interrupts is not counted). A short turn
+  between two looks is seen, and a waiter taking its lock resets what the watch compares
+  with, so a lead that re-arms every turn is never raised. The check is right with the team
+  in Rex and runs even when herdr does not answer. A lead Claude no longer lists is raised
+  as "its Claude session is gone". A `claude agents --json` that cannot be read skips the
+  check for that look with one log line. The board's schema moves to 19: an upgraded board
+  keeps its "Lead not listening" episodes and raises nothing new.
 
 - **The lead skill carries the principles of a lead that worked.** Twelve short rules, each
   with its reason and how a lead can tell it follows them: verify a claim before relaying

@@ -3103,6 +3103,158 @@ fn the_hook_names_a_leads_unread_posts_once_and_says_how_to_arm_its_waiter() {
     assert_eq!(hook("sess-1"), "", "held twice for the same post");
 }
 
+/// A board whose R1 is led by Catalogue (session cat-lead), attached as the Claude session
+/// sess-1, with a thread T1.
+fn attached_lead_board() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("board.db");
+    ok(&db, &["milestone", "add", "MVP", "--goal", "g"]);
+    in_repo(&db, "M1");
+    ok(
+        &db,
+        &[
+            "lead",
+            "add",
+            "M1",
+            "--name",
+            "Catalogue",
+            "--session",
+            "cat-lead",
+        ],
+    );
+    ok(
+        &db,
+        &[
+            "thread", "new", "--by", "cat-lead", "M1", "Reviews", "opened",
+        ],
+    );
+    let mut store = Store::open(&db).unwrap();
+    store
+        .attach_lead(control_tower::board::RepoId(1), "sess-1")
+        .unwrap();
+    (dir, db)
+}
+
+/// One look of the watch's lead check at `now`, with `claude agents --json` listing sess-1
+/// as `status`.
+fn lead_look(db: &Path, status: &str, now: i64) -> Vec<String> {
+    let list = format!(r#"[{{"sessionId":"sess-1","kind":"interactive","status":"{status}"}}]"#);
+    let mut store = Store::open(db).unwrap();
+    let mut unheard = std::collections::HashMap::new();
+    control_tower::listen::check_leads(&mut store, db, || Ok(list.clone()), now, &mut unheard)
+}
+
+/// Holds R1's listener lock as a running waiter would, until dropped.
+fn r1_waiter_runs(db: &Path) -> std::fs::File {
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(control_tower::listen::lock_path(
+            db,
+            control_tower::board::RepoId(1),
+        ))
+        .unwrap();
+    lock.try_lock().unwrap();
+    lock
+}
+
+/// The turns R1's lead has ended with no waiter running, by its hooks.
+fn r1_turns(db: &Path) -> i64 {
+    Store::open(db).unwrap().leads().unwrap()[0].turns
+}
+
+/// `tower lead hook` given `event`'s input for `session`: its stdout.
+fn lead_hook(db: &Path, event: &str, session: &str) -> String {
+    let json =
+        format!(r#"{{"session_id":"{session}","hook_event_name":"{event}","error":"rate_limit"}}"#);
+    let out = tower_with_stdin(db, &["lead", "hook"], json);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    text(&out.stdout)
+}
+
+#[test]
+fn a_lead_turn_ended_on_an_api_error_is_counted_and_never_told() {
+    let (_dir, db) = attached_lead_board();
+    // The plugin runs tower lead hook for a turn that ends on an API error, too.
+    let hooks: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/claude-plugin/hooks/hooks.json"
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    for event in ["Stop", "StopFailure", "SessionStart"] {
+        assert_eq!(
+            hooks["hooks"][event][0]["hooks"][0]["command"], "tower lead hook",
+            "{event}"
+        );
+    }
+    // A look sees its waiter; a post ends it; the lead works through two looks and the
+    // turn fails on an API error before it re-arms, so no Stop hook runs.
+    let held = r1_waiter_runs(&db);
+    assert!(lead_look(&db, "idle", 10).is_empty());
+    drop(held);
+    ok(
+        &db,
+        &["post", "--by", "dev-1", "T1", "status: for the lead"],
+    );
+    assert!(lead_look(&db, "busy", 20).is_empty());
+    assert!(lead_look(&db, "busy", 30).is_empty());
+    // StopFailure: counted, nothing printed (Claude Code ignores it), the post still unread.
+    assert_eq!(lead_hook(&db, "StopFailure", "sess-1"), "");
+    let r1 = control_tower::board::RepoId(1);
+    assert!(Store::open(&db).unwrap().has_unread(r1).unwrap(), "told");
+    assert_eq!(r1_turns(&db), 1);
+    // Idle with nothing to wake it: not listening.
+    assert_eq!(
+        lead_look(&db, "idle", 40),
+        [
+            "Catalogue, the lead of R1, is not listening (its Claude session finished a turn \
+             without one); told the owner in T2"
+        ]
+    );
+    // With its waiter running, or for another session: not counted.
+    let held = r1_waiter_runs(&db);
+    assert_eq!(lead_hook(&db, "StopFailure", "sess-1"), "");
+    drop(held);
+    assert_eq!(lead_hook(&db, "StopFailure", "sess-9"), "");
+    assert_eq!(r1_turns(&db), 1);
+}
+
+#[test]
+fn a_turn_counted_just_before_the_re_armed_waiter_takes_its_lock_never_raises() {
+    let (_dir, db) = attached_lead_board();
+    // A look sees its waiter, which then ends.
+    let held = r1_waiter_runs(&db);
+    assert!(lead_look(&db, "idle", 10).is_empty());
+    drop(held);
+    // The lead re-arms and ends its turn, its Stop hook running before the new waiter holds
+    // its lock: counted as a turn with no waiter.
+    assert_eq!(lead_hook(&db, "Stop", "sess-1"), "");
+    assert_eq!(r1_turns(&db), 1);
+    // The new waiter takes its lock and a post ends it at once, before the next look.
+    ok(
+        &db,
+        &["post", "--by", "dev-1", "T1", "status: for the lead"],
+    );
+    let woke = ok(&db, &["lead", "wait", "R1"]);
+    assert!(woke.contains("1 unread post on the board of R1"), "{woke}");
+    // That look finds it idle with no waiter, in the gap before it re-arms: nothing raised.
+    assert!(lead_look(&db, "idle", 30).is_empty());
+    assert!(
+        Store::open(&db)
+            .unwrap()
+            .load()
+            .unwrap()
+            .inbox
+            .awareness
+            .is_empty()
+    );
+}
+
 // macOS only (SDLC.md): a waiter knows the one it stops by its command line, and
 // `ps -o comm=` gives the executable's path on macOS but only its name on Linux
 // (`listen::listener_argument`). The product ships only for macOS.

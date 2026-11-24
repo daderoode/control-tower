@@ -809,7 +809,7 @@ fn replies(t: &Thread) -> String {
     }
 }
 
-/// `tower lead hook`, the plugin's Stop and SessionStart hooks, by the input's
+/// `tower lead hook`, the plugin's Stop, StopFailure and SessionStart hooks, by the input's
 /// `hook_event_name`. It runs before the board's path is read, so a SessionStart can keep
 /// every failure quiet: a hook can never stop a session from starting, so what went
 /// wrong, from an unset HOME to `claude` failing, goes to stderr (Claude Code's debug log),
@@ -850,6 +850,10 @@ fn lead_hook() -> Result<()> {
             Err(e) => eprintln!("tower lead hook (SessionStart): {e:#}"),
         }
         return Ok(());
+    }
+    // A turn ended on an API error: counted, never told (Claude Code ignores this output).
+    if event.as_deref() == Some("StopFailure") {
+        return control_tower::listen::turn_failed(&board_path()?, &input);
     }
     if let Some(reply) = control_tower::listen::hook(&board_path()?, &input)? {
         println!("{reply}");

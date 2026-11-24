@@ -1165,8 +1165,9 @@ pub struct Registered {
     /// How many turns its attached session has ended with no waiter running, by its Stop
     /// hook (`lead_turn_ended`).
     pub turns: i64,
-    /// `turns` when the watch last saw its waiter running, or first saw it, idle or busy,
-    /// with none; `None` while it has seen neither since the session attached.
+    /// `turns` when the watch last saw its waiter running, or a waiter last took its lock,
+    /// or the watch first saw it, idle or busy, with none; `None` while none of these has
+    /// happened since the session attached.
     pub quiet_turns: Option<i64>,
 }
 
@@ -3399,6 +3400,19 @@ impl Store {
             .execute(
                 "UPDATE lead SET quiet_turns = ?1 WHERE repo_id = ?2 AND quiet_turns IS NULL",
                 params![turns, repo.0],
+            )
+            .context(self.cannot_write())?;
+        Ok(())
+    }
+
+    /// A waiter for `repo` has taken its lock: the turns its lead has ended are the watch's
+    /// baseline (`quiet_turns`), so a turn the Stop hook counted just before the waiter took
+    /// the lock is no turn ended without one.
+    pub fn lead_waiter_armed(&mut self, repo: RepoId) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE lead SET quiet_turns = turns WHERE repo_id = ?1",
+                params![repo.0],
             )
             .context(self.cannot_write())?;
         Ok(())

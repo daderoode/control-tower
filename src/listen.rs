@@ -15,7 +15,8 @@
 //!   unread, then prints one line saying how many and ends. With posts already unread it
 //!   ends at once, so a post landing between one waiter's end and the next is never
 //!   skipped. Claude Code puts no time limit on a background command in a terminal session,
-//!   so an idle lead is never woken for nothing.
+//!   so an idle lead is never woken for nothing. Once it holds the lock it takes the lead's
+//!   count of turns as the watch's baseline.
 //! - `unread`: `tower lead unread R<n>` prints one line per unread post (`line`) and tells
 //!   them; then, if a listener for the repo already runs, one line saying so, so a lead
 //!   whose waiter was stopped by a newer one does not arm a third.
@@ -28,7 +29,8 @@
 //! - `hook`: `tower lead hook`, the plugin's Stop hook. For the Claude session a lead
 //!   attached (`tower lead attach`), it blocks the end of the turn while posts are unread,
 //!   naming them and so telling them, and counts a turn it lets end with no listener running
-//!   (`lead.turns`); any other session passes.
+//!   (`lead.turns`); any other session passes. For a turn that ends on an API error, Claude
+//!   Code runs StopFailure instead, which only counts (`turn_failed`).
 //! - `check_leads`: the watch, each look, for every registered lead: no listener
 //!   running while it has no attached Claude session for `NO_SESSION_GRACE`, or its Claude
 //!   session gone from `claude agents --json`, or idle having finished a turn with no
@@ -369,6 +371,9 @@ pub fn wait(db: &Path, repo: RepoId) -> Result<Waited> {
     }
     let held = take_lock(db, repo)?;
     let mut store = Store::open(db)?;
+    // Armed: the turns its lead ended so far are the watch's baseline, so a turn the Stop
+    // hook counted just before this waiter took its lock never raises.
+    store.lead_waiter_armed(repo)?;
     let ended = loop {
         if !store.has_repo(repo)? {
             // Held, so no other listener for it runs: its lock file goes with it.
@@ -466,6 +471,27 @@ pub fn hook(db: &Path, input: &str) -> Result<Option<String>> {
     Ok(Some(
         serde_json::json!({"decision": "block", "reason": reason}).to_string(),
     ))
+}
+
+/// `tower lead hook` for a StopFailure: given the hook's JSON `input`, a turn that ended
+/// on an API error (a rate limit, an overload, the output limit), for which Claude Code runs
+/// no Stop hook. For the Claude session a lead attached, with no waiter running, it counts as
+/// a turn ended without one (`Store::lead_turn_ended`), as a Stop that lets the turn end
+/// does. It never tells: Claude Code ignores this hook's output, so a telling would move the
+/// cursor past posts nobody saw. Any other session, and a board that does not exist, passes.
+pub fn turn_failed(db: &Path, input: &str) -> Result<()> {
+    let input: HookInput = serde_json::from_str(input)
+        .context("the StopFailure hook's input is not what Claude Code sends")?;
+    if !db.exists() {
+        return Ok(());
+    }
+    let Some(repo) = Store::open_read_only(db)?.lead_of_session(&input.session_id)? else {
+        return Ok(());
+    };
+    if !listening(db, repo)? {
+        Store::open(db)?.lead_turn_ended(repo, &input.session_id)?;
+    }
+    Ok(())
 }
 
 /// What Claude Code passes a SessionStart hook on stdin, as far as this reads it: the
@@ -752,10 +778,11 @@ fn check(
                 Some(Status::Idle) => {
                     // Idle with no listener is the gap between a waiter's end and the lead's
                     // re-arm until the lead has finished a turn without a waiter since the
-                    // watch last saw the waiter running, or first saw it with none (idle or
-                    // busy): a lead woken by its waiter's end re-arms in that turn, which the
-                    // Stop hook then does not count. The hook counts every such turn, so one
-                    // that starts and ends between two looks is counted too.
+                    // watch last saw the waiter running (or a waiter took its lock), or first
+                    // saw it with none (idle or busy): a lead woken by its waiter's end
+                    // re-arms in that turn, which the Stop hook then does not count. The hook
+                    // counts every such turn, so one that starts and ends between two looks
+                    // is counted too.
                     match lead.quiet_turns {
                         None => {
                             store.lead_quiet(repo, lead.turns)?;
