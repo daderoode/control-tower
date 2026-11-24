@@ -19,12 +19,6 @@ tag's date, and a new empty Unreleased goes above it.
   A tag after an indent (`   blocked:`) is plain text, as in the design: where it stands and
   the inbox no longer tone it once its spaces are folded, and it never makes a message
   blocked, a question or a decision (#16).
-- **An indent as wide as a bubble's text hangs on a blank row.** A message line, or a line
-  of a delivery failure's details, indented as wide as its text or wider lost the indent with
-  no row for it, and a task's doing line could lose its first word to it. It now hangs on a
-  blank row and the words start the next at the text's column, as the UI design (v0.1.14)
-  draws it; a run of ideographic spaces starting the words hangs with the indent when the
-  first word does not fit after it. The doing line breaks words as a bubble does (#103).
 
 ### Fixed
 
@@ -42,6 +36,12 @@ tag's date, and a new empty Unreleased goes above it.
   owner or a `blocked:` or `decision:` tag. It now starts the next line, as the UI design's
   does, and stays on the letter it follows, in every message, title, event and inbox row.
   Where every line breaks is unchanged (#102).
+- **An indent as wide as a bubble's text hangs on a blank row.** A message line, or a line
+  of a delivery failure's details, indented as wide as its text or wider lost the indent with
+  no row for it, and a task's doing line could lose its first word to it. It now hangs on a
+  blank row and the words start the next at the text's column, as the UI design (v0.1.14)
+  draws it; a run of ideographic spaces starting the words hangs with the indent when the
+  first word does not fit after it. The doing line breaks words as a bubble does (#103).
 
 ## [0.5.2] - 2026-11-23
 
