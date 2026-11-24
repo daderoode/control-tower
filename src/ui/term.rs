@@ -17,7 +17,6 @@ use super::writer::{self, Write};
 use super::{Dash, Depth, Input, Mode, Reader, Request, View, draw, hyperlink, q_returns, refresh};
 use crate::board::{ThreadId, Ticket};
 use crate::open;
-use crate::watch;
 
 const REFRESH: Duration = Duration::from_secs(2);
 /// How long the input loop waits for input before redrawing (the clock and new board data).
@@ -215,7 +214,7 @@ fn input_loop(
             // In its own space `q` returns to where the owner came from and the dashboard
             // keeps running; with nowhere to go it stays put.
             Some(Request::Quit) if own_space => {
-                match open::back(&watch::herdr_path(), path, &socket) {
+                match open::back(&crate::terminal::herdr::path(), path, &socket) {
                     Ok(Some(_)) => {}
                     Ok(None) => {
                         dash.notice =
@@ -251,8 +250,8 @@ fn input_loop(
                 writes.fold.push(writer::spawn(path, fold));
             }
             Some(Request::StartLead { line, repo }) => {
-                let herdr = watch::herdr_path();
-                let start = Write::start_lead_from_env(line, repo, herdr, std::env::var_os);
+                let terminal = crate::terminal::exe_from_env();
+                let start = Write::start_lead_from_env(line, repo, terminal, std::env::var_os);
                 writes.start = Some(writer::spawn(path, start))
             }
         }

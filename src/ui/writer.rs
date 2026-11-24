@@ -1,9 +1,10 @@
 //! The owner's own writes from the dashboard: posting as `manager`, marking an inbox item
 //! read, folding repos and milestones in the tree and starting a lead (a new milestone, in
-//! a repo when the owner started it on one, and Claude leading it in a new herdr workspace
-//! opened on that repo's main checkout). The CLI refuses the first two to agents, so the
-//! dashboard makes them itself, through the store's checked writes (the same validation and
-//! transactions `tower` uses), each on a thread of its own so the UI never waits. The
+//! a repo when the owner started it on one, and Claude leading it in a new place the
+//! terminal module opens on that repo's main checkout). The CLI refuses the first two to
+//! agents, so the dashboard makes them itself, through the store's checked writes (the same
+//! validation and transactions `tower` uses), each on a thread of its own so the UI never
+//! waits. The
 //! writing connection is opened on that thread and closed with it; the dashboard keeps
 //! reading through its read-only connection. The store's busy timeout bounds a write
 //! waiting on another writer.
@@ -13,11 +14,10 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
 
 use crate::board::{MAX_LINE_CHARS, MilestoneId, OWNER_AUTHOR, RepoId, ThreadId};
 use crate::store::Store;
-use crate::watch::herdr;
+use crate::terminal::{LeadStart, Terminal};
 
 /// A write the owner asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,35 +41,36 @@ pub enum Write {
         folded: bool,
     },
     /// Start a lead on `line`, the owner's goal in one line, on `repo` when given, with the
-    /// herdr at `herdr`, from `home` (`HOME`, `None` when it is not set). `own_board` says
-    /// the board is one of its own (`TOWER_DB` named it), so the lead's workspace gets it
-    /// too; else the lead uses the default board. The dashboard reads both from its
-    /// environment (`Write::start_lead_from_env`), so the write itself never does.
+    /// terminal module's executable at `terminal`, from `home` (`HOME`, `None` when it is
+    /// not set). `own_board` says the board is one of its own (`TOWER_DB` named it), so the
+    /// lead's place gets it too; else the lead uses the default board. The dashboard reads
+    /// both from its environment (`Write::start_lead_from_env`), so the write itself never
+    /// does.
     StartLead {
         line: String,
         repo: Option<RepoId>,
-        herdr: PathBuf,
+        terminal: PathBuf,
         home: Option<String>,
         own_board: bool,
     },
 }
 
 impl Write {
-    /// The start of a lead on `line`, on `repo` when given, with the herdr at `herdr`, from
-    /// `HOME` and `TOWER_DB` as `env` has them (the dashboard's: `std::env::var_os`). A
-    /// `HOME` that is not UTF-8 counts as not set. A `TOWER_DB` that is not empty names a
-    /// board of its own, which the lead gets too; unset or empty, the lead uses the default
-    /// board, as the dashboard does.
+    /// The start of a lead on `line`, on `repo` when given, with the terminal module's
+    /// executable at `terminal`, from `HOME` and `TOWER_DB` as `env` has them (the
+    /// dashboard's: `std::env::var_os`). A `HOME` that is not UTF-8 counts as not set. A
+    /// `TOWER_DB` that is not empty names a board of its own, which the lead gets too; unset
+    /// or empty, the lead uses the default board, as the dashboard does.
     pub fn start_lead_from_env(
         line: String,
         repo: Option<RepoId>,
-        herdr: PathBuf,
+        terminal: PathBuf,
         env: impl Fn(&'static str) -> Option<OsString>,
     ) -> Write {
         Write::StartLead {
             line,
             repo,
-            herdr,
+            terminal,
             home: env("HOME").and_then(|h| h.into_string().ok()),
             own_board: env("TOWER_DB").is_some_and(|v| !v.is_empty()),
         }
@@ -127,7 +128,7 @@ fn make(path: &Path, write: &Write) -> Result<String> {
         Write::StartLead {
             line,
             repo,
-            herdr,
+            terminal,
             home,
             own_board,
         } => {
@@ -137,7 +138,8 @@ fn make(path: &Path, write: &Write) -> Result<String> {
                 home,
                 tower_db: own_board.then_some(path),
             };
-            start_lead(&mut store, path, herdr, line, at)?
+            let terminal = crate::terminal::module(terminal.clone());
+            start_lead(&mut store, path, &*terminal, line, at)?
         }
     })
 }
@@ -189,43 +191,16 @@ pub fn sh_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// The line typed into the new workspace's shell: Claude named `name`, leading `m`.
-pub fn claude_line(name: &str, m: MilestoneId) -> String {
+/// The command a lead runs in its new place, one word per argument: Claude named `name`,
+/// leading `m`.
+pub fn lead_command(name: &str, m: MilestoneId) -> Vec<String> {
     let lead = format!("/control-tower:lead {m}");
-    format!("claude -n {} {}", sh_quote(name), sh_quote(&lead))
-}
-
-#[derive(Deserialize)]
-struct Created {
-    result: CreatedResult,
-}
-
-#[derive(Deserialize)]
-struct CreatedResult {
-    root_pane: Pane,
-    workspace: Workspace,
-}
-
-#[derive(Deserialize)]
-struct Pane {
-    pane_id: String,
-}
-
-#[derive(Deserialize)]
-struct Workspace {
-    workspace_id: String,
-}
-
-/// The new workspace's id and its root pane's, from `herdr workspace create`'s JSON.
-fn parse_created(json: &str) -> Result<(String, String)> {
-    let c: Created =
-        serde_json::from_str(json).context("herdr workspace create said something unexpected")?;
-    Ok((c.result.workspace.workspace_id, c.result.root_pane.pane_id))
+    ["claude", "-n", name, &lead].map(String::from).to_vec()
 }
 
 /// Where a lead starts: on `repo`, when given, in its main checkout (in `home` while the
 /// checkout is not known), else in no repo yet, in `home`; and the board to set as
-/// `TOWER_DB` in its workspace, when given.
+/// `TOWER_DB` in its place, when given.
 pub struct Start<'a> {
     pub repo: Option<RepoId>,
     pub home: &'a str,
@@ -235,21 +210,22 @@ pub struct Start<'a> {
 /// Starts a lead on the owner's `line`. On the repo `at` names: adds the milestone (title
 /// the line cut to `MAX_LINE_CHARS`, goal the line) and registers its lead on the repo in
 /// one write (`Store::start_repo_lead`), so the tree shows the lead at once and a second
-/// start on the repo is refused; then a workspace named after the lead on the repo's main
-/// checkout (else in `home`), out of focus, and Claude in it under the registered name,
-/// running the lead skill, which finds itself registered and attaches. A repo that is gone
-/// or already has a lead is refused before anything is written. In no repo (`at.repo`
-/// `None`): only the milestone is added, in `home`, and the skill registers the lead once
-/// it has its repo. A herdr failure leaves what was written, which is valid and visible,
-/// and says so; a workspace whose pane would not run Claude is closed. `tower_db`, when
-/// given, is set as `TOWER_DB` in the workspace, so the lead uses the same board. A name a
+/// start on the repo is refused; then the terminal module opens a place named after the
+/// lead on the repo's main checkout (else in `home`), out of focus, with Claude in it under
+/// the registered name, running the lead skill, which finds itself registered and attaches.
+/// A repo that is gone or already has a lead is refused before anything is written. In no
+/// repo (`at.repo` `None`): only the milestone is added, in `home`, and the skill registers
+/// the lead once it has its repo. A start the terminal fails is undone on the board
+/// (`undone`), or, where it cannot be, says so; the module leaves no half-made place.
+/// `tower_db`, when given, is set as `TOWER_DB` in the new place, so the lead uses the same
+/// board. A name a
 /// lead on the board has already (as its name or session, ignoring case), or a task's
 /// assignee, gets the milestone id after it (`Store::start_repo_lead`,
 /// `Store::start_lead_in_no_repo`).
 pub fn start_lead(
     store: &mut Store,
     db: &Path,
-    exe: &Path,
+    terminal: &dyn Terminal,
     line: &str,
     at: Start,
 ) -> Result<String> {
@@ -277,31 +253,21 @@ pub fn start_lead(
         }
         None => store.start_lead_in_no_repo(&title, line, |m| lead_name(&title, m))?,
     };
-    let env = match at.tower_db {
-        Some(p) => Some(format!(
-            "TOWER_DB={}",
-            p.to_str().context("the board's path is not UTF-8")?
-        )),
+    let board = match at.tower_db {
+        Some(p) => Some(p.to_str().context("the board's path is not UTF-8")?),
         None => None,
     };
-    let mut create = vec!["workspace", "create", "--label", &name, "--cwd", &cwd];
-    if let Some(env) = &env {
-        create.extend(["--env", env.as_str()]);
-    }
-    create.push("--no-focus");
-    // On a failure, what this start wrote is undone, so `n` can be tried again.
-    let registered = at.repo.map(|r| (r, name.as_str()));
-    let created = match herdr(exe, db, &create).and_then(|json| parse_created(&json)) {
-        Ok(created) => created,
-        Err(e) => return Err(undone(store, m, registered, e)),
+    let command = lead_command(&name, m);
+    let lead = LeadStart {
+        name: &name,
+        dir: &cwd,
+        board,
+        command: &command,
     };
-    let (workspace, pane) = created;
-    if let Err(e) = herdr(exe, db, &["pane", "run", &pane, &claude_line(&name, m)]) {
-        let closed = match herdr(exe, db, &["workspace", "close", &workspace]) {
-            Ok(_) => format!("closed workspace {workspace}"),
-            Err(c) => format!("could not close workspace {workspace} either: {c:#}"),
-        };
-        return Err(undone(store, m, registered, e.context(closed)));
+    // On a failure, what this start wrote is undone, so `n` can be tried again.
+    if let Err(e) = terminal.start_lead(db, &lead) {
+        let registered = at.repo.map(|r| (r, name.as_str()));
+        return Err(undone(store, m, registered, e));
     }
     Ok(format!("started {name} for {m}{place} in a new workspace"))
 }
@@ -564,7 +530,7 @@ mod tests {
     #[test]
     fn the_claude_line_is_one_shell_word_per_argument_whatever_the_text() {
         assert_eq!(
-            claude_line("Audiobooks Lead", MilestoneId(3)),
+            crate::terminal::herdr::shell_line(&lead_command("Audiobooks Lead", MilestoneId(3))),
             "claude -n 'Audiobooks Lead' '/control-tower:lead M3'"
         );
         // The shell reads a quoted hostile text back as one word, exactly as given, and
@@ -605,6 +571,11 @@ mod tests {
         (dir, exe)
     }
 
+    /// The terminal module over the fake herdr at `exe`.
+    fn herdr(exe: &Path) -> std::sync::Arc<dyn Terminal> {
+        crate::terminal::module(exe.to_path_buf())
+    }
+
     fn calls(dir: &Path) -> Vec<String> {
         let log = std::fs::read_to_string(dir.join("calls.log")).unwrap_or_default();
         log.lines().map(String::from).collect()
@@ -615,7 +586,7 @@ mod tests {
         let write = Write::StartLead {
             line: line.into(),
             repo: None,
-            herdr: herdr.to_path_buf(),
+            terminal: herdr.to_path_buf(),
             home: Some("/h".into()),
             own_board: false,
         };
@@ -663,7 +634,7 @@ mod tests {
         let write = |home: Option<&str>, own_board| Write::StartLead {
             line: "Comics".into(),
             repo: None,
-            herdr: exe.clone(),
+            terminal: exe.clone(),
             home: home.map(String::from),
             own_board,
         };
@@ -697,7 +668,7 @@ mod tests {
         let want = |home: Option<&str>, own_board| Write::StartLead {
             line: "Comics".into(),
             repo: Some(RepoId(2)),
-            herdr: "/bin/herdr".into(),
+            terminal: "/bin/herdr".into(),
             home: home.map(String::from),
             own_board,
         };
@@ -728,13 +699,13 @@ mod tests {
             home: "/h",
             tower_db,
         };
-        let said = start_lead(&mut store, &path, &exe, "Comics", at(Some(&path))).unwrap();
+        let said = start_lead(&mut store, &path, &*herdr(&exe), "Comics", at(Some(&path))).unwrap();
         assert_eq!(said, "started Comics Lead for M2 in a new workspace");
         let m = store.add_milestone("x", "g", None).unwrap();
         store
             .lead_milestone(m, "Shown", "taken lead", None)
             .unwrap();
-        let said = start_lead(&mut store, &path, &exe, "TAKEN", at(None)).unwrap();
+        let said = start_lead(&mut store, &path, &*herdr(&exe), "TAKEN", at(None)).unwrap();
         assert_eq!(said, "started TAKEN Lead M4 for M4 in a new workspace");
         let c = calls(fake.path());
         let db = path.display();
@@ -767,7 +738,7 @@ mod tests {
             home: "/h",
             tower_db: None,
         };
-        let said = start_lead(&mut store, &path, &exe, "Comics", at(free)).unwrap();
+        let said = start_lead(&mut store, &path, &*herdr(&exe), "Comics", at(free)).unwrap();
         let name = checkout.path().file_name().unwrap().to_str().unwrap();
         assert_eq!(
             said,
@@ -794,7 +765,8 @@ mod tests {
             "pane|run|w7:p1|claude -n 'Comics Lead' '/control-tower:lead M2'"
         );
         // A second start on the same repo is refused before anything is written.
-        let err = start_lead(&mut store, &path, &exe, "Comics again", at(free)).unwrap_err();
+        let err =
+            start_lead(&mut store, &path, &*herdr(&exe), "Comics again", at(free)).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
             format!("{name} already has its lead, Comics Lead")
@@ -809,7 +781,7 @@ mod tests {
         );
         // R1 has its lead (the fixture's): refused too.
         let led = board.milestones[0].repo.unwrap();
-        let err = start_lead(&mut store, &path, &exe, "Atlases", at(led)).unwrap_err();
+        let err = start_lead(&mut store, &path, &*herdr(&exe), "Atlases", at(led)).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
             format!("{led} already has its lead, Catalogue")
@@ -821,7 +793,7 @@ mod tests {
         let other = tempfile::tempdir().unwrap();
         std::fs::create_dir(other.path().join(".git")).unwrap();
         let r = store.add_repo(other.path(), None).unwrap();
-        let said = start_lead(&mut store, &path, &exe, "Comics", at(r)).unwrap();
+        let said = start_lead(&mut store, &path, &*herdr(&exe), "Comics", at(r)).unwrap();
         assert!(
             said.starts_with("started Comics Lead M3 for M3 on "),
             "{said}"
@@ -836,7 +808,7 @@ mod tests {
             home: "/h",
             tower_db: None,
         };
-        let said = start_lead(&mut store, &path, &exe, "Comics", at_home).unwrap();
+        let said = start_lead(&mut store, &path, &*herdr(&exe), "Comics", at_home).unwrap();
         assert_eq!(said, "started Comics Lead M4 for M4 in a new workspace");
         // A task's assignee is taken too, in no repo as on one: a lead is never a
         // task's assignee, so its own registration would be refused under that name.
@@ -850,7 +822,7 @@ mod tests {
             home: "/h",
             tower_db: None,
         };
-        let said = start_lead(&mut store, &path, &exe, "Atlases", at_home).unwrap();
+        let said = start_lead(&mut store, &path, &*herdr(&exe), "Atlases", at_home).unwrap();
         assert_eq!(said, "started Atlases Lead M5 for M5 in a new workspace");
     }
 
@@ -916,7 +888,7 @@ mod tests {
             tower_db: None,
         };
         std::fs::write(fake.path().join("fail-run"), "").unwrap();
-        let err = start_lead(&mut store, &path, &exe, "Comics", at()).unwrap_err();
+        let err = start_lead(&mut store, &path, &*herdr(&exe), "Comics", at()).unwrap_err();
         assert!(
             format!("{err:#}")
                 .starts_with("could not start the lead, so M2 and Comics Lead were removed again"),
@@ -927,7 +899,7 @@ mod tests {
         assert_eq!(board.milestones.len(), 1);
         // The retry starts it.
         std::fs::remove_file(fake.path().join("fail-run")).unwrap();
-        let said = start_lead(&mut store, &path, &exe, "Comics", at()).unwrap();
+        let said = start_lead(&mut store, &path, &*herdr(&exe), "Comics", at()).unwrap();
         assert!(said.starts_with("started Comics Lead for M3 on "), "{said}");
         let lead = store.load().unwrap().repo(r).unwrap().lead.clone().unwrap();
         assert_eq!(lead.name, "Comics Lead");
@@ -946,7 +918,7 @@ mod tests {
             home: "/h",
             tower_db: None,
         };
-        let err = start_lead(&mut store, &path, &exe, "Comics", at).unwrap_err();
+        let err = start_lead(&mut store, &path, &*herdr(&exe), "Comics", at).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
             format!(

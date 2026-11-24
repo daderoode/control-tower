@@ -44,7 +44,7 @@
 //! while the old assignee is still on the team.
 //!
 //! The decision (`decide`) is pure and tested with fixtures; `Watch::tick` reads the board
-//! and herdr and carries the actions out.
+//! and the terminal (through the terminal module, `terminal`) and carries the actions out.
 //!
 //! The watch restarts itself after an upgrade: brew does not restart a service on
 //! `brew upgrade`, it repoints `opt` to a new Cellar directory. The watch keeps the path it
@@ -58,12 +58,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use anyhow::{Context, Result};
 
 use crate::board::{OWNER_AUTHOR, OWNER_HANDLE, QUESTION, Stage, TaskId, closed_worker_hint};
 use crate::store::{FlagChange, Store};
-use crate::ui::runner::{Outcome, Run, run_now};
+use crate::terminal::{Agent, Sent, Status, Terminal};
 
 /// How often the watch looks.
 pub const TICK: Duration = Duration::from_secs(20);
@@ -76,26 +75,26 @@ pub const ANSWER_WITHIN: i64 = 2 * 60;
 /// Looks in a row a worker must be missing from a non-empty herdr agent list to be
 /// orphaned, so a pane restarting or a name changing hands is not flagged.
 pub const ORPHANED_AFTER: u32 = 3;
-/// How long one herdr command may take before it is stopped (`herdr_timeout`).
+/// How long one terminal command may take before it is stopped (`terminal_timeout`).
 #[cfg(not(test))]
 const HERDR_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// How long one herdr command may take before it is stopped: `HERDR_TIMEOUT`, but in unit
-/// tests `TEST_WAIT`. A fake herdr answers in milliseconds, but its first run can stall for
-/// seconds on a busy machine, and those tests check what it answered, not how fast.
+/// How long one terminal command may take before it is stopped: `HERDR_TIMEOUT`, but in
+/// unit tests `TEST_WAIT`. A fake herdr answers in milliseconds, but its first run can stall
+/// for seconds on a busy machine, and those tests check what it answered, not how fast.
 #[cfg(test)]
-pub(crate) fn herdr_timeout() -> Duration {
+pub(crate) fn terminal_timeout() -> Duration {
     TEST_WAIT
 }
 
-/// How long one herdr command may take before it is stopped: `HERDR_TIMEOUT`.
+/// How long one terminal command may take before it is stopped: `HERDR_TIMEOUT`.
 ///
 /// Test knob, debug builds only: `TOWER_HERDR_TIMEOUT`, in whole seconds, replaces it,
 /// so the integration tests, which run this binary against a fake herdr whose first run can
 /// stall on a busy machine, wait longer; the repo's `.cargo/config.toml` sets it. A value
 /// that is not whole seconds panics, naming it. A release build (brew) never reads it.
 #[cfg(not(test))]
-pub(crate) fn herdr_timeout() -> Duration {
+pub(crate) fn terminal_timeout() -> Duration {
     if cfg!(debug_assertions)
         && let Some(v) = std::env::var_os("TOWER_HERDR_TIMEOUT")
     {
@@ -174,36 +173,6 @@ pub struct Flag {
     pub raised_at: i64,
     /// When an unanswered nudge was passed to the lead.
     pub lead_told_at: Option<i64>,
-}
-
-/// A herdr agent's lifecycle state, as `herdr agent list` reports it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
-    Idle,
-    Working,
-    Blocked,
-    Done,
-    /// `unknown`, or a state this build does not know: present, but nothing to judge by.
-    Unknown,
-}
-
-impl Status {
-    fn of(s: &str) -> Status {
-        match s {
-            "idle" => Status::Idle,
-            "working" => Status::Working,
-            "blocked" => Status::Blocked,
-            "done" => Status::Done,
-            _ => Status::Unknown,
-        }
-    }
-}
-
-/// A live, named herdr agent.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Agent {
-    pub name: String,
-    pub status: Status,
 }
 
 /// A name a task's threads carry, as last written: when it last posted in them and when a
@@ -306,7 +275,7 @@ fn still_on(flag: &Flag, task: Option<&Watched>, agent: Option<&Agent>) -> bool 
     match flag.signal {
         // It stays on its task while the worker waits and is on that task's team.
         Signal::Prompt => {
-            agent.is_some_and(|a| a.status == Status::Blocked)
+            agent.is_some_and(|a| a.status.is_blocked())
                 && (assignee || member(t, &flag.worker).is_some())
         }
         Signal::Orphaned => assignee && agent.is_none() && t.stage == Stage::InProgress,
@@ -322,10 +291,16 @@ fn still_on(flag: &Flag, task: Option<&Watched>, agent: Option<&Agent>) -> bool 
     }
 }
 
-/// What the watch does at `now`, from the watched tasks, herdr's live agents and the flags
-/// it remembers: ends finished episodes, tells the lead of unanswered nudges and raises new
-/// flags, each once per episode.
-pub fn decide(tasks: &[Watched], agents: &[Agent], flags: &[Flag], now: i64) -> Vec<Action> {
+/// What the watch does at `now`, from the watched tasks, the terminal's live agents and the
+/// flags it remembers: ends finished episodes, tells the lead of unanswered nudges and raises
+/// new flags, each once per episode. `terminal` is the terminal's name, for the texts.
+pub fn decide(
+    tasks: &[Watched],
+    agents: &[Agent],
+    flags: &[Flag],
+    now: i64,
+    terminal: &str,
+) -> Vec<Action> {
     let task = |id: TaskId| tasks.iter().find(|t| t.task == id);
     let agent = |worker: &str| agents.iter().find(|a| same_name(&a.name, worker));
     let mut actions = Vec::new();
@@ -338,7 +313,7 @@ pub fn decide(tasks: &[Watched], agents: &[Agent], flags: &[Flag], now: i64) -> 
             // its thread is resolved (spec 3a).
             let answered = f.signal == Signal::Prompt
                 && t.is_some()
-                && a.is_some_and(|a| a.status != Status::Blocked);
+                && a.is_some_and(|a| !a.status.is_blocked());
             actions.push(Action::Clear {
                 task: f.task,
                 signal: f.signal,
@@ -384,9 +359,7 @@ pub fn decide(tasks: &[Watched], agents: &[Agent], flags: &[Flag], now: i64) -> 
         };
         // Each member of its team on a prompt, as herdr lists them: the first of a name.
         for (i, b) in agents.iter().enumerate() {
-            if b.status != Status::Blocked
-                || agents[..i].iter().any(|e| same_name(&e.name, &b.name))
-            {
+            if !b.status.is_blocked() || agents[..i].iter().any(|e| same_name(&e.name, &b.name)) {
                 continue;
             }
             let Some((_, name)) = team_of(tasks, &b.name).filter(|(home, _)| home.task == t.task)
@@ -402,8 +375,8 @@ pub fn decide(tasks: &[Watched], agents: &[Agent], flags: &[Flag], now: i64) -> 
             actions.push(Action::Raise {
                 flag: flag(Signal::Prompt, name),
                 text: format!(
-                    "{QUESTION} {OWNER_HANDLE} {name} on {} is waiting on a prompt in herdr \
-                     that only you can answer (@{} for your information).",
+                    "{QUESTION} {OWNER_HANDLE} {name} on {} is waiting on a prompt in \
+                     {terminal} that only you can answer (@{} for your information).",
                     t.task, t.lead
                 ),
             });
@@ -418,8 +391,8 @@ pub fn decide(tasks: &[Watched], agents: &[Agent], flags: &[Flag], now: i64) -> 
             actions.push(Action::Raise {
                 flag: flag(Signal::Orphaned, &t.worker),
                 text: format!(
-                    "@{} {} is in progress but its worker {} is gone from herdr (no live \
-                     agent by that name); {}.",
+                    "@{} {} is in progress but its worker {} is gone from {terminal} (no \
+                     live agent by that name); {}.",
                     t.lead,
                     t.task,
                     t.worker,
@@ -452,97 +425,25 @@ pub fn decide(tasks: &[Watched], agents: &[Agent], flags: &[Flag], now: i64) -> 
     actions
 }
 
-#[derive(Deserialize)]
-struct ListReply {
-    result: ListResult,
-}
-
-#[derive(Deserialize)]
-struct ListResult {
-    agents: Vec<RawAgent>,
-}
-
-#[derive(Deserialize)]
-struct RawAgent {
-    name: Option<String>,
-    agent_status: String,
-}
-
-/// herdr's live named agents from `herdr agent list`'s JSON. Unnamed agents are no one's.
-pub fn parse_agents(json: &str) -> Result<Vec<Agent>> {
-    let reply: ListReply =
-        serde_json::from_str(json).context("herdr agent list said something unexpected")?;
-    Ok(reply
-        .result
-        .agents
-        .into_iter()
-        .filter_map(|a| {
-            Some(Agent {
-                name: a.name?,
-                status: Status::of(&a.agent_status),
-            })
-        })
-        .collect())
-}
-
-/// Runs `herdr <args>`, bounded by `herdr_timeout`, and returns its stdout, or what went
-/// wrong.
-pub(crate) fn herdr(exe: &Path, db: &Path, args: &[&str]) -> Result<String> {
-    // Named by its command alone: a prompt's text is in the action's own log line.
-    let command = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
-    let outcome = run_now(&Run {
-        exe: exe.to_path_buf(),
-        args: args.iter().map(|a| a.to_string()).collect(),
-        db: db.to_path_buf(),
-        stdin: None,
-        timeout: herdr_timeout(),
-    });
-    match outcome {
-        Outcome::Exited {
-            code: Some(0),
-            stdout,
-            ..
-        } => Ok(stdout),
-        Outcome::Exited {
-            code,
-            stderr,
-            stdout,
-        } => {
-            let said = if stderr.trim().is_empty() {
-                stdout
-            } else {
-                stderr
-            };
-            let how = code.map_or("was ended by a signal".into(), |c| format!("exited {c}"));
-            bail!("herdr {command} {how}: {}", said.trim())
-        }
-        Outcome::TimedOut(after) => bail!(
-            "herdr {command} did not finish in {} s and was stopped",
-            after.as_secs()
-        ),
-        Outcome::Failed(why) => bail!("{why}"),
-    }
-}
-
-/// The watch: the board it reads, the herdr it asks, and how long each worker has been
-/// missing from herdr.
+/// The watch: the board it reads, the terminal it asks, and how long each worker has been
+/// missing from the terminal.
 pub struct Watch {
     db: PathBuf,
-    herdr: PathBuf,
-    /// Looks in a row each worker (lower case) was missing from herdr's agent list.
+    terminal: Arc<dyn Terminal>,
+    /// Looks in a row each worker (lower case) was missing from the terminal's agents.
     absent: HashMap<String, u32>,
     /// When this watch first saw each repo's lead with no attached Claude session and no
     /// listener (`listen::check_leads`).
     unheard: crate::listen::Unheard,
-    /// Set by SIGTERM or Ctrl-C: checked before each herdr call, so a stop is prompt.
+    /// Set by SIGTERM or Ctrl-C: checked before each terminal call, so a stop is prompt.
     stop: Arc<AtomicBool>,
 }
 
 impl Watch {
-    pub fn new(db: &Path, herdr: &Path, stop: Arc<AtomicBool>) -> Watch {
+    pub fn new(db: &Path, terminal: Arc<dyn Terminal>, stop: Arc<AtomicBool>) -> Watch {
         Watch {
             db: db.to_path_buf(),
-            herdr: herdr.to_path_buf(),
+            terminal,
             absent: HashMap::new(),
             unheard: HashMap::new(),
             stop,
@@ -554,8 +455,8 @@ impl Watch {
     }
 
     /// One look at `now`: returns a line per action taken. Fails, doing nothing, when the
-    /// board or herdr cannot be read, so a herdr that is down never reads as every worker
-    /// gone. A single action that fails is logged and the rest still run.
+    /// board or the terminal cannot be read, so a terminal that is down never reads as every
+    /// worker gone. A single action that fails is logged and the rest still run.
     pub fn tick(&mut self, now: i64) -> Result<Vec<String>> {
         let mut store = Store::open(&self.db)?;
         let board = store.load()?;
@@ -574,8 +475,7 @@ impl Watch {
         if self.stopping() {
             return Ok(Vec::new());
         }
-        let listed = herdr(&self.herdr, &self.db, &["agent", "list"])?;
-        let agents = parse_agents(&listed)?;
+        let agents = (self.terminal).agents(&self.db, terminal_timeout())?;
         let mut tasks = Vec::new();
         for m in &board.milestones {
             let Some(lead) = &m.lead else { continue };
@@ -602,7 +502,8 @@ impl Watch {
         let pairs: Vec<(TaskId, String)> =
             (tasks.iter()).map(|t| (t.task, t.worker.clone())).collect();
         let seen = store.watch_seen(&pairs, now)?;
-        // An empty list says nothing about anyone: herdr restarting, or another session.
+        // An empty list says nothing about anyone: the terminal restarting, or another
+        // session.
         if !agents.is_empty() {
             let workers: Vec<String> = (tasks.iter())
                 .map(|t| t.worker.to_ascii_lowercase())
@@ -624,9 +525,24 @@ impl Watch {
                 .copied()
                 .unwrap_or(0);
         }
-        let mut log =
-            crate::listen::check_leads(&mut store, &self.db, &listed, now, &mut self.unheard);
-        for action in decide(&tasks, &agents, &flags, now) {
+        // The lead check reads herdr's own agent list (its sessions and turns), outside the
+        // terminal module, until #109 judges a lead by Claude's session list instead.
+        let mut log = if self.stopping() {
+            Vec::new()
+        } else {
+            match crate::terminal::herdr::run(self.terminal.exe(), &self.db, &["agent", "list"]) {
+                Ok(listed) => crate::listen::check_leads(
+                    &mut store,
+                    &self.db,
+                    &listed,
+                    now,
+                    &mut self.unheard,
+                ),
+                Err(e) => vec![format!("could not check the leads are listening: {e:#}")],
+            }
+        };
+        let name = self.terminal.name();
+        for action in decide(&tasks, &agents, &flags, now, name) {
             if self.stopping() {
                 break;
             }
@@ -644,20 +560,25 @@ impl Watch {
             Action::Nudge { flag, agent, text } => {
                 // The episode is remembered before the prompt goes, so a store failure
                 // after it never sends a second one; the record follows, saying whether
-                // herdr delivered it, and the lead still hears in time either way.
+                // the terminal delivered it, and the lead still hears in time either way.
                 store.watch_step(flag.task, FlagChange::Raise(flag), None, now)?;
-                // No `--` before the text: herdr 0.9.5's `agent prompt` refuses it ("unknown
-                // option"). The text is tower's own and starts with "no post", never "-".
-                let sent = herdr(&self.herdr, &self.db, &["agent", "prompt", agent, text]);
+                let terminal = &self.terminal;
+                let sent = terminal.prompt(&self.db, agent, text, terminal_timeout());
                 let record = match &sent {
-                    Ok(_) => format!("nudged {agent}: {text}"),
-                    Err(e) => {
-                        let why: String = format!("{e:#}").chars().take(300).collect();
-                        format!("nudged {agent}: {text}; herdr refused delivery: {why}")
+                    Sent::Delivered => format!("nudged {agent}: {text}"),
+                    Sent::Unsure(why) | Sent::Failed(why) => {
+                        let why: String = why.chars().take(300).collect();
+                        format!(
+                            "nudged {agent}: {text}; {} refused delivery: {why}",
+                            terminal.name()
+                        )
                     }
                 };
                 store.watch_step(flag.task, FlagChange::None, Some(&record), now)?;
-                sent.map(|_| what)
+                match sent {
+                    Sent::Delivered => Ok(what),
+                    Sent::Unsure(why) | Sent::Failed(why) => Err(anyhow::anyhow!(why)),
+                }
             }
             Action::Raise { flag, text } => {
                 let thread =
@@ -725,13 +646,6 @@ fn describe(action: &Action) -> String {
     }
 }
 
-/// The herdr executable: `TOWER_HERDR` if set, else `herdr` on the PATH.
-pub fn herdr_path() -> PathBuf {
-    std::env::var_os("TOWER_HERDR")
-        .filter(|p| !p.is_empty())
-        .map_or_else(|| PathBuf::from("herdr"), PathBuf::from)
-}
-
 /// Where an executable (herdr, claude) runs from: a name with a `/` as it is, else the
 /// first executable file by that name in `path` (a PATH value). `None` when there is none.
 pub fn find_exe(exe: &Path, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
@@ -756,15 +670,6 @@ pub(crate) fn not_found(name: &str, exe: &Path, path: Option<&std::ffi::OsStr>) 
         format!("{} on PATH {path}", exe.display())
     };
     format!("{name} not found: tried {tried}")
-}
-
-/// The one line saying herdr cannot be found, naming exactly what was tried.
-fn herdr_missing(herdr: &Path, path: Option<&std::ffi::OsStr>) -> String {
-    format!(
-        "{}; set TOWER_HERDR to its full path if it is elsewhere (said once, until herdr is \
-         found)",
-        not_found("herdr", herdr, path)
-    )
 }
 
 /// The file a path resolves to: a brew upgrade repoints the path to another Cellar file,
@@ -813,8 +718,8 @@ pub fn run(db: &Path) -> Result<()> {
         signal_hook::flag::register(sig, Arc::clone(&stop))
             .context("cannot listen for SIGTERM and Ctrl-C")?;
     }
-    let herdr = herdr_path();
-    let mut watch = Watch::new(db, &herdr, Arc::clone(&stop));
+    let terminal = crate::terminal::module(crate::terminal::exe_from_env());
+    let mut watch = Watch::new(db, Arc::clone(&terminal), Arc::clone(&stop));
     let log = |line: &str| {
         let at = chrono::Local::now().format("%H:%M:%S");
         eprintln!("{at} tower watch: {line}");
@@ -822,12 +727,13 @@ pub fn run(db: &Path) -> Result<()> {
     log(&format!(
         "watching {} with {} every {} s",
         db.display(),
-        herdr.display(),
+        terminal.exe().display(),
         TICK.as_secs()
     ));
     // Linking the herdr plugin is tried before each look until herdr answers, so a herdr
     // not running yet at login is linked once it is; a failure never stops the watch.
     let brew = crate::register::brew_dir();
+    let herdr = crate::terminal::herdr::path();
     let mut registered = false;
     // The lead skill registers with Claude Code likewise, retried less often: each try runs
     // claude, and what stops it (no login, no claude) does not clear in seconds. A try runs
@@ -847,18 +753,21 @@ pub fn run(db: &Path) -> Result<()> {
         log("cannot find this tower's own file; it will not restart itself after an upgrade");
     }
     let mut failed_at: Option<std::time::Instant> = None;
-    // Delivery runs on its own thread, so a look waiting on herdr never holds a post.
-    let deliver = crate::deliver::Deliver::new(db, &herdr, Arc::clone(&stop));
+    // Delivery runs on its own thread, so a look waiting on the terminal never holds a post.
+    let deliver = crate::deliver::Deliver::new(db, Arc::clone(&terminal), Arc::clone(&stop));
     let gate = deliver.gate();
     let delivering = std::thread::spawn(move || deliver.run(log));
     while !stop.load(Ordering::Relaxed) {
         let path = std::env::var_os("PATH");
-        if find_exe(&herdr, path.as_deref()).is_some() {
-            said_missing = false;
-        } else if !said_missing {
-            log(&herdr_missing(&herdr, path.as_deref()));
-            said_missing = true;
+        match terminal.missing(path.as_deref()) {
+            None => said_missing = false,
+            Some(line) if !said_missing => {
+                log(&line);
+                said_missing = true;
+            }
+            Some(_) => {}
         }
+        // herdr's own extra, outside the terminal module, until #114 removes it.
         if !registered {
             match crate::register::register(&herdr, db, brew.as_deref()) {
                 Ok(done) => {
@@ -971,7 +880,7 @@ mod tests {
                 .unwrap();
             lock.try_lock().unwrap();
             let f = Fixture {
-                watch: Watch::new(&db, &herdr, Arc::default()),
+                watch: Watch::new(&db, crate::terminal::module(herdr), Arc::default()),
                 dir,
                 db,
                 t0,
@@ -1496,7 +1405,8 @@ mod tests {
         f.agents(&[("dev-1", "working"), ("qa", "idle")]);
         assert!(f.tick(10).is_empty(), "first seen at 10");
         // A new watch on the same board, as after a restart, 6 min later.
-        f.watch = Watch::new(&f.db, &f.dir.path().join("herdr"), Arc::default());
+        let herdr = crate::terminal::module(f.dir.path().join("herdr"));
+        f.watch = Watch::new(&f.db, herdr, Arc::default());
         assert_eq!(
             f.tick(16),
             ["nudged qa on #2 (stopped): no post on #2 for 6 min, post your status"]
@@ -1547,7 +1457,8 @@ mod tests {
     fn a_stop_takes_effect_before_the_next_herdr_call() {
         let mut f = Fixture::new();
         let stop: Arc<AtomicBool> = Arc::default();
-        f.watch = Watch::new(&f.db, &f.dir.path().join("herdr"), Arc::clone(&stop));
+        let herdr = crate::terminal::module(f.dir.path().join("herdr"));
+        f.watch = Watch::new(&f.db, herdr, Arc::clone(&stop));
         stop.store(true, Ordering::Relaxed);
         assert!(f.tick(60).is_empty());
         assert!(f.prompts().is_empty() && f.store().flags().unwrap().is_empty());
@@ -1695,31 +1606,9 @@ mod tests {
         assert_eq!(find_exe(Path::new("herdr"), None), None);
         let gone = dir.path().join("gone/herdr");
         assert_eq!(find_exe(&gone, Some(&path)), None);
-        let said = herdr_missing(Path::new("herdr"), Some(std::ffi::OsStr::new("/a:/b")));
+        use crate::terminal::herdr::missing;
+        let said = missing(Path::new("herdr"), Some(std::ffi::OsStr::new("/a:/b")));
         assert!(said.contains("tried herdr on PATH /a:/b"), "{said}");
-        assert!(herdr_missing(&gone, None).contains(&format!("tried {}", gone.display())));
-    }
-
-    #[test]
-    fn parses_herdrs_agent_list_keeping_named_agents() {
-        let json = r#"{"id":"cli:agent:list","result":{"agents":[
-            {"agent":"claude","agent_status":"idle","name":"dev-1","pane_id":"w1:p1"},
-            {"agent":"claude","agent_status":"working","pane_id":"w1:p3"},
-            {"agent":"codex","agent_status":"later","name":"qa","pane_id":"w1:p4"}],
-            "type":"agent_list"}}"#;
-        assert_eq!(
-            parse_agents(json).unwrap(),
-            [
-                Agent {
-                    name: "dev-1".into(),
-                    status: Status::Idle
-                },
-                Agent {
-                    name: "qa".into(),
-                    status: Status::Unknown
-                }
-            ]
-        );
-        assert!(parse_agents(r#"{"error":"no server"}"#).is_err());
+        assert!(missing(&gone, None).contains(&format!("tried {}", gone.display())));
     }
 }

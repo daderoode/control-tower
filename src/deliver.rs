@@ -4,9 +4,10 @@
 //! recipient has been offered, and how far each recipient was sent beyond it, recorded
 //! before each send (`Store::mark_sent`), so a post reaches each recipient at most once.
 //! A round sends to workers within `WORKER_BUDGET` and checks for a stop before each send;
-//! what it did not get to (out of time, stopped, herdr not answering its agent list) stays
-//! after the cursor and goes next round, so a stalled herdr never holds a stop or an
-//! upgrade for long and loses nothing.
+//! what it did not get to (out of time, stopped, the terminal not answering its agent list)
+//! stays after the cursor and goes next round, so a stalled terminal never holds a stop or
+//! an upgrade for long and loses nothing. The terminal is reached only through the
+//! terminal module (`terminal`): its agents, and its prompt to one by name.
 //!
 //! Who gets a post (`plan`): never a lead, who hears of its board's posts through its own
 //! board waiter and Stop hook (`listen`), but:
@@ -52,7 +53,7 @@ use crate::board::{
     ThreadId, closed_worker_hint, hidden, mentioned,
 };
 use crate::store::Store;
-use crate::ui::runner::{Outcome, Run, run_now};
+use crate::terminal::{Sent, Terminal};
 
 /// How often the watch delivers what was posted since it last did.
 pub const DELIVER_EVERY: Duration = Duration::from_secs(5);
@@ -228,7 +229,7 @@ fn replied_to(text: &str) -> Option<&str> {
 /// Tower's reply to `author` for a post that named `names`, none of them a worker on the
 /// board: addressed with a mention when the author's name is one (a lead's name with
 /// spaces is not; its board waiter brings it the reply anyway).
-fn unknown_text(author: &str, names: &[String]) -> String {
+fn unknown_text(author: &str, names: &[String], terminal: &str) -> String {
     let to = if mentioned(&format!("@{author}")) == [author] {
         format!("@{author}")
     } else {
@@ -246,9 +247,9 @@ fn unknown_text(author: &str, names: &[String]) -> String {
         [] => String::new(),
     };
     format!(
-        "{to} {UNKNOWN_NAME}{list}, so your post reached no one by that name: herdr has no such \
-         agent and no worker on this board has had the name. If you meant a worker, check the \
-         name; if you were quoting, put it in backticks."
+        "{to} {UNKNOWN_NAME}{list}, so your post reached no one by that name: {terminal} has no \
+         such agent and no worker on this board has had the name. If you meant a worker, check \
+         the name; if you were quoting, put it in backticks."
     )
 }
 
@@ -346,86 +347,6 @@ pub fn check_asker(json: &str, session: &str, lead: &Lead, repo: RepoId) -> Resu
     }
 }
 
-/// How a send went.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Sent {
-    Delivered,
-    /// It may have arrived (herdr timed out or saw no activity): logged, never resent.
-    Unsure(String),
-    /// It did not arrive, for this reason.
-    Failed(String),
-}
-
-/// Types `text` into the worker `name`'s pane with `herdr agent prompt`, given `timeout`.
-pub fn send_worker(herdr: &Path, db: &Path, name: &str, text: &str, timeout: Duration) -> Sent {
-    // No `--` before the text (herdr 0.9.5 refuses it); the text starts "control-tower:".
-    let outcome = run_now(&Run {
-        exe: herdr.to_path_buf(),
-        args: ["agent", "prompt", name, text].map(String::from).to_vec(),
-        db: db.to_path_buf(),
-        stdin: None,
-        timeout,
-    });
-    match outcome {
-        Outcome::Exited { code: Some(0), .. } => Sent::Delivered,
-        Outcome::TimedOut(after) => Sent::Unsure(format!(
-            "herdr agent prompt did not finish in {} s",
-            after.as_secs()
-        )),
-        Outcome::Exited {
-            code,
-            stdout,
-            stderr,
-        } => {
-            let said = if stderr.trim().is_empty() {
-                stdout
-            } else {
-                stderr
-            };
-            let said = said.trim().to_string();
-            if said.contains("agent_prompt_stalled") || said.contains("\"timeout\"") {
-                return Sent::Unsure(said);
-            }
-            let how = code.map_or("was ended by a signal".into(), |c| format!("exited {c}"));
-            Sent::Failed(format!("herdr agent prompt {how}: {said}"))
-        }
-        Outcome::Failed(why) => Sent::Failed(why),
-    }
-}
-
-/// herdr's live agent names, from `herdr agent list` given `timeout`.
-fn agent_names(herdr: &Path, db: &Path, timeout: Duration) -> Result<Vec<String>, String> {
-    let outcome = run_now(&Run {
-        exe: herdr.to_path_buf(),
-        args: ["agent", "list"].map(String::from).to_vec(),
-        db: db.to_path_buf(),
-        stdin: None,
-        timeout,
-    });
-    match outcome {
-        Outcome::Exited {
-            code: Some(0),
-            stdout,
-            ..
-        } => crate::watch::parse_agents(&stdout)
-            .map(|agents| agents.into_iter().map(|a| a.name).collect())
-            .map_err(|e| format!("{e:#}")),
-        Outcome::TimedOut(after) => Err(format!(
-            "herdr agent list did not finish in {} s",
-            after.as_secs()
-        )),
-        Outcome::Exited { stderr, stdout, .. } => {
-            let said = if stderr.trim().is_empty() {
-                stdout
-            } else {
-                stderr
-            };
-            Err(format!("herdr agent list failed: {}", said.trim()))
-        }
-        Outcome::Failed(why) => Err(why),
-    }
-}
-
 /// One recipient a drain could not reach, as the failure item names it: who and why, as
 /// "dev-1: <why>", and how to clear it when it is gone from herdr and the assignee of
 /// `tasks` (not done, on the item's board).
@@ -466,10 +387,10 @@ fn failure_text(lines: &[&str]) -> String {
     text
 }
 
-/// The delivery side of the watch: the board it drains and the herdr it prompts through.
+/// The delivery side of the watch: the board it drains and the terminal it prompts through.
 pub struct Deliver {
     db: PathBuf,
-    herdr: PathBuf,
+    terminal: Arc<dyn Terminal>,
     /// Set by SIGTERM or Ctrl-C: checked between drains.
     stop: Arc<AtomicBool>,
     /// Held through each drain, from taking the posts to the last send: the watch takes it
@@ -478,19 +399,20 @@ pub struct Deliver {
     gate: Arc<Mutex<()>>,
     /// How long a round may spend on workers (`WORKER_BUDGET`; shorter in tests).
     budget: Duration,
-    /// Why herdr's agent list last failed, said once until it answers or the reason changes.
-    herdr_said: Mutex<Option<String>>,
+    /// Why the terminal's agent list last failed, said once until it answers or the reason
+    /// changes.
+    unread_said: Mutex<Option<String>>,
 }
 
 impl Deliver {
-    pub fn new(db: &Path, herdr: &Path, stop: Arc<AtomicBool>) -> Deliver {
+    pub fn new(db: &Path, terminal: Arc<dyn Terminal>, stop: Arc<AtomicBool>) -> Deliver {
         Deliver {
             db: db.to_path_buf(),
-            herdr: herdr.to_path_buf(),
+            terminal,
             stop,
             gate: Arc::default(),
             budget: WORKER_BUDGET,
-            herdr_said: Mutex::default(),
+            unread_said: Mutex::default(),
         }
     }
 
@@ -520,7 +442,7 @@ impl Deliver {
         // The first post (index) some recipient was not offered this round: the cursor
         // stops before it.
         let mut left: Option<usize> = None;
-        // herdr's agent names, asked once, before the first worker send.
+        // The terminal's agent names, asked once, before the first worker send.
         let mut agents: Option<Result<Vec<String>, String>> = None;
         // The recipients not reached, by board: the thread of the board's first failure,
         // then (key, line for the item, log line) for each, told in one item per board.
@@ -533,12 +455,16 @@ impl Deliver {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let waits = self.stop.load(Ordering::Relaxed) || remaining.is_zero();
             if !waits && agents.is_none() {
-                let timeout = remaining.min(crate::watch::herdr_timeout());
-                agents = Some(agent_names(&self.herdr, &self.db, timeout));
-                self.say_herdr(agents.as_ref(), &mut log);
+                let timeout = remaining.min(crate::watch::terminal_timeout());
+                let listed = self.terminal.agents(&self.db, timeout);
+                agents = Some(
+                    (listed.map(|a| a.into_iter().map(|a| a.name).collect()))
+                        .map_err(|e| e.to_string()),
+                );
+                self.say_unread(agents.as_ref(), &mut log);
             }
-            let herdr_down = matches!(agents, Some(Err(_)));
-            if waits || herdr_down {
+            let unread = matches!(agents, Some(Err(_)));
+            if waits || unread {
                 left = Some(left.map_or(batch.posts[0], |l| l.min(batch.posts[0])));
                 continue;
             }
@@ -554,18 +480,20 @@ impl Deliver {
                     continue;
                 }
             }
-            // Whether herdr has no agent by the name: only then can it have been closed.
+            // Whether the terminal has no agent by the name: only then can it have been closed.
             let (who, sent, gone) = match &batch.to {
                 Recipient::Worker(name) => {
                     let listed = matches!(&agents, Some(Ok(a)) if a.iter().any(|a| a == name));
                     let sent = if listed {
                         let timeout = deadline
                             .saturating_duration_since(Instant::now())
-                            .min(crate::watch::herdr_timeout())
+                            .min(crate::watch::terminal_timeout())
                             .max(Duration::from_millis(100));
-                        send_worker(&self.herdr, &self.db, name, &worker_text(&posts), timeout)
+                        let text = worker_text(&posts);
+                        self.terminal.prompt(&self.db, name, &text, timeout)
                     } else {
-                        Sent::Failed(format!("herdr has no agent named {name}"))
+                        let terminal = self.terminal.name();
+                        Sent::Failed(format!("{terminal} has no agent named {name}"))
                     };
                     (name.clone(), sent, !listed)
                 }
@@ -642,7 +570,7 @@ impl Deliver {
                 ));
                 continue;
             }
-            let text = unknown_text(&post.author, names);
+            let text = unknown_text(&post.author, names, self.terminal.name());
             log.push(match store.tower_reply(post.thread, &text, now) {
                 Ok(true) => format!(
                     "told {} in {} of the name(s) no worker has had",
@@ -681,15 +609,19 @@ impl Deliver {
         Ok(log)
     }
 
-    /// Logs why herdr's agent list failed, once until it answers or the reason changes.
-    fn say_herdr(&self, agents: Option<&Result<Vec<String>, String>>, log: &mut Vec<String>) {
+    /// Logs why the terminal's agent list failed, once until it answers or the reason
+    /// changes.
+    fn say_unread(&self, agents: Option<&Result<Vec<String>, String>>, log: &mut Vec<String>) {
         let mut said = self
-            .herdr_said
+            .unread_said
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         match agents {
             Some(Err(why)) if said.as_ref() != Some(why) => {
-                log.push(format!("{why}; posts for workers wait until herdr answers"));
+                let terminal = self.terminal.name();
+                log.push(format!(
+                    "{why}; posts for workers wait until {terminal} answers"
+                ));
                 *said = Some(why.clone());
             }
             Some(Ok(_)) => *said = None,
@@ -946,7 +878,7 @@ mod tests {
             // A round waits for the fake as long as a test waits for anything.
             let deliver = Deliver {
                 budget: TEST_WAIT,
-                ..Deliver::new(&db, &herdr, Arc::default())
+                ..Deliver::new(&db, crate::terminal::module(herdr), Arc::default())
             };
             let f = Fixture { deliver, dir, db };
             // The lead's opening post goes to the assignee; tests start after it.
@@ -1318,18 +1250,18 @@ mod tests {
     /// then how many more, so it always fits a board message.
     #[test]
     fn a_reply_quotes_its_names_and_caps_the_list() {
-        let one = unknown_text("dev-2", &["name".to_string()]);
+        let one = unknown_text("dev-2", &["name".to_string()], "herdr");
         assert!(
             one.starts_with("@dev-2 no worker is named `@name`, so"),
             "{one}"
         );
         let names: Vec<String> = (1..=12).map(|i| format!("n{i}")).collect();
-        let many = unknown_text("dev-2", &names);
+        let many = unknown_text("dev-2", &names, "herdr");
         let quoted = many.matches("`@n").count();
         assert_eq!(quoted, UNKNOWN_NAMES_MAX, "{many}");
         assert!(many.contains("`@n9`, `@n10` or 2 more, so"), "{many}");
         assert!(!many.contains("`@n11`"), "{many}");
-        let spaced = unknown_text("Catalogue Lead", &["x".to_string()]);
+        let spaced = unknown_text("Catalogue Lead", &["x".to_string()], "herdr");
         assert!(
             spaced.starts_with("Catalogue Lead: no worker is named"),
             "{spaced}"
