@@ -762,7 +762,10 @@ pub fn run(db: &Path) -> Result<()> {
         match terminal.missing(path.as_deref()) {
             None => said_missing = false,
             Some(line) if !said_missing => {
-                log(&line);
+                log(&format!(
+                    "{line} (said once, until {} is found)",
+                    terminal.name()
+                ));
                 said_missing = true;
             }
             Some(_) => {}

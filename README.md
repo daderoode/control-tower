@@ -61,7 +61,8 @@ The owner starts work without typing `tower`, in either of two ways:
   Every argument reaches Rex as its own word, never through a shell, and of the goal only
   the lead name does (made of letters, digits, spaces, `-`, `_` and `.`, starting with a
   letter or digit). `TOWER_REX` names rex; else tower takes `rex` in `REX_BIN_DIR`, where
-  Rex keeps it and which Rex sets in its own tabs, else `rex` on the PATH.
+  Rex keeps it and which Rex sets in its own tabs, else `rex` on the PATH. A rex that cannot
+  be found is refused before anything is written, saying what was tried.
 - **From a session in progress:** `/control-tower:lead <the goal in words>` creates the
   milestone from those words and the conversation, then leads it; `/control-tower:lead M3`
   takes over M3. A session with no name is told which `/rename` to type.

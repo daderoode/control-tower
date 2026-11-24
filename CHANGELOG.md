@@ -28,7 +28,8 @@ tag's date, and a new empty Unreleased goes above it.
   as `TOWER_DB`, so the lead registers where you are looking. When Rex fails, the milestone
   and the lead it registered are removed again and the keys line says why. `TOWER_REX`
   names rex, else `rex` in `REX_BIN_DIR`, else on the PATH. A main checkout that is no
-  longer a directory is refused before anything is written (#112).
+  longer a directory, or a rex that cannot be found, is refused before anything is written
+  (#112).
 
 ## [0.5.3] - 2026-11-24
 

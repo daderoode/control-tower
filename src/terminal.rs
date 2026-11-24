@@ -131,7 +131,8 @@ pub trait Terminal: Send + Sync {
     /// Its executable, as the module was given it.
     fn exe(&self) -> &Path;
     /// The one line saying the executable cannot be found on `path` (a PATH value),
-    /// naming what was tried; `None` when it is found.
+    /// naming what was tried and how to name it; `None` when it is found. Whoever says it
+    /// adds how often (the watch: once, until it is found).
     fn missing(&self, path: Option<&OsStr>) -> Option<String>;
     /// The live named workers, within `timeout`.
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread>;

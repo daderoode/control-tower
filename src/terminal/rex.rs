@@ -111,7 +111,7 @@ impl Terminal for Rex {
             Some(_) => None,
             None => Some(format!(
                 "{}; Rex keeps it in REX_BIN_DIR, which Rex sets in its own tabs; set TOWER_REX \
-                 to its full path if it is elsewhere (said once, until rex is found)",
+                 to its full path if it is elsewhere",
                 not_found("rex", &self.exe, path)
             )),
         }
@@ -126,9 +126,6 @@ impl Terminal for Rex {
     }
 
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle> {
-        if let Some(why) = self.missing(std::env::var_os("PATH").as_deref()) {
-            bail!("{why}");
-        }
         let env = format!("TOWER_DB={}", lead.board);
         let mut args = vec![
             "new", lead.name, "-c", lead.dir, "--json", "--", "env", &env,
@@ -198,8 +195,7 @@ mod tests {
         assert_eq!(
             none.missing(Some(OsStr::new("/nowhere"))).unwrap(),
             "rex not found: tried rex on PATH /nowhere; Rex keeps it in REX_BIN_DIR, which Rex \
-             sets in its own tabs; set TOWER_REX to its full path if it is elsewhere (said \
-             once, until rex is found)"
+             sets in its own tabs; set TOWER_REX to its full path if it is elsewhere"
         );
         assert_eq!(Rex::new(in_bin).missing(None), None);
     }

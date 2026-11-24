@@ -202,8 +202,8 @@ pub struct Start<'a> {
 /// start on the repo is refused; then the terminal module opens a place named after the
 /// lead on the repo's main checkout, out of focus, with Claude in it under the registered
 /// name, running the lead skill, which finds itself registered and attaches. A repo that is
-/// gone or already has a lead, or a directory to start in that is not one, is refused
-/// before anything is written. In no repo (`at.repo` `None`): only the milestone is added,
+/// gone or already has a lead, a directory to start in that is not one, or a terminal
+/// module whose executable cannot be found, is refused before anything is written. In no repo (`at.repo` `None`): only the milestone is added,
 /// in `home`, and the skill registers the lead once it has its repo. A start the terminal
 /// fails is undone on the board (`undone`), or, where it cannot be, says so; the module
 /// leaves no place of its own behind, or says it may have. The board `db`, made absolute,
@@ -219,6 +219,10 @@ pub fn start_lead(
 ) -> Result<String> {
     let line = line.trim();
     let title: String = line.chars().take(MAX_LINE_CHARS).collect();
+    // Before any write, so a terminal that cannot be found uses up no milestone id.
+    if let Some(why) = terminal.missing(std::env::var_os("PATH").as_deref()) {
+        anyhow::bail!("cannot start a lead: {why}");
+    }
     let board = (std::path::absolute(db))
         .context("cannot start a lead: the board's path cannot be made absolute")?;
     let board = (board.to_str()).context("cannot start a lead: the board's path is not UTF-8")?;
@@ -889,10 +893,6 @@ mod tests {
             "{msg}"
         );
 
-        // rex missing: undone, saying where it was looked for.
-        let (msg, failed) = start(&path, &fake.path().join("none"), "Wishlists");
-        assert!(failed && msg.contains("M4 was removed again"), "{msg}");
-        assert!(msg.contains("rex not found: tried "), "{msg}");
         // An empty line adds nothing, as `tower milestone add` refuses it.
         let (msg, failed) = start(&path, &exe, " ");
         assert!(
@@ -900,6 +900,43 @@ mod tests {
             "{msg}"
         );
         assert_eq!(titles(&path).len(), 1);
+    }
+
+    #[test]
+    fn a_missing_rex_is_refused_writing_nothing_and_using_no_id() {
+        let (_dir, path) = board();
+        let (fake, exe) = fake_rex();
+        let none = fake.path().join("none");
+        let checkout = tempfile::tempdir().unwrap();
+        std::fs::create_dir(checkout.path().join(".git")).unwrap();
+        let r = Store::open(&path)
+            .unwrap()
+            .add_repo(checkout.path(), None)
+            .unwrap();
+        let on_repo = |exe: &Path| Write::StartLead {
+            line: "Comics".into(),
+            repo: Some(r),
+            terminal: exe.to_path_buf(),
+            home: Some(home(&path).into()),
+        };
+        // Said as the dashboard says it, on every press: not the watch's "said once".
+        let want = format!(
+            "cannot start a lead: rex not found: tried {}; Rex keeps it in REX_BIN_DIR, which \
+             Rex sets in its own tabs; set TOWER_REX to its full path if it is elsewhere",
+            none.display()
+        );
+        assert_eq!(write_now(&path, &on_repo(&none)), (want.clone(), true));
+        assert_eq!(start(&path, &none, "Atlases"), (want, true));
+        let board = Store::open(&path).unwrap().load().unwrap();
+        assert_eq!(board.milestones.len(), 1);
+        assert!(board.repo(r).unwrap().lead.is_none());
+        assert!(calls(fake.path()).is_empty());
+        // Once rex is found, the start takes the next id, as no failed press used one.
+        let (said, failed) = write_now(&path, &on_repo(&exe));
+        assert!(
+            !failed && said.starts_with("started Comics Lead for M2 on "),
+            "{said}"
+        );
     }
 
     #[test]

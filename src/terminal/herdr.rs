@@ -26,8 +26,7 @@ pub fn path() -> PathBuf {
 /// The one line saying herdr cannot be found, naming exactly what was tried.
 pub fn missing(herdr: &Path, path: Option<&OsStr>) -> String {
     format!(
-        "{}; set TOWER_HERDR to its full path if it is elsewhere (said once, until herdr is \
-         found)",
+        "{}; set TOWER_HERDR to its full path if it is elsewhere",
         not_found("herdr", herdr, path)
     )
 }
