@@ -1,0 +1,115 @@
+# control-tower forge waiter, shipped with the lead skill: run with `bash <this file>` from
+# the repo's checkout.
+# Polls every 5 minutes; exits after the first poll that found a change (exit 0, one line
+# per change). A failed poll is retried at the interval; one that fails again exits with its
+# cause (exit 1), and while the failure lasts it exits again at most hourly. Its state sits
+# beside it in the git directory: the since cursor, the seen-set, the ref snapshot and the
+# failure, moved only by a poll that fully worked or failed. One runs at a time: a waiter
+# started while another runs says so and ends, touching nothing. The other is known by its
+# pid and its file's name, whatever its folder: this file in another plugin version, or the
+# copy in the git directory that leads wrote and ran before this file existed.
+set -o pipefail
+export LC_ALL=C
+g=$(git rev-parse --path-format=absolute --git-common-dir) ||
+  { echo "forge poll failed: not run from the repo's checkout (git rev-parse)"; exit 1; }
+since="$g/control-tower-forge-since" seen="$g/control-tower-forge-seen" refs="$g/control-tower-forge-refs"
+failing="$g/control-tower-forge-failing" err="$g/control-tower-forge-error"
+pidf="$g/control-tower-forge-pid"
+if read -r old 2> /dev/null < "$pidf" && [ "$old" != $$ ] &&
+  ps -ww -o args= -p "$old" 2> /dev/null | grep -qE '/(control-tower-)?forge-wait( |$)'; then
+  echo "a forge waiter already runs (pid $old), so this one ends: do not arm another"
+  exit 0
+fi
+echo $$ > "$pidf"
+trap '[ "$(cat "$pidf" 2> /dev/null)" = $$ ] && rm -f "$pidf"' EXIT
+[ -s "$since" ] || date -u +%Y-%m-%dT%H:%M:%SZ > "$since"
+touch "$seen"
+case "$(git remote get-url origin)" in *github.com*) forge=github ;; *) forge=gitlab ;; esac
+utc() { perl -MPOSIX -e 'print strftime("%Y-%m-%dT%H:%M:%SZ", gmtime(shift))' "$1"; }
+
+# One poll: prints "<key>\t<line>" for each item changed in the window.
+poll() {
+  local s; s=$(cat "$since")
+  if [ $forge = github ]; then
+    gh api "repos/{owner}/{repo}/issues?state=all&sort=updated&direction=asc&per_page=100&since=$s" --jq '.[] |
+      (if .pull_request then "PR" else "issue" end) as $k |
+      (if .pull_request.merged_at then "merged" else .state end) as $st |
+      "#\(.number) \(.updated_at)\t#\(.number) \($k) \($st) \(.updated_at): \(.title)"' &&
+    gh api "repos/{owner}/{repo}/actions/runs?branch=$main&status=failure&per_page=20" --jq '.workflow_runs[] |
+      select(.updated_at >= "'"$s"'") |
+      "run \(.id)\tfailed run: \(.name) on '"$main"' at \(.head_sha[0:7]) \(.updated_at): \(.html_url)"'
+  else
+    local day; day=$(perl -MPOSIX -MTime::Local -e '@t = split /\D+/, shift;
+      print strftime("%Y-%m-%d", gmtime(timegm(0, 0, 0, $t[2], $t[1] - 1, $t[0]) - 86400))' "$s")
+    glab api --paginate "projects/:id/events?after=$day&sort=asc&per_page=100" | jq -r --arg s "$s" '.[] |
+      select(.created_at >= $s) |
+      "event \(.id)\t\(.author.username) \(.action_name) " +
+      (if .push_data then "\(.push_data.ref_type) \(.push_data.ref) (\(.push_data.commit_count) commits)"
+       elif .note then "\(.note.noteable_type) \(if .note.noteable_type == "MergeRequest" then "!" else "#" end)\(.note.noteable_iid)"
+       elif .target_type == "MergeRequest" then "MR !\(.target_iid): \(.target_title)"
+       elif .target_type == "Issue" then "issue #\(.target_iid): \(.target_title)"
+       else "\(.target_type // "project") \(.target_title // "")" end) + " \(.created_at)"' &&
+    glab api "projects/:id/issues?updated_after=$s&per_page=100" | jq -r '.[] |
+      "#\(.iid) \(.updated_at)\t#\(.iid) issue \(.state) \(.updated_at): \(.title)"' &&
+    glab api "projects/:id/pipelines?ref=$main&status=failed&updated_after=$s" | jq -r '.[] |
+      "pipeline \(.id)\tfailed pipeline on '"$main"' at \(.sha[0:7]) \(.updated_at): \(.web_url)"'
+  fi
+}
+
+# One attempt: sets out (and now, on GitHub) or why. GitLab's events already carry pushes,
+# branches and tags; GitHub's come from git, as its events feed can lag for hours.
+attempt() {
+  if [ -z "$main" ]; then
+    if [ $forge = github ]; then
+      main=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2> "$err")
+    else
+      main=$(glab api "projects/:id" 2> "$err" | jq -r .default_branch)
+    fi || { main=""; why="cannot read the default branch"; return 1; }
+  fi
+  out=$(poll 2> "$err") || { why="the forge did not answer"; return 1; }
+  [ $forge = gitlab ] && return 0
+  now=$(git ls-remote --heads --tags origin 2> "$err" | { grep -v '\^{}$' || true; } | sort -k2) ||
+    { why="git ls-remote origin failed"; return 1; }
+}
+
+main=""
+while :; do
+  next=$(perl -MPOSIX -e 'print strftime("%Y-%m-%dT%H:%M:%SZ", gmtime(time - 120))')
+  if ! attempt; then
+    why="$why: $(grep . "$err" | tail -n 1)" t=$(date +%s)
+    if [ ! -s "$failing" ]; then
+      echo "$t 0" > "$failing"
+    else
+      read -r first told < "$failing"
+      if [ $((t - told)) -ge 3600 ]; then
+        echo "$first $t" > "$failing"
+        echo "forge poll failing since $(utc "$first"): $why"
+        exit 1
+      fi
+    fi
+    sleep 300
+    continue
+  fi
+  back=""
+  if [ -s "$failing" ]; then
+    read -r first told < "$failing"
+    [ "$told" -gt 0 ] && back="forge poll works again (it failed from $(utc "$first"))"
+    rm -f "$failing"
+  fi
+  new=$(printf '%s\n' "$out" | grep . | awk -F'\t' -v f="$seen" \
+    'BEGIN { while ((getline k < f) > 0) seen[k] } !($1 in seen) { print $2 }')
+  moved=""
+  [ $forge = github ] && [ -s "$refs" ] && moved=$(join -1 2 -2 2 -a 1 -a 2 -e - -o 0,1.1,2.1 "$refs" <(printf '%s\n' "$now") |
+    awk '$2 != $3 { r = $1; sub("^refs/(heads|tags)/", "", r); k = ($1 ~ "^refs/tags/") ? "tag" : "branch"
+      if ($2 == "-") print "new " k " " r " at " substr($3, 1, 7)
+      else if ($3 == "-") print "deleted " k " " r
+      else print "pushed " k " " r " " substr($2, 1, 7) ".." substr($3, 1, 7) }')
+  printf '%s\n' "$out" | grep . | cut -f1 > "$seen"
+  [ $forge = github ] && printf '%s\n' "$now" > "$refs"
+  echo "$next" > "$since"
+  full=""
+  [ "$(printf '%s\n' "$out" | grep -c '^#')" -ge 100 ] &&
+    full="forge poll hit its 100-item limit: read the backlog whole"
+  [ -n "$back$new$moved$full" ] && { printf '%s\n' "$back" "$new" "$moved" "$full" | grep .; exit 0; }
+  sleep 300
+done
