@@ -1107,7 +1107,8 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// wider, they hang on a blank line of their own, as `pre-wrap` hangs them, and the words
 /// start the next line at the text's column. Either way a run of ideographic spaces starting
 /// the first word goes with them, and hangs with them when the word's first piece does not
-/// fit after it. Each run of spaces
+/// fit after it; a run with no word after it is drawn after a narrower indent where it fits
+/// there, and hangs with a wider one. Each run of spaces
 /// between words stays as written, and counts toward the line's width; a line that breaks
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
@@ -1250,14 +1251,12 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             put_hung(&mut line, &mut out, hung, w);
         }
     }
-    // A run of ideographic spaces ending the text after a space is drawn where it fits on
-    // the line, as the copy's is, and otherwise hangs past its end; the spaces after it are
-    // the text's trailing ones. Only `pre_wrap` text joins one to the run.
+    // A run of ideographic spaces ending the text after a space, or after an indent the line
+    // still holds, is drawn where it fits on the line, as the copy's is, and otherwise hangs
+    // past its end; the spaces after it are the text's trailing ones. Only `pre_wrap` text
+    // joins one to the run.
     let tail = run.trim_end_matches(' ');
-    if tail.contains(IDEOGRAPHIC_SPACE)
-        && line.bytes().any(|b| b != b' ')
-        && line.width() + tail.width() <= w
-    {
+    if tail.contains(IDEOGRAPHIC_SPACE) && !line.is_empty() && line.width() + tail.width() <= w {
         line.push_str(tail);
     }
     if !line.is_empty() || out.is_empty() {

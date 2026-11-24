@@ -1707,6 +1707,11 @@ mod tests {
         // A line the clip hides counts, as the copy's clipped body still measures it.
         let clipped = format!("aa\nbb\ncc\ndd\nee\n{}", "d".repeat(30));
         assert_eq!(bw("dev-1", &clipped), 33);
+        // A run of U+3000 after an indent, with no word after it, counts as the copy's
+        // does (32ch of text): the bubble is as wide as for an indent and a word.
+        let sp = " ".repeat(30);
+        assert_eq!(bw("dev-1", &format!("hi\n{sp}\u{3000}\nyo")), 35);
+        assert_eq!(bw("dev-1", &format!("hi\n{sp}ab\nyo")), 35);
     }
 
     #[test]
@@ -1912,6 +1917,8 @@ mod tests {
             assert_eq!(texts(&text, w), want, "{text:?} at {w}");
         }
         assert_eq!(wrap(&format!("{i30}\u{3000}ab"), 31), [i30, "ab"]);
+        // A run with no word after it stays after a narrower indent where it fits.
+        assert_eq!(wrap_line_paths("   \u{3000}", 10), ["   \u{3000}"]);
         // On a later line too.
         assert_eq!(
             texts(&format!("ab\n{}cd ef", sp(9)), 7),

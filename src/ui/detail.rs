@@ -837,7 +837,8 @@ fn task_lines(
             pen,
         )),
         Some(post) => {
-            // Wrapped as its bubble's text is, so an indent hangs as it does there.
+            // Its words break as a bubble's text breaks them (`wrap_line_paths`), so an indent
+            // hangs as it does there; a URL stays inline, with no row of its own.
             let awareness = tone_of(post) == Tone::Awareness;
             let pieces: Vec<String> = (post.text.split('\n'))
                 .flat_map(|line| message_board::wrap_line_paths(line, w.saturating_sub(VALUE_X)))
