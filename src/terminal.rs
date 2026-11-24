@@ -3,13 +3,16 @@
 //! workers (`agents`), has it deliver a text to one by name (`prompt`), and has it open a
 //! new place for a lead (`start_lead`, undone by `undo`); its display name names the
 //! terminal in the core's texts and logs. A module is built in: `module` gives the one
-//! this build has, herdr (`herdr`), so another slots in here without touching the core.
+//! the watch and delivery use, herdr (`herdr`), so another slots in here without touching
+//! the core; `n` already starts its lead with Rex (`rex`, `lead_module`), which #110 makes
+//! the one module.
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
 //! blocked kind where the terminal gives it). A value the core does not know is
 //! `Status::Unknown`: present, with nothing to judge by.
 
 pub mod herdr;
+pub mod rex;
 
 use std::ffi::OsStr;
 use std::fmt;
@@ -105,14 +108,14 @@ pub enum Sent {
     Failed(String),
 }
 
-/// A lead to start: its place named `name`, opened in `dir`, with the board path `board`
-/// set as `TOWER_DB` there when given, running `command` (one word per argument, never a
+/// A lead to start: its place named `name`, opened in `dir`, with the board's absolute path
+/// `board` set as `TOWER_DB` there, running `command` (one word per argument, never a
 /// shell string).
 #[derive(Debug, Clone, Copy)]
 pub struct LeadStart<'a> {
     pub name: &'a str,
     pub dir: &'a str,
-    pub board: Option<&'a str>,
+    pub board: &'a str,
     pub command: &'a [String],
 }
 
@@ -148,4 +151,15 @@ pub fn module(exe: PathBuf) -> Arc<dyn Terminal> {
 /// The built-in module's executable as the environment names it.
 pub fn exe_from_env() -> PathBuf {
     herdr::path()
+}
+
+/// The module `n` starts a lead with, its executable at `exe`: Rex, while `module` is still
+/// herdr for the watch and delivery (#110 folds this into `module`).
+pub fn lead_module(exe: PathBuf) -> Arc<dyn Terminal> {
+    Arc::new(rex::Rex::new(exe))
+}
+
+/// `lead_module`'s executable as the environment names it.
+pub fn lead_exe_from_env() -> PathBuf {
+    rex::path()
 }

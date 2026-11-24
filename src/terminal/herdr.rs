@@ -247,19 +247,18 @@ impl Terminal for Herdr {
     }
 
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle> {
-        let env = lead.board.map(|b| format!("TOWER_DB={b}"));
-        let mut create = vec![
+        let env = format!("TOWER_DB={}", lead.board);
+        let create = [
             "workspace",
             "create",
             "--label",
             lead.name,
             "--cwd",
             lead.dir,
+            "--env",
+            &env,
+            "--no-focus",
         ];
-        if let Some(env) = &env {
-            create.extend(["--env", env.as_str()]);
-        }
-        create.push("--no-focus");
         let (workspace, pane) = parse_created(&run(&self.exe, db, &create)?)?;
         let handle = Handle(workspace);
         let line = shell_line(lead.command);

@@ -182,8 +182,8 @@ pub enum Request {
         folded: bool,
     },
     /// Start a lead on the owner's goal, one line: a milestone (in `repo`, when given) and
-    /// Claude leading it in a new herdr workspace, through the store and herdr (see
-    /// `writer`).
+    /// Claude leading it in a new place the terminal module opens, through the store and
+    /// that module (see `writer`).
     StartLead { line: String, repo: Option<RepoId> },
     /// Close the dashboard: `q` outside the composer and the new lead's input, or, in the
     /// popup, Esc with nothing to go back from.
