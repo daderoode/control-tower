@@ -64,11 +64,11 @@ implement, test or review.
        Report findings ranked by severity, each with file:line and a concrete failure scenario, or say plainly there are none.
 
 3. **Test as a person would, on what ships.** The tester runs the change against the
-   ticket's done-when on the hand-off that will ship (never a local build), as each role and
-   at each screen size the change touches, and for a bug reproduces it on the build before
-   the change first. It never fixes code. Why: this step finds what unit and browser tests
-   cannot, such as a test that fakes what the real thing does. Check: each test report gives
-   PASS or FAIL per done-when item with its evidence, and the baseline reproduction.
+   ticket's done-when on the hand-off that will ship (never a build of its own), as each
+   role and at each screen size the change touches, and for a bug reproduces it on the
+   baseline build first. It never fixes code. Why: this step finds what unit and browser
+   tests cannot, such as a test that fakes what the real thing does. Check: each test report
+   gives PASS or FAIL per done-when item with its evidence, and the baseline reproduction.
 4. **Every ask stands alone.** A question to the owner says what is being decided, why it
    needs the owner and not you, the options, your recommendation and exactly one question,
    so it makes sense to someone who reads nothing else. Why: the owner answers faster and
@@ -84,12 +84,13 @@ implement, test or review.
 5. **One release report shape.** A release comes to the owner as one message: a headline
    (released, ready, or needs your approval); **What's in it**, a table of each issue and its
    change in plain words; **Testing**: the reviews and test rounds and what they caught, CI,
-   any full run on a test environment, anything deferred and where it is recorded; **What
-   to expect** in production: downtime, schema changes, user-visible changes, caveats; **How
-   it runs**: its steps; then the single approval question, when one is needed. The report
-   after the release keeps the shape and adds the evidence (principle 1). Why: it is the
-   shape the owner asked for. Check: every release message to the owner has these parts, in
-   this order.
+   any full run on a test environment, anything deferred and where it is recorded; **Where
+   the time went** (principle 10); **What to expect** in production: downtime, schema
+   changes, user-visible changes, caveats; **How it runs**: its steps; then the approval
+   question, when one is needed, with principle 4's why, options and recommendation. The
+   report after the release keeps the shape and adds the evidence (principle 1). Why: it is
+   the shape the owner asked for. Check: every release message to the owner has these
+   parts, in this order.
 6. **Make the steps visible.** Every task's finish note (its thread's resolve and the outcome
    on its issue) and every release report carries a steps-run line: each lifecycle step that
    ran and what it found, and each step skipped or deferred with the reason and where that
@@ -429,8 +430,7 @@ and `tower repo show <R>` lists threads by title.
   to you, they run in parallel, and they need no worktree, trust prompt or extra session.
 - Use a visible worker instead when analysis is long (more than about half an hour) or the
   owner may want to watch or steer it (for example testing against a live system).
-- Helpers stay visible through the board: post when helpers start and finish and what they
-  found.
+- Helpers stay visible on the board: post when they start and finish, and what they found.
 - A helper that hits a wall (refused access, a missing tool) stops and reports instead of
   working around it; tell each helper so. You raise it on the board.
 
@@ -450,7 +450,6 @@ and `tower repo show <R>` lists threads by title.
   and `herdr agent prompt` in the new pane.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
   and reviewers (Senior dev for Stage 1, external for Stage 2); how many of each is your call.
-  Each issue gets its own fresh implementer (principle 9).
 - **Standing roles, optional:** beside them you may keep a few standing workers, read-only
   by default, each with a short brief, started once their work is steady:
   - **analyst:** turns reports, feedback and findings into issue drafts, which you file;
@@ -566,7 +565,9 @@ and `tower repo show <R>` lists threads by title.
     stays and the tester's result stands; CI on the merged head checks the merged tree, and
     you show the PR's diff against the default branch is unchanged.
   - The hand-off, in the tester's and Stage 1 reviewer's briefs, names the commit, the
-    artifact's place when there is one, and the PR.
+    artifact's place when there is one, and the PR. For a bug it also names the baseline:
+    the released build, or CI's artifact for the default branch where CI builds one, never
+    a build of the tester's own.
   - The tester runs the hand-off: no build and no worktree of its own.
   - Stage 1 reviews the PR diff and the CI result. If a finding can only be proven by
     running code, the reviewer says so and proves it for that finding only: with the
@@ -659,8 +660,7 @@ for the owner to read. Post as `<you>`; workers post under their role name (`dev
   which becomes the task's doing line: `tower post T --by dev-2 --progress "<step>"`.
   A plain post never does.
 - **Acknowledge in words:** `tower post T --by "<you>" "copy"`, never emoji.
-- **Resolve with evidence:** `tower thread resolve T --by "<you>" "<evidence>"`, for example
-  "all 6 acceptance criteria met; the bookmarks page passed QA on 3 phones".
+- **Resolve with evidence:** `tower thread resolve T --by "<you>" "<evidence>"` (principle 6).
 - **Stuck:** a stuck worker (or you) does both: `tower task block N "<reason>"` for the
   board, and a post starting `blocked: ...` on the board so you hear of it. You ask the owner (a
   `question:` post) if you can't resolve it. `tower task unblock N` clears the flag; moving the task to
