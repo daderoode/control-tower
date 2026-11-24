@@ -40,10 +40,12 @@ pub mod writer;
 
 use std::path::{Path, PathBuf};
 
+use icu_properties::CodePointMapData;
+use icu_properties::props::GraphemeClusterBreak;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Paragraph, Wrap};
 
 pub use chat::People;
@@ -206,11 +208,11 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
         if l.alert.is_some() {
             text.style = inbox::alert_bg(depth);
         }
-        frame.render_widget(Paragraph::new(text), c);
+        frame.render_widget(paragraph(text), c);
     }
     if area.height >= 5 {
         let rule = Line::styled("─".repeat(w), dim(depth));
-        frame.render_widget(Paragraph::new(rule), row(area.height - 2));
+        frame.render_widget(paragraph(rule), row(area.height - 2));
         let running = (dash.handing.clone())
             .or(dash.posting.map(|t| format!("posting to {t}…")))
             .map(|r| (r, false));
@@ -236,14 +238,14 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
                 None => keys_line(view, &l, dash, w, depth),
             },
         };
-        frame.render_widget(Paragraph::new(keys), row(area.height - 1));
+        frame.render_widget(paragraph(keys), row(area.height - 1));
     }
     let board = match view {
         Ok(board) => board,
         Err(problem) => {
             // The problem wraps over as many lines as it needs: it names the board's path,
             // which is too useful to cut off.
-            let p = Paragraph::new(Line::styled(
+            let p = paragraph(Line::styled(
                 format!(" {problem}"),
                 Style::new().fg(bad(depth)),
             ))
@@ -254,14 +256,11 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
     };
     if let Some(a) = l.alert {
         let aw = usize::from(a.width);
-        frame.render_widget(
-            Paragraph::new(inbox::alert_line(board, aw, Some(now), depth)),
-            a,
-        );
+        frame.render_widget(paragraph(inbox::alert_line(board, aw, Some(now), depth)), a);
     }
     if let Some(ib) = &l.inbox {
         let tw = usize::from(ib.top.width);
-        frame.render_widget(Paragraph::new(inbox::top_line(tw, depth)), ib.top);
+        frame.render_widget(paragraph(inbox::top_line(tw, depth)), ib.top);
         let sel = dash.inbox_target(board, ib);
         let lines = inbox::list_lines(board, sel, usize::from(ib.list.width), now, depth);
         render_scrolled(frame, lines, dash.inbox_scroll(), ib.list);
@@ -278,7 +277,7 @@ pub fn draw(frame: &mut Frame, view: &View, dash: &Dash, clock: &str, depth: Dep
         if l.right.is_some() {
             let sep = Rect::new(t.x + t.width, t.y, 1, t.height);
             let bar = vec![Line::styled("│", dim(depth)); usize::from(sep.height)];
-            frame.render_widget(Paragraph::new(bar), sep);
+            frame.render_widget(paragraph(bar), sep);
         }
     }
     let mut links = Vec::new();
@@ -324,10 +323,10 @@ fn draw_board(
     let m = &Talk::of_repo(board, r);
     let t = full_board::shown(m, b.thread);
     let top = full_board::top_line(&r.name(), m, usize::from(b.top.width), depth);
-    frame.render_widget(Paragraph::new(top), b.top);
+    frame.render_widget(paragraph(top), b.top);
     let sw = usize::from(b.strip.width);
     let strip = threads::strip(m, &m.needs, sw, b.strip_room, now, depth);
-    frame.render_widget(Paragraph::new(strip), b.strip);
+    frame.render_widget(paragraph(strip), b.strip);
     let list = full_board::list_lines(m, b, usize::from(b.list.width), now, depth);
     render_scrolled(frame, list, dash.list_scroll(), b.list);
     let (sep, bar) = if b.beside {
@@ -342,11 +341,11 @@ fn draw_board(
         (sep, vec![Line::styled(rule, dim(depth))])
     };
     if b.head.height > 0 || b.conv.height > 0 {
-        frame.render_widget(Paragraph::new(bar), sep);
+        frame.render_widget(paragraph(bar), sep);
     }
     let rw = usize::from(b.head.width);
     let head = full_board::head_lines(m, t, rw, b.beside, Some(now), depth);
-    frame.render_widget(Paragraph::new(head), b.head);
+    frame.render_widget(paragraph(head), b.head);
     let mut links = Vec::new();
     if let Some(t) = t {
         let (open, selected) = (dash.open_messages(), dash.board_message());
@@ -417,7 +416,62 @@ fn render_scrolled(frame: &mut Frame, lines: Vec<Line<'static>>, scroll: usize, 
         .skip(scroll)
         .take(usize::from(area.height))
         .collect();
-    frame.render_widget(Paragraph::new(shown), area);
+    frame.render_widget(paragraph(shown), area);
+}
+
+/// `text` as a paragraph, the one way a pane's lines are drawn: each span's leading marks
+/// (`attaches`, such as a Hebrew point) moved onto the end of the last span before it with
+/// text, so each draws in the cell before it, as the copy draws a point after a space at a
+/// line's start or after a mention or a tag. ratatui draws no grapheme of no width and a
+/// grapheme never crosses spans, so a span starting with a mark would lose it. Marks with no
+/// span with text before them in their line (in its first span, or after only empty ones)
+/// have no cell before them and stay as they are. Only a line with such a span is changed.
+///
+/// A line keeps its width because a moved mark joins a cell whose width it does not change:
+/// every span before message text today ends in a space, the bubble's bar, the last letter
+/// of a mention of the owner or a tag's ':'. A span ending in a character that a mark makes
+/// wider would break that, such as a digit, '#', '*', '©' or '®' before a U+FE0F, which
+/// unicode-width draws 2 wide as an emoji: the line would grow a column, and `link::placed`,
+/// which measures the lines before this, would place a link a column off.
+fn paragraph<'a>(text: impl Into<Text<'a>>) -> Paragraph<'a> {
+    let mut text = text.into();
+    text.lines.iter_mut().for_each(join_marks);
+    Paragraph::new(text)
+}
+
+/// `line` with each span's leading marks moved onto the last span before it with text
+/// (`paragraph`).
+fn join_marks(line: &mut Line) {
+    for k in 1..line.spans.len() {
+        let content = &line.spans[k].content;
+        let marks = content.len() - content.trim_start_matches(attaches).len();
+        if marks == 0 {
+            continue;
+        }
+        let Some(before) = (0..k).rev().find(|&j| !line.spans[j].content.is_empty()) else {
+            continue;
+        };
+        let (moved, rest) = content.split_at(marks);
+        let (moved, rest) = (moved.to_string(), rest.to_string());
+        line.spans[before].content.to_mut().push_str(&moved);
+        line.spans[k].content = rest.into();
+    }
+}
+
+/// Whether `c` is a mark that draws on the character before it and takes no column of its
+/// own: a character the grapheme rules join to the one before it (Grapheme_Cluster_Break
+/// Extend, ZWJ or SpacingMark), with no width. Not a Prepend character such as U+0D4E,
+/// which joins the one after it, and not a mark with a width of its own, such as most
+/// SpacingMarks, which ratatui draws in a cell of its own already. ASCII is neither.
+fn attaches(c: char) -> bool {
+    !c.is_ascii()
+        && unicode_width::UnicodeWidthChar::width(c) == Some(0)
+        && matches!(
+            CodePointMapData::<GraphemeClusterBreak>::new().get(c),
+            GraphemeClusterBreak::Extend
+                | GraphemeClusterBreak::ZWJ
+                | GraphemeClusterBreak::SpacingMark
+        )
 }
 
 /// `text` on one line: every run of whitespace or control characters (line breaks, escape
@@ -611,6 +665,66 @@ fn keys_line(view: &View, l: &Layout, dash: &Dash, w: usize, depth: Depth) -> Li
         .find(|t| unicode_width::UnicodeWidthStr::width(t.as_str()) <= w)
         .unwrap_or_else(|| line(0));
     fit(vec![Span::styled(text, dim(depth))], w)
+}
+
+#[cfg(test)]
+mod join_marks_tests {
+    use super::*;
+    use std::borrow::Cow;
+
+    /// `spans` joined (`join_marks`), as their contents.
+    fn joined(spans: &[&'static str]) -> Vec<String> {
+        let mut line = Line::from(spans.iter().map(|s| Span::raw(*s)).collect::<Vec<_>>());
+        join_marks(&mut line);
+        line.spans.iter().map(|s| s.content.to_string()).collect()
+    }
+
+    #[test]
+    fn a_span_s_leading_marks_go_onto_the_last_span_before_it_with_text() {
+        // Invented text. U+05B8 (qamats) and U+05BC (dagesh) are Extend, U+0301 too.
+        assert_eq!(joined(&["a ", "\u{5b8}b"]), ["a \u{5b8}", "b"]);
+        // Several marks go together, in order.
+        assert_eq!(
+            joined(&["a", "\u{5b8}\u{5bc}\u{301}b"]),
+            ["a\u{5b8}\u{5bc}\u{301}", "b"]
+        );
+        // Past an empty span.
+        assert_eq!(joined(&["a", "", "\u{5b8}b"]), ["a\u{5b8}", "", "b"]);
+        // A span of only marks empties, and the marks of the next go after them.
+        assert_eq!(
+            joined(&["a", "\u{5b8}", "\u{5bc}b"]),
+            ["a\u{5b8}\u{5bc}", "", "b"]
+        );
+    }
+
+    #[test]
+    fn marks_with_no_span_with_text_before_them_stay() {
+        assert_eq!(joined(&["\u{5b8}b", "c"]), ["\u{5b8}b", "c"]);
+        assert_eq!(joined(&["", "\u{5b8}b"]), ["", "\u{5b8}b"]);
+        assert_eq!(joined(&["", "", "\u{5b8}"]), ["", "", "\u{5b8}"]);
+    }
+
+    #[test]
+    fn only_marks_that_join_the_character_before_them_with_no_width_move() {
+        // U+0D4E (MALAYALAM LETTER DOT REPH) is Prepend: it joins the letter after it, and
+        // the two draw as one cell where they are.
+        assert_eq!(
+            joined(&[" ", "\u{d4e}\u{d30} x"]),
+            [" ", "\u{d4e}\u{d30} x"]
+        );
+        // U+0903 (DEVANAGARI SIGN VISARGA) is a SpacingMark one column wide: it draws in a
+        // cell of its own where it is.
+        assert_eq!(joined(&[" ", "\u{903}b"]), [" ", "\u{903}b"]);
+        // Text with no leading mark is left as it is, not copied.
+        let mut line = Line::from(vec![Span::raw("a "), Span::raw("b \u{5b8}c")]);
+        join_marks(&mut line);
+        assert!(
+            line.spans
+                .iter()
+                .all(|s| matches!(s.content, Cow::Borrowed(_))),
+            "{line:?}"
+        );
+    }
 }
 
 #[cfg(test)]
