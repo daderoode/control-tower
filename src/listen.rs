@@ -26,15 +26,16 @@
 //!   one orphaned by a Claude Code that went away never blocks a re-arm or reads as
 //!   listening for long. A held lock is what "listening" means.
 //! - `hook`: `tower lead hook`, the plugin's Stop hook. For the Claude session a lead
-//!   attached (`tower lead attach`), it blocks the end of the turn while posts are unread,
-//!   naming them and so telling them; any other session passes.
+//!   attached (`tower lead attach`), it counts the turn ended (`lead.turns`) and blocks the
+//!   end of the turn while posts are unread, naming them and so telling them; any other
+//!   session passes.
 //! - `check_leads`: the watch, each look, for every registered lead: no listener
 //!   running while it has no attached Claude session for `NO_SESSION_GRACE`, or its Claude
-//!   session is gone from herdr, or idle having finished a turn since the watch
-//!   first saw it, idle or busy, with no listener (herdr's `state_change_seq` moved), opens
+//!   session gone from `claude agents --json`, or idle having finished a turn since the
+//!   watch first saw it, idle or busy, with no listener (the Stop hook's count moved), opens
 //!   one "lead not listening" episode (one awareness item for the owner); a listener running
 //!   again resolves it. A lead woken by its waiter's end re-arms in that turn, so the gap
-//!   between the end and the re-arm never raises one.
+//!   between the end and the re-arm never raises one. No terminal is asked.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions, TryLockError};
@@ -427,7 +428,8 @@ struct HookInput {
 }
 
 /// `tower lead hook`: given the Stop hook's JSON `input`, the hook's reply to print, or
-/// `None` to let the turn end. Only the Claude session a lead attached is held, and only
+/// `None` to let the turn end. Each stop of the Claude session a lead attached counts as a
+/// turn ended (`Store::lead_turn_ended`), for the watch. Only that session is held, and only
 /// while posts on its board are unread: the reply blocks the stop, naming them, and they
 /// count as told, so it blocks once per batch and never loops. The session is looked up on
 /// the board opened read only, so a stop never waits long on a writer and the board is
@@ -445,6 +447,8 @@ pub fn hook(db: &Path, input: &str) -> Result<Option<String>> {
         return Ok(None);
     };
     let mut store = Store::open(db)?;
+    // Every stop of the lead's session is a turn ended, for the watch's lead check.
+    store.lead_turn_ended(repo, &input.session_id)?;
     let mut reason = String::new();
     store.tell_lead(repo, |posts| {
         reason = hook_reason(repo, posts, listening(db, repo)?);
@@ -609,62 +613,70 @@ fn hook_reason(repo: RepoId, posts: &[Post], waiting: bool) -> String {
     text
 }
 
-/// A herdr agent as `herdr agent list` reports it, as far as this reads it.
+/// A Claude session as `claude agents --json` lists it, as far as the lead check reads it.
 #[derive(Deserialize)]
-struct ListReply {
-    result: ListResult,
+struct Listed {
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    status: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct ListResult {
-    agents: Vec<RawAgent>,
+/// What the lead check makes of a listed session's `status`.
+enum Status {
+    Working,
+    Idle,
+    Unknown,
 }
 
-#[derive(Deserialize)]
-struct RawAgent {
-    agent_session: Option<AgentSession>,
-    agent_status: String,
-    /// Moves on every change of the agent's state, so it moves whenever the session
-    /// finishes a turn.
-    state_change_seq: Option<i64>,
+impl Status {
+    fn of(listed: &Listed) -> Status {
+        match listed.status.as_deref() {
+            Some("busy") => Status::Working,
+            Some("idle") => Status::Idle,
+            _ => Status::Unknown,
+        }
+    }
 }
 
-#[derive(Deserialize)]
-struct AgentSession {
-    value: Option<String>,
+/// `claude agents --json` (`json`) as the lead check reads it.
+fn read_listed(json: Result<String>) -> Result<Vec<Listed>> {
+    serde_json::from_str(&json?).context("claude agents --json said something unexpected")
 }
 
-/// The watch's look at whether each registered lead is listening, at `now`, given herdr's
-/// agent list (`agents`, its JSON): returns a line per change and per failure. An empty
-/// agent list says nothing about anyone (herdr restarting), so it changes nothing.
+/// The watch's look at whether each registered lead is listening, at `now`: returns a line
+/// per change and per failure. `agents` gives `claude agents --json`, asked at most once
+/// and only when an attached lead has no waiter running, so a look where every lead
+/// listens never runs claude. A list that cannot be read, or reads as nothing,
+/// skips those leads for this look (one line for one that cannot be read).
 /// `unheard` is the watch's own memory of when it first saw each lead with no attached
 /// session and no listener (the grace before it says so, `NO_SESSION_GRACE`); a restart
 /// of the watch starts the grace again, so it can only delay an item, never lose one.
 pub fn check_leads(
     store: &mut Store,
     db: &Path,
-    agents: &str,
+    mut agents: impl FnMut() -> Result<String>,
     now: i64,
     unheard: &mut Unheard,
 ) -> Vec<String> {
-    match check(store, db, agents, now, unheard) {
+    let mut listed: Option<Result<Vec<Listed>, String>> = None;
+    let mut log = match check(store, db, &mut agents, &mut listed, now, unheard) {
         Ok(log) => log,
         Err(e) => vec![format!("could not check the leads are listening: {e:#}")],
+    };
+    if let Some(Err(e)) = listed {
+        log.push(format!("could not check the leads are listening: {e}"));
     }
+    log
 }
 
 fn check(
     store: &mut Store,
     db: &Path,
-    agents: &str,
+    agents: &mut impl FnMut() -> Result<String>,
+    listed: &mut Option<Result<Vec<Listed>, String>>,
     now: i64,
     unheard: &mut Unheard,
 ) -> Result<Vec<String>> {
-    let reply: ListReply =
-        serde_json::from_str(agents).context("herdr agent list said something unexpected")?;
-    if reply.result.agents.is_empty() {
-        return Ok(Vec::new());
-    }
     let mut log = Vec::new();
     // The leads seen with no attached session and no listener in this look: every other
     // memory of one goes after it (a lead listening, attached, changed or taken off), so a
@@ -691,7 +703,7 @@ fn check(
         };
         let step = (|| -> Result<Option<String>> {
             if listening(db, repo)? {
-                if lead.deaf.is_none() && lead.quiet_seq.is_none() {
+                if lead.deaf.is_none() && lead.quiet_turns.is_none() {
                     return Ok(None);
                 }
                 let evidence =
@@ -700,7 +712,7 @@ fn check(
                 return Ok(ended
                     .map(|t| format!("{name}, the lead of {repo}, listens again; resolved {t}")));
             }
-            // A lead with no attached Claude session has no herdr agent to read: once the
+            // A lead with no attached Claude session has no session to look for: once the
             // watch has seen it with no listener for `NO_SESSION_GRACE`, it is not
             // listening. The grace covers a lead between being registered (by the lead skill
             // or a dashboard start) and arming its waiter.
@@ -716,41 +728,46 @@ fn check(
                     "no Claude session is attached to it (tower lead attach)",
                 );
             };
-            let agent = (reply.result.agents.iter()).find(|a| {
-                a.agent_session.as_ref().and_then(|s| s.value.as_deref()) == Some(session)
-            });
-            let why = match agent {
-                None => "its Claude session is gone from herdr",
-                Some(a) if matches!(a.agent_status.as_str(), "idle" | "done") => {
+            let sessions =
+                listed.get_or_insert_with(|| read_listed(agents()).map_err(|e| format!("{e:#}")));
+            // Unreadable: logged once by `check_leads`. An empty list is likelier a glitch
+            // than every Claude session on the machine gone, so it says nothing either.
+            let Ok(sessions) = sessions else {
+                return Ok(None);
+            };
+            if sessions.is_empty() {
+                return Ok(None);
+            }
+            let found = (sessions.iter()).find(|s| s.session_id.as_deref() == Some(session));
+            let why = match found.map(Status::of) {
+                None => "its Claude session is gone",
+                Some(Status::Idle) => {
                     // Idle with no listener is the gap between a waiter's end and the lead's
                     // re-arm until the lead has finished a turn since the watch first saw it
                     // with no listener (idle or busy): a lead woken by its waiter's end
-                    // re-arms in that turn. A turn that starts and ends between two
-                    // looks, from a look that saw the stream running, is not seen: the
-                    // first idle look after it only records the seq.
-                    let Some(seq) = a.state_change_seq else {
-                        return Ok(None);
-                    };
-                    match lead.quiet_seq {
+                    // re-arms in that turn. The Stop hook counts every turn, so one that
+                    // starts and ends between two looks is counted too; one that does so
+                    // after a look that saw the waiter running is not seen: the first idle
+                    // look after it only records the count.
+                    match lead.quiet_turns {
                         None => {
-                            store.lead_quiet(repo, seq)?;
+                            store.lead_quiet(repo, lead.turns)?;
                             return Ok(None);
                         }
-                        Some(first) if first == seq => return Ok(None),
+                        Some(first) if first == lead.turns => return Ok(None),
                         Some(_) => "its Claude session finished a turn without one",
                     }
                 }
-                Some(a) => {
-                    // Busy (working or blocked) with no listener: recorded, so its next idle
-                    // look, with the seq moved, is a turn that finished without re-arming.
-                    if matches!(a.agent_status.as_str(), "working" | "blocked")
-                        && lead.quiet_seq.is_none()
-                        && let Some(seq) = a.state_change_seq
-                    {
-                        store.lead_quiet(repo, seq)?;
+                Some(Status::Working) => {
+                    // Busy with no listener: recorded, so its next idle look, with the count
+                    // moved, is a turn that finished without re-arming.
+                    if lead.quiet_turns.is_none() {
+                        store.lead_quiet(repo, lead.turns)?;
                     }
                     return Ok(None);
                 }
+                // Nothing to judge by.
+                Some(Status::Unknown) => return Ok(None),
             };
             deaf(store, why)
         })();
@@ -1069,34 +1086,38 @@ mod tests {
         assert!(text.ends_with("\nand 3 more on the board."), "{text}");
     }
 
-    /// herdr's agent list holding `agents`, each (Claude session id, status, its
-    /// state_change_seq), shaped as herdr 0.9.5's `herdr agent list` prints one. An invented
-    /// example line in that shape, whose `agent_session.value` is the session's
-    /// CLAUDE_CODE_SESSION_ID:
+    /// `claude agents --json` listing `sessions`, each (session id, status), shaped as
+    /// Claude Code prints an interactive session. An invented example entry in that shape:
     ///
-    /// {"agent":"claude","agent_session":{"agent":"claude","kind":"id",
-    /// "source":"herdr:claude","value":"00000000-xxxx-xxxx-xxxx-xxxxxxxxxxxx"},
-    /// "agent_status":"done","completion_seq":3,"cwd":"/Users/me/src/<repo>",
-    /// "focused":false,"foreground_cwd":"/Users/me/src/<repo>","pane_id":"w1:p1",
-    /// "revision":1,"state_change_seq":3,"tab_id":"w1:t1","terminal_id":"term_<id>",
-    /// "terminal_title":"<title>","terminal_title_stripped":"<title>","workspace_id":"w1"}
-    fn agents(agents: &[(&str, &str, i64)]) -> String {
-        let list: Vec<serde_json::Value> = (agents.iter())
-            .map(|(session, status, seq)| {
+    /// {"id":"<id>","cwd":"/Users/me/src/<repo>","kind":"interactive","startedAt":1,
+    /// "sessionId":"00000000-xxxx-xxxx-xxxx-xxxxxxxxxxxx","name":"<name>","pid":4242,
+    /// "status":"idle"}
+    fn agents(sessions: &[(&str, &str)]) -> String {
+        let list: Vec<serde_json::Value> = (sessions.iter())
+            .map(|(session, status)| {
                 serde_json::json!({
-                    "agent": "claude",
-                    "agent_session": {
-                        "agent": "claude", "kind": "id", "source": "herdr:claude", "value": session
-                    },
-                    "agent_status": status,
-                    "completion_seq": seq,
-                    "pane_id": "w1:p1",
-                    "state_change_seq": seq,
-                    "workspace_id": "w1",
+                    "id": "a1", "cwd": "/somewhere", "kind": "interactive", "startedAt": 1,
+                    "sessionId": session, "name": "cat-lead", "pid": 4242, "status": status,
                 })
             })
             .collect();
-        serde_json::json!({"id": "cli:agent:list", "result": {"agents": list}}).to_string()
+        serde_json::Value::Array(list).to_string()
+    }
+
+    /// A look with `list` as `claude agents --json`, at `now`, with a fresh grace memory.
+    fn look_with(store: &mut Store, db: &Path, list: &str, now: i64) -> Vec<String> {
+        check_leads(store, db, || Ok(list.to_string()), now, &mut HashMap::new())
+    }
+
+    /// `session` ends a turn: its Stop hook runs, with nothing unread to hold it for.
+    fn ends_turn(db: &Path, session: &str) {
+        assert_eq!(hook(db, &input(session)).unwrap(), None);
+    }
+
+    /// How many turns the lead of `repo` has ended, by its Stop hook.
+    fn turns(store: &mut Store, repo: i64) -> i64 {
+        let leads = store.leads().unwrap();
+        leads.iter().find(|l| l.repo == RepoId(repo)).unwrap().turns
     }
 
     /// The owner's awareness items still on the alert line, oldest first: "not listening"
@@ -1124,48 +1145,66 @@ mod tests {
     }
 
     #[test]
+    fn the_hook_counts_each_stop_of_the_attached_session_only() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        ends_turn(&db, "sess-1");
+        ends_turn(&db, "sess-1");
+        // A worker, a stranger, the other lead's never-attached session: not counted.
+        for other in ["sess-9", "other-lead"] {
+            ends_turn(&db, other);
+        }
+        assert_eq!((turns(&mut store, 1), turns(&mut store, 2)), (2, 0));
+        // A stop that holds the lead for unread posts is counted too.
+        store.post(ThreadId(1), "dev-1", "status: one").unwrap();
+        assert!(hook(&db, &input("sess-1")).unwrap().is_some());
+        assert_eq!(turns(&mut store, 1), 3);
+        // Re-attached to a new session: the old one's stops no longer count.
+        store.attach_lead(RepoId(1), "sess-2").unwrap();
+        ends_turn(&db, "sess-1");
+        assert_eq!(turns(&mut store, 1), 3);
+        ends_turn(&db, "sess-2");
+        assert_eq!(turns(&mut store, 1), 4);
+    }
+
+    #[test]
     fn the_gap_between_a_waiters_end_and_its_re_arm_never_raises() {
         let (_dir, db, mut store) = board();
-        // R2's lead never attached: never checked.
+        // R2's lead never attached: never checked by its session.
         store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let other = ("sess-x", "idle", 1);
-        let look = |store: &mut Store, status: &str, seq: i64| {
-            check_leads(
-                store,
-                &db,
-                &agents(&[("sess-1", status, seq), other]),
-                10,
-                &mut HashMap::new(),
-            )
+        let other = ("sess-x", "idle");
+        let look = |store: &mut Store, status: &str| {
+            look_with(store, &db, &agents(&[("sess-1", status), other]), 10)
         };
         // An empty list says nothing.
-        assert!(check_leads(&mut store, &db, &agents(&[]), 10, &mut HashMap::new()).is_empty());
-        // Working or blocked: busy, never raised; with its waiter running, nothing recorded.
+        assert!(look_with(&mut store, &db, &agents(&[]), 10).is_empty());
+        // With its waiter running, claude is not even asked, and nothing is recorded.
         let held = waiter_runs(&db, 1);
-        for status in ["working", "blocked", "unknown"] {
-            assert!(look(&mut store, status, 4).is_empty());
-        }
+        let never = || -> Result<String> { panic!("claude was asked") };
+        assert!(check_leads(&mut store, &db, never, 10, &mut HashMap::new()).is_empty());
         drop(held);
         // The waiter ended on a post while the lead was idle: no listener, idle, seen first
-        // at seq 5, before its end notice has started a turn.
-        assert!(look(&mut store, "idle", 5).is_empty());
+        // before its end notice has started a turn.
+        assert!(look(&mut store, "idle").is_empty());
         assert!(
-            look(&mut store, "idle", 5).is_empty(),
+            look(&mut store, "idle").is_empty(),
             "idle since: still the gap"
         );
         // The end notice wakes it; it reads, re-arms in that turn and ends it.
-        assert!(look(&mut store, "working", 6).is_empty());
+        assert!(look(&mut store, "busy").is_empty());
         let held = waiter_runs(&db, 1);
-        assert!(look(&mut store, "idle", 7).is_empty());
+        ends_turn(&db, "sess-1");
+        assert!(look(&mut store, "idle").is_empty());
         drop(held);
-        // The next end: seen first again at 7, not compared with the last episode's 5.
-        assert!(look(&mut store, "idle", 7).is_empty());
-        assert!(look(&mut store, "done", 7).is_empty());
+        // The next end: seen first again now, not compared with the last episode's count.
+        assert!(look(&mut store, "idle").is_empty());
+        assert!(look(&mut store, "idle").is_empty());
         assert!(items(&mut store).is_empty());
         // It finished a turn and did not re-arm: now it is not listening.
-        assert!(look(&mut store, "working", 8).is_empty());
+        assert!(look(&mut store, "busy").is_empty());
+        ends_turn(&db, "sess-1");
         assert_eq!(
-            look(&mut store, "idle", 9),
+            look(&mut store, "idle"),
             [
                 "Catalogue, the lead of R1, is not listening (its Claude session finished a turn \
                  without one); told the owner in T3"
@@ -1186,16 +1225,15 @@ mod tests {
             (thread.title.as_str(), thread.task),
             (crate::store::NOT_LISTENING, None)
         );
-        // Once per episode, done or gone alike.
-        assert!(look(&mut store, "done", 11).is_empty());
-        assert!(
-            check_leads(&mut store, &db, &agents(&[other]), 30, &mut HashMap::new()).is_empty()
-        );
+        // Once per episode, another turn or gone alike.
+        ends_turn(&db, "sess-1");
+        assert!(look(&mut store, "idle").is_empty());
+        assert!(look_with(&mut store, &db, &agents(&[other]), 30).is_empty());
         assert_eq!(items(&mut store).len(), 1);
-        // A stream runs: the episode ends, its thread resolved by system, off the alert line.
+        // A waiter runs: the episode ends, its thread resolved by system, off the alert line.
         let held = waiter_runs(&db, 1);
         assert_eq!(
-            look(&mut store, "idle", 12),
+            look(&mut store, "idle"),
             ["Catalogue, the lead of R1, listens again; resolved T3"]
         );
         let thread = store.thread(ThreadId(3)).unwrap();
@@ -1204,15 +1242,14 @@ mod tests {
             Some("system")
         );
         assert!(items(&mut store).is_empty());
-        assert!(look(&mut store, "idle", 12).is_empty());
-        // Its session gone from herdr and no stream: at once a new episode, a new item.
+        assert!(look(&mut store, "idle").is_empty());
+        // Its session gone from Claude's list and no waiter: at once a new episode, a new item.
         drop(held);
-        let log = check_leads(&mut store, &db, &agents(&[other]), 60, &mut HashMap::new());
         assert_eq!(
-            log,
+            look_with(&mut store, &db, &agents(&[other]), 60),
             [
-                "Catalogue, the lead of R1, is not listening (its Claude session is gone from \
-                 herdr); told the owner in T4"
+                "Catalogue, the lead of R1, is not listening (its Claude session is gone); told \
+                 the owner in T4"
             ]
         );
     }
@@ -1221,103 +1258,95 @@ mod tests {
     fn a_turn_seen_busy_with_no_waiter_and_then_idle_is_not_listening() {
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let look = |store: &mut Store, status: &str, seq: i64| {
-            check_leads(
-                store,
-                &db,
-                &agents(&[("sess-1", status, seq)]),
-                10,
-                &mut HashMap::new(),
-            )
+        let look = |store: &mut Store, status: &str| {
+            look_with(store, &db, &agents(&[("sess-1", status)]), 10)
         };
-        // The stream ended while the lead worked; it went on working and ended the turn
+        // The waiter ended while the lead worked; it went on working and ended the turn
         // without re-arming, then sat idle: raised at its first idle look.
-        assert!(look(&mut store, "working", 20).is_empty());
-        assert!(look(&mut store, "working", 20).is_empty());
-        assert!(look(&mut store, "blocked", 21).is_empty());
+        assert!(look(&mut store, "busy").is_empty());
+        assert!(look(&mut store, "busy").is_empty());
+        ends_turn(&db, "sess-1");
         assert_eq!(
-            look(&mut store, "idle", 22),
+            look(&mut store, "idle"),
             [
                 "Catalogue, the lead of R1, is not listening (its Claude session finished a turn \
                  without one); told the owner in T3"
             ]
         );
-        assert!(look(&mut store, "idle", 22).is_empty(), "raised twice");
-        // Unknown says nothing about a turn: not recorded.
+        assert!(look(&mut store, "idle").is_empty(), "raised twice");
+        // A status that is neither busy nor idle (or none) says nothing about a turn: not
+        // recorded, so a turn ended after it does not raise at the first idle look.
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let look = |store: &mut Store, status: &str, seq: i64| {
-            check_leads(
-                store,
-                &db,
-                &agents(&[("sess-1", status, seq)]),
-                10,
-                &mut HashMap::new(),
-            )
-        };
-        assert!(look(&mut store, "unknown", 30).is_empty());
-        assert!(look(&mut store, "idle", 31).is_empty());
+        let look = |store: &mut Store, list: &str| look_with(store, &db, list, 10);
+        let unknown = agents(&[("sess-1", "waiting")]);
+        let bare = r#"[{"sessionId":"sess-1","kind":"background","state":"blocked"}]"#;
+        for list in [unknown.as_str(), bare] {
+            assert!(look(&mut store, list).is_empty());
+        }
+        ends_turn(&db, "sess-1");
+        assert!(look(&mut store, &agents(&[("sess-1", "idle")])).is_empty());
         // Busy and re-armed before the turn ended: the record goes, nothing raised.
-        assert!(look(&mut store, "working", 32).is_empty());
+        let busy = agents(&[("sess-1", "busy")]);
+        assert!(look(&mut store, &busy).is_empty());
         let held = waiter_runs(&db, 1);
-        assert!(look(&mut store, "working", 32).is_empty());
+        assert!(look(&mut store, &busy).is_empty());
+        ends_turn(&db, "sess-1");
         drop(held);
-        assert!(look(&mut store, "idle", 33).is_empty());
-        assert!(look(&mut store, "idle", 33).is_empty());
+        let idle = agents(&[("sess-1", "idle")]);
+        assert!(look(&mut store, &idle).is_empty());
+        assert!(look(&mut store, &idle).is_empty());
+        assert!(items(&mut store).is_empty());
     }
 
     #[test]
-    fn a_new_session_or_no_seq_from_herdr_starts_the_look_afresh() {
+    fn a_short_turn_between_two_looks_is_counted() {
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let look = |store: &mut Store, session: &str, seq: i64| {
-            check_leads(
-                store,
-                &db,
-                &agents(&[(session, "idle", seq)]),
-                10,
-                &mut HashMap::new(),
-            )
+        let idle = agents(&[("sess-1", "idle")]);
+        // Seen idle with no waiter; a whole turn starts and ends before the next look, which
+        // sees it idle again: the hook counted the turn, so it is not listening.
+        assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+        ends_turn(&db, "sess-1");
+        assert_eq!(look_with(&mut store, &db, &idle, 30).len(), 1);
+    }
+
+    #[test]
+    fn a_new_session_starts_the_look_afresh() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        let look = |store: &mut Store, session: &str| {
+            look_with(store, &db, &agents(&[(session, "idle")]), 10)
         };
-        assert!(look(&mut store, "sess-1", 5).is_empty());
-        // The lead restarted and attached again: another session's seqs mean nothing to 5.
+        assert!(look(&mut store, "sess-1").is_empty());
+        // The lead restarted and attached again: what the watch saw of sess-1 goes.
+        ends_turn(&db, "sess-1");
         store.attach_lead(RepoId(1), "sess-2").unwrap();
-        assert!(look(&mut store, "sess-2", 40).is_empty());
-        assert!(look(&mut store, "sess-2", 40).is_empty());
-        assert_eq!(look(&mut store, "sess-2", 41).len(), 1);
-        // A herdr that gives no seq cannot say a turn finished: idle never raises.
-        let (_dir, db, mut store) = board();
-        store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let bare =
-            r#"{"result":{"agents":[{"agent_session":{"value":"sess-1"},"agent_status":"idle"}]}}"#;
-        for _ in 0..3 {
-            assert!(check_leads(&mut store, &db, bare, 10, &mut HashMap::new()).is_empty());
-        }
+        assert!(look(&mut store, "sess-2").is_empty());
+        assert!(look(&mut store, "sess-2").is_empty());
+        ends_turn(&db, "sess-2");
+        assert_eq!(look(&mut store, "sess-2").len(), 1);
     }
 
     #[test]
     fn an_episode_its_thread_resolved_by_hand_ends_quietly_when_a_waiter_runs() {
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let look = |store: &mut Store, seq: i64| {
-            check_leads(
-                store,
-                &db,
-                &agents(&[("sess-1", "idle", seq)]),
-                10,
-                &mut HashMap::new(),
-            )
+        let idle = agents(&[("sess-1", "idle")]);
+        let look = |store: &mut Store| {
+            ends_turn(&db, "sess-1");
+            look_with(store, &db, &idle, 10)
         };
-        assert!(look(&mut store, 1).is_empty());
-        assert_eq!(look(&mut store, 2).len(), 1);
+        assert!(look(&mut store).is_empty());
+        assert_eq!(look(&mut store).len(), 1);
         store
             .resolve_thread(ThreadId(3), "cat-lead", "re-armed")
             .unwrap();
         // Still deaf: no second item while the episode is open.
-        assert!(look(&mut store, 3).is_empty());
+        assert!(look(&mut store).is_empty());
         let _held = waiter_runs(&db, 1);
         assert_eq!(
-            look(&mut store, 4),
+            look(&mut store),
             ["Catalogue, the lead of R1, listens again; resolved T3"]
         );
         let thread = store.thread(ThreadId(3)).unwrap();
@@ -1328,18 +1357,12 @@ mod tests {
     fn the_watchs_own_not_listening_posts_are_never_the_leads_unread() {
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let gone = agents(&[("sess-x", "idle", 1)]);
-        assert_eq!(
-            check_leads(&mut store, &db, &gone, 10, &mut HashMap::new()).len(),
-            1
-        );
+        let gone = agents(&[("sess-x", "idle")]);
+        assert_eq!(look_with(&mut store, &db, &gone, 10).len(), 1);
         // The owner answering there is for the lead; the watch's own posts are not.
         store.post(ThreadId(3), "manager", "please re-arm").unwrap();
         let _held = waiter_runs(&db, 1);
-        assert_eq!(
-            check_leads(&mut store, &db, &gone, 20, &mut HashMap::new()).len(),
-            1
-        );
+        assert_eq!(look_with(&mut store, &db, &gone, 20).len(), 1);
         assert_eq!(told(&mut store, 1), ["[T3] manager: please re-arm"]);
         // A system post anywhere else (a flag in a task's thread) still is.
         store.exec_sql(
@@ -1349,14 +1372,40 @@ mod tests {
     }
 
     #[test]
-    fn a_list_herdr_garbled_is_one_logged_line() {
+    fn a_claude_list_failing_or_garbled_is_one_logged_line_and_changes_nothing() {
         let (_dir, db, mut store) = board();
-        let log = check_leads(&mut store, &db, "nonsense", 10, &mut HashMap::new());
-        assert_eq!(log.len(), 1);
+        // Both leads attached, neither listening, the lead of R1 seen idle once.
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        store.attach_lead(RepoId(2), "sess-2").unwrap();
+        let idle = agents(&[("sess-1", "idle"), ("sess-2", "busy")]);
+        assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+        ends_turn(&db, "sess-1");
+        let before = store.leads().unwrap();
+        // Garbled, or claude failing: asked once for both leads, one line, nothing raised.
+        let asked = std::cell::Cell::new(0);
+        let garbled = || {
+            asked.set(asked.get() + 1);
+            Ok("nonsense".to_string())
+        };
+        let log = check_leads(&mut store, &db, garbled, 20, &mut HashMap::new());
+        assert_eq!(asked.get(), 1);
+        assert_eq!(log.len(), 1, "{log:?}");
         assert!(
-            log[0].starts_with("could not check the leads are listening: herdr agent list"),
+            log[0].starts_with(
+                "could not check the leads are listening: claude agents --json said something \
+                 unexpected"
+            ),
             "{log:?}"
         );
+        let failing = || -> Result<String> { anyhow::bail!("claude agents --json exited 1: no") };
+        assert_eq!(
+            check_leads(&mut store, &db, failing, 20, &mut HashMap::new()),
+            ["could not check the leads are listening: claude agents --json exited 1: no"]
+        );
+        assert_eq!(store.leads().unwrap(), before);
+        assert!(items(&mut store).is_empty());
+        // Read again, the turn it ended is still there to raise.
+        assert_eq!(look_with(&mut store, &db, &idle, 30).len(), 1);
     }
 
     fn start(session: &str, source: &str, title: Option<&str>) -> String {
@@ -1600,9 +1649,10 @@ mod tests {
         // Neither lead attached; R2's has its waiter running.
         let r2 = waiter_runs(&db, 2);
         let mut unheard = HashMap::new();
-        let list = agents(&[("sess-x", "idle", 1)]);
-        let mut look =
-            |store: &mut Store, now: i64| check_leads(store, &db, &list, now, &mut unheard);
+        let list = agents(&[("sess-x", "idle")]);
+        let mut look = |store: &mut Store, now: i64| {
+            check_leads(store, &db, || Ok(list.clone()), now, &mut unheard)
+        };
         // First seen at 100, with no listener: within the grace, nothing.
         assert!(look(&mut store, 100).is_empty());
         assert!(look(&mut store, 100 + NO_SESSION_GRACE - 1).is_empty());
@@ -1635,11 +1685,11 @@ mod tests {
         drop(r1);
         assert!(look(&mut store, 2001).is_empty());
         assert!(look(&mut store, 2001 + NO_SESSION_GRACE - 1).is_empty());
-        // Attached, it is checked by its herdr session instead, and its grace is forgotten:
+        // Attached, it is checked by its Claude session instead, and its grace is forgotten:
         // detached again later, the grace starts from then.
         store.attach_lead(RepoId(1), "sess-1").unwrap();
-        let list = agents(&[("sess-1", "working", 4)]);
-        assert!(check_leads(&mut store, &db, &list, 3000, &mut unheard).is_empty());
+        let list = agents(&[("sess-1", "busy")]);
+        assert!(check_leads(&mut store, &db, || Ok(list.clone()), 3000, &mut unheard).is_empty());
         assert!(unheard.is_empty());
         drop(r2);
     }
@@ -1649,9 +1699,10 @@ mod tests {
         let (_dir, db, mut store) = board();
         let _r2 = waiter_runs(&db, 2);
         let mut unheard = HashMap::new();
-        let list = agents(&[("sess-x", "idle", 1)]);
-        let mut look =
-            |store: &mut Store, now: i64| check_leads(store, &db, &list, now, &mut unheard);
+        let list = agents(&[("sess-x", "idle")]);
+        let mut look = |store: &mut Store, now: i64| {
+            check_leads(store, &db, || Ok(list.clone()), now, &mut unheard)
+        };
         let raised = "Next, the lead of R1, is not listening (no Claude session is attached to it \
                       (tower lead attach)); told the owner in T3";
         // R1's lead, first seen at 100, is taken off inside its grace, and a new lead is
