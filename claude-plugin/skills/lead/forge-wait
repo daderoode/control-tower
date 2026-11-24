@@ -21,6 +21,7 @@ if read -r old 2> /dev/null < "$pidf" && [ "$old" != $$ ] &&
   exit 0
 fi
 echo $$ > "$pidf"
+trap '[ "$(cat "$pidf" 2> /dev/null)" = $$ ] && rm -f "$pidf"' EXIT
 [ -s "$since" ] || date -u +%Y-%m-%dT%H:%M:%SZ > "$since"
 touch "$seen"
 case "$(git remote get-url origin)" in *github.com*) forge=github ;; *) forge=gitlab ;; esac

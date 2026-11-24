@@ -119,8 +119,8 @@ implement, test or review.
    action ran on the owner's approval in the acting session, or on an allow rule they set.
 9. **One fresh implementer per issue.** Each issue gets a new implementer in its own
    worktree, never one reused from another issue, closed as Workers says; standing roles
-   (see Workers) sit beside them, and reviewers are short-lived, one per PR. A deploy step
-   goes to the deployer, or to the owner when there is none. Why: a reused
+   (see Workers) sit beside them, and reviewers are short-lived, each serving one PR. A
+   deploy step goes to the deployer, or to the owner when there is none. Why: a reused
    worker carries stale context and hides each issue's lifecycle; standing roles keep you
    coordinating instead of doing. Check: no worker spans two issues, and you never draft an
    issue the analyst is drafting, deploy, or run the checks a reporter runs.
@@ -459,9 +459,9 @@ and `tower repo show <R>` lists threads by title.
     the owner's approval given as principle 8 says;
   - **reporter:** watches the live system and reports on the board, never changing it.
 
-  A standing worker runs in its own tab or space under you with no worktree (its working
-  directory the hand-off folder), is named by its role and the repo (`qa-R1`), and takes
-  one item at a time from you. The standby and close-when-done rules below do not apply to
+  A standing worker runs in its own tab under you with no worktree, working in a folder of
+  its own outside any worktree, is named by its role and the repo (`qa-R1`), and takes one
+  item at a time from you. The standby and close-when-done rules below do not apply to
   it: you close it when the milestone ends.
 - **Start a worker only when it has something to act on:** a tester when there is something
   to test, a reviewer when its stage is ready, never a worker on standby.
