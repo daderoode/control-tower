@@ -463,8 +463,10 @@ pub fn hook(db: &Path, input: &str) -> Result<Option<String>> {
     })?;
     if reason.is_empty() {
         // The turn ends, with nothing told that a failed count could lose.
+        // Asked again inside the count's own write: a waiter whose lock lands meanwhile is
+        // seen, or writes its baseline after the count (`Store::lead_turn_ended`).
         if !waiting {
-            store.lead_turn_ended(repo, &input.session_id)?;
+            store.lead_turn_ended(repo, &input.session_id, || listening(db, repo))?;
         }
         return Ok(None);
     }
@@ -489,7 +491,7 @@ pub fn turn_failed(db: &Path, input: &str) -> Result<()> {
         return Ok(());
     };
     if !listening(db, repo)? {
-        Store::open(db)?.lead_turn_ended(repo, &input.session_id)?;
+        Store::open(db)?.lead_turn_ended(repo, &input.session_id, || listening(db, repo))?;
     }
     Ok(())
 }

@@ -3418,17 +3418,35 @@ impl Store {
         Ok(())
     }
 
-    /// The Claude session `session` ended a turn with no waiter running: one more for the
-    /// lead of `repo`, if `session` is still the one it attached (the Stop hook's count,
-    /// which the watch reads to know a lead finished a turn without re-arming).
-    pub fn lead_turn_ended(&mut self, repo: RepoId, session: &str) -> Result<()> {
-        self.conn
+    /// The Claude session `session` ended a turn: one more turn ended with no waiter running
+    /// for the lead of `repo`, if `session` is still the one it attached and `waiting` (is a
+    /// waiter running?) says no (the Stop hook's count, which the watch reads to know a lead
+    /// finished a turn without re-arming). `waiting` is asked inside this write's own
+    /// transaction, so a waiter that took its lock first is seen, and one that takes it
+    /// later writes its baseline (`lead_waiter_armed`) after this commits, absorbing the
+    /// count. Returns whether it counted.
+    pub fn lead_turn_ended(
+        &mut self,
+        repo: RepoId,
+        session: &str,
+        waiting: impl FnOnce() -> Result<bool>,
+    ) -> Result<bool> {
+        let cannot_write = self.cannot_write();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context(cannot_write.clone())?;
+        if waiting()? {
+            return Ok(false);
+        }
+        let n = tx
             .execute(
                 "UPDATE lead SET turns = turns + 1 WHERE repo_id = ?1 AND claude_session = ?2",
                 params![repo.0, session],
             )
-            .context(self.cannot_write())?;
-        Ok(())
+            .context(cannot_write.clone())?;
+        tx.commit().context(cannot_write)?;
+        Ok(n > 0)
     }
 
     /// The lead of `repo` is listening: ends its "lead not listening" episode, if one is

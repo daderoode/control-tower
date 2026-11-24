@@ -3225,6 +3225,40 @@ fn a_lead_turn_ended_on_an_api_error_is_counted_and_never_told() {
 }
 
 #[test]
+fn a_stop_counted_while_a_waiter_arms_is_absorbed_by_its_baseline() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let (_dir, db) = attached_lead_board();
+    // Another writer holds the board, so the lead's Stop hook (no waiter running yet) queues
+    // behind it.
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let mut hook = Command::new(env!("CARGO_BIN_EXE_tower"))
+        .args(["lead", "hook"])
+        .env("TOWER_DB", &db)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    (hook.stdin.take().unwrap())
+        .write_all(br#"{"session_id":"sess-1","hook_event_name":"Stop"}"#)
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    // Meanwhile the re-armed waiter takes its lock and its baseline lands first, as
+    // `tower lead wait` writes it.
+    let _waiter = r1_waiter_runs(&db);
+    conn.execute_batch("UPDATE lead SET quiet_turns = turns WHERE repo_id = 1; COMMIT")
+        .unwrap();
+    let out = hook.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout), "");
+    // The hook saw the waiter inside its own write: the count stays at the baseline.
+    let lead = &Store::open(&db).unwrap().leads().unwrap()[0];
+    assert_eq!(Some(lead.turns), lead.quiet_turns, "{lead:?}");
+}
+
+#[test]
 fn a_turn_counted_just_before_the_re_armed_waiter_takes_its_lock_never_raises() {
     let (_dir, db) = attached_lead_board();
     // A look sees its waiter, which then ends.
