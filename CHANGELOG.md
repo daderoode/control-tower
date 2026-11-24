@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-24
+
 ### Changed
 
 - **A message keeps its first line's indent.** A message or evidence whose first line was
