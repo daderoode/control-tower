@@ -9,6 +9,20 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Changed
+
+- **The lead skill carries the principles of a lead that worked.** Twelve short rules, each
+  with its reason and how a lead can tell it follows them: verify a claim before relaying
+  it, targeted briefs for reviewers and testers, testing on what ships with a bug's baseline
+  first, owner questions that stand alone, one release report shape, the steps run listed on
+  every finish note and release report, every owner correction written down at once,
+  production approvals given where the action runs, one fresh implementer per issue, cycle
+  time measured, a protocol for shared test resources, and quiet by default. Optional
+  standing roles (analyst, QA, deployer, reporter) may sit beside the per-issue workers. The
+  forge waiter is now a script shipped beside the skill (`forge-wait`) instead of one the
+  lead writes into the git directory, and it sees a waiter started from the old copy as
+  already running (#84).
+
 ## [0.5.3] - 2026-11-24
 
 ### Changed
