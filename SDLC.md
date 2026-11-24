@@ -210,7 +210,8 @@ lifecycle applies.
   - `control-tower UI v0.1.4.html` (the fold);
   - `control-tower UI v0.1.7.html`;
   - `control-tower UI v0.1.12.html` (the resolved threads folded);
-  - `control-tower UI v0.1.13.html`.
+  - `control-tower UI v0.1.13.html`;
+  - `control-tower UI v0.1.14.html`.
 
   The spec kept with them records each file's sha256 and listed changes.
 - A UI change gets a new versioned copy, signed off by the owner in their own herdr or an

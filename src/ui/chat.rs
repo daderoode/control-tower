@@ -37,8 +37,8 @@ use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message_board::{
-    dropped, fold_spaces, highlight_marked, rest_after, role_colour, units, wrap, wrap_event_line,
-    wrap_line_paths,
+    dropped, fold_spaces, highlight_marked, may_tone_tag, rest_after, role_colour, units, wrap,
+    wrap_event_line, wrap_line_paths,
 };
 use super::theme::{Depth, accent, bad, bold, dim, fit, info, selected_bg, warn};
 use crate::board::{
@@ -1138,8 +1138,12 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
                     Span::styled(text.to_string(), style),
                 ]
             } else {
+                // A leading tag toned on its first piece only as `may_tone_tag` says: a
+                // wide indent is dropped where it wraps, so the piece's own start is not
+                // the message's.
                 let awareness = tone_of(m) == Tone::Awareness;
-                highlight_marked(piece, marks, *head, awareness, depth)
+                let head = *head && may_tone_tag(&m.text);
+                highlight_marked(piece, marks, head, awareness, depth)
             };
             bubble_line(w, owner, *bw, edge, bg, s)
         }
@@ -2627,6 +2631,52 @@ mod tests {
             rows.iter().any(|r| matches!(r, Row::Name { .. })),
             "{rows:#?}"
         );
+    }
+
+    #[test]
+    fn a_first_lines_tag_after_an_indent_wider_than_the_bubble_stays_plain() {
+        // At chat 40 an indent of 44 spaces is wider than the bubble's text, so the wrap
+        // drops it and the first piece starts with the tag. The copy tones the raw text,
+        // which starts with spaces: both draw plain, as the name lines show no tag. The
+        // control, with no indent, is toned.
+        let indent = " ".repeat(44);
+        let m = msgs(&[
+            (
+                "dev-2",
+                &format!("{indent}blocked: the press is jammed again"),
+                0,
+            ),
+            (
+                "dev-1",
+                &format!("{indent}decision: the rye goes in first. @manager for your awareness"),
+                60,
+            ),
+            ("qa", "blocked: the oven door sticks", 120),
+        ]);
+        let none = BTreeSet::new();
+        let rows = plan(&m, 0, 40, shape(&none, 180, People::default()));
+        let ctx = Ctx {
+            msgs: &m,
+            people: People::default(),
+            now: 180,
+            depth: Depth::TrueColor,
+            selected: None,
+        };
+        let drawn = lines(&rows, 40, &ctx);
+        for (start, tag, toned) in [
+            ("blocked: the press", "blocked:", false),
+            ("decision: the rye", "decision:", false),
+            ("blocked: the oven", "blocked:", true),
+        ] {
+            let line = (drawn.iter())
+                .find(|l| l.to_string().contains(start))
+                .unwrap_or_else(|| panic!("{start}: {drawn:#?}"));
+            let span = (line.spans.iter())
+                .find(|s| s.content.starts_with(tag))
+                .unwrap_or_else(|| panic!("{start}: {line:?}"));
+            let bold = span.style.add_modifier.contains(Modifier::BOLD);
+            assert_eq!(bold, toned, "{start}: {line:?}");
+        }
     }
 
     #[test]

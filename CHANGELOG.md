@@ -9,6 +9,17 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Changed
+
+- **A message keeps its first line's indent.** A message or evidence whose first line was
+  indented lost that indent, so a list posted on its own read out of line: the first item at
+  the text's column, the rest indented. Every write now drops only leading blank lines (and,
+  as before, a hidden whitespace character such as a form feed before the text) and trims the
+  end, keeping the first line's indent, as the UI design's composer (v0.1.14) does.
+  A tag after an indent (`   blocked:`) is plain text, as in the design: where it stands and
+  the inbox no longer tone it once its spaces are folded, and it never makes a message
+  blocked, a question or a decision (#16).
+
 ### Fixed
 
 - **A word breaks after a hyphen between two Hebrew letters.** A word with a hyphen (`-`, a
