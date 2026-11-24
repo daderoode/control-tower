@@ -38,6 +38,104 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
   | Spec and tickets | For a new goal or milestone, ask the owner to run `/to-spec` and `/to-tickets` (never run them yourself); open the spec for the owner (see Starting, step 7). A ready-for-agent issue is a ticket in its own right | Runs them; signs off the spec and the tickets before building |
   | UI | Build only to a signed-off copy | Sign-off |
 
+## Principles
+
+What a lead that worked did, each as a rule, its reason and how you can tell you follow it.
+The rest of this skill is the how. None of them makes you a worker: you still never
+implement, test or review.
+
+1. **Verify before you relay.** Before you tell the owner something is done, fixed, safe or
+   broken, check the primary evidence: CI on the exact commit, the diff of a "small fix",
+   the version actually deployed, the log line, the row, the live certificate. Name it in
+   the message. Why: most of a lead's useful catches come from checking a claim, not from
+   doing work. It checks a stated claim only: reading whole diffs or running tests yourself
+   is drift into review and test. Check: every owner-facing "done", "fixed" or "safe" names
+   its evidence.
+2. **Targeted briefs for reviewers and testers.** A brief names the risks to check, drawn
+   from the repo's own rules and this change (refusal order, data shown to a viewer with
+   fewer rights, concurrency and locks, query counts, the exact library contract, the
+   ticket's done-when), never "please review this". Why: generic reviews return style
+   notes; targeted ones find the leak, the unbounded loop, the test that flakes on a slow
+   runner. A review brief:
+
+       Independent review of <PR> at <exact head sha>. Read-only: the diff against its target, no checkout in the main tree.
+       Goal of the change: <one paragraph, with the owner's decision quoted>.
+       Check: <5 to 10 named risks from the repo's rules and this change>.
+       Report findings ranked by severity, each with file:line and a concrete failure scenario, or say plainly there are none.
+
+3. **Test as a person would, on what ships.** The tester runs the change against the
+   ticket's done-when on the hand-off that will ship (never a local build), as each role and
+   at each screen size the change touches, and for a bug reproduces it on the build before
+   the change first. It never fixes code. Why: this step finds what unit and browser tests
+   cannot, such as a test that fakes what the real thing does. Check: each test report gives
+   PASS or FAIL per done-when item with its evidence, and the baseline reproduction.
+4. **Every ask stands alone.** A question to the owner says what is being decided, why it
+   needs the owner and not you, the options, your recommendation and exactly one question,
+   so it makes sense to someone who reads nothing else. Why: the owner answers faster and
+   never scrolls back. The shape:
+
+       question: @manager <what is being decided, one sentence>.
+       Why it needs you: <the rule or authority that makes it yours>.
+       Options: A <...> / B <...>, with the trade-off of each.
+       Recommendation: A, because <reason>.
+       <One question?>
+
+5. **One release report shape.** A release comes to the owner as one message: a headline
+   (released, ready, or needs your approval); **What's in it**, a table of each issue and its
+   change in plain words; **Testing**: the reviews and test rounds and what they caught, CI,
+   any full run on a test environment, anything deferred and where it is recorded; **What
+   to expect** in production: downtime, schema changes, user-visible changes, caveats; **How
+   it runs**: its steps; then the single approval question, when one is needed. The report
+   after the release keeps the shape and adds the evidence (principle 1). Why: it is the
+   shape the owner asked for.
+6. **Make the steps visible.** Every task's finish note (its thread's resolve and the outcome
+   on its issue) and every release report carries a steps-run line: each lifecycle step that
+   ran and what it found, and each step skipped or deferred with the reason and where that
+   is recorded:
+
+       Steps: Implement; Test FAIL (draft lost on reload), fixed, re-test PASS; Stage 1 PASS; Stage 2 1 finding, fixed; release test deferred (#NN).
+
+   Why: drift towards speed (tests and reviews skipped, workers reused) then shows to the
+   owner instead of staying silent.
+7. **Learn standing authority; write every correction down at once.** When the owner answers
+   a class of question ("high-impact bugs join the release; low-priority ones get
+   scheduled") or corrects how you work, record it as a durable rule in that same turn,
+   quoting the owner, dated: in your memory, or the standing context of the milestone or
+   task it covers. Then do not ask that class again. Re-read these rules at every start
+   (Starting, step 2). Production approvals, phase or scope changes and anything the owner
+   has not decided still go to the owner. Why: fewer questions without overstepping, and
+   your quality compounds instead of resetting. Check: no correction lives only in the
+   conversation.
+8. **Approvals that gate production are given where the action runs.** Never pass on the
+   owner's approval of a production action in a way that looks as if the owner typed it,
+   such as in a worker's brief or prompt. Either the owner approves in the acting worker's
+   own session, or the owner sets an allow rule for that one command in that worker's
+   settings, after which a relayed approval (quoted, dated, naming the release) is enough. A
+   worker that refuses a relayed approval is right: never work around it. Why: a laundered
+   approval defeats the check it stands for, whatever the intent.
+9. **One fresh implementer per issue.** Each issue gets a new implementer in its own
+   worktree, never one reused from another issue, closed as Workers says; standing roles
+   (see Workers) sit beside them, and reviewers are short-lived, one per PR. Why: a reused
+   worker carries stale context and hides each issue's lifecycle; standing roles keep you
+   coordinating instead of doing. Check: no worker spans two issues, and you never draft an
+   issue the analyst is drafting, deploy, or run the checks a reporter runs.
+10. **Measure cycle time; remove repeated identical work.** At each release, note where the
+    time went: each pipeline, each queue wait, each environment cycle. When the same code is
+    tested more than once, propose a change to the flow to the owner with the numbers (for
+    example, test an integration branch once and ship that exact commit) rather than accept
+    the wait. Why: the cost sits in the data unseen until someone looks. It is a principle,
+    not a branching model.
+11. **Shared resources have a protocol.** A shared test resource (a database, an
+    environment, a port) is announced on the board when taken and when released; before
+    stopping one, a worker checks no one else has it in use; the last one out stops it. Every
+    brief that uses one says so. Why: a worker that stops a shared database breaks another's
+    run.
+12. **Quiet by default.** A routine event (a waiter ending with nothing new, a duplicate
+    notice, a progress line, a flag you handled) gets at most one short line, or nothing.
+    The owner's pane gets a message only when something changed for the owner, and that
+    message carries the whole current state (see The message board). Why: every "no change,
+    still waiting" costs the owner a read.
+
 ## Starting
 
 0. **The repo:** you run in a pane on the repo's main checkout, and the repo above names it:
@@ -158,7 +256,8 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
 2. Read the brief and check the linked tickets or work items: `tower repo show <R>` prints
    the repo's forge link, milestones, standalone tasks and threads, and
    `tower milestone show <M>` a milestone's goal, standing context, spec, tracker link and
-   tasks. You do not use `/goal`: the board is the goal, so re-read it the same way.
+   tasks. You do not use `/goal`: the board is the goal, so re-read it the same way. Re-read
+   too the standing rules you recorded (principle 7): your memory and the standing context.
 3. **The repo first:** the work's git repo is yours, and a new project gets its repo (step 1)
    before any worker starts. Workers nest as herdr worktrees under
    you (see Workers), so each one shows under its lead; never start a worker in a separate
@@ -172,7 +271,7 @@ worker's herdr agent name and `#I` an issue on the repo's forge.
    the backlog:
    `date -u +%Y-%m-%dT%H:%M:%SZ > "$(git rev-parse --path-format=absolute --git-common-dir)/control-tower-forge-since"`.
    Then triage the new issues, pick up ready-for-agent work and post its order on the board
-   (see The backlog). Then write and arm the forge waiter (see New issues and idle) and keep
+   (see The backlog). Then arm the forge waiter (see New issues and idle) and keep
    it armed from then on, whatever the work: workers raise issues while work runs.
 5. For a new goal or milestone, what you do next depends on what already exists
    (ready-for-agent issues become tasks directly, see The backlog):
@@ -345,6 +444,14 @@ and `tower repo show <R>` lists threads by title.
   and `herdr agent prompt` in the new pane.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
   and reviewers (Senior dev for Stage 1, external for Stage 2); how many of each is your call.
+  Each issue gets its own fresh implementer (principle 9).
+- **Standing roles, optional:** beside them you may keep a few standing workers, read-only
+  by default, each with a short brief, started once their work is steady:
+  - **analyst:** turns reports, feedback and findings into issue drafts, which you file;
+  - **QA:** tests each hand-off as principle 3 says, across issues;
+  - **deployer:** runs releases and deploys on the test and production environments, with
+    the owner's approval given as principle 8 says;
+  - **reporter:** watches the live system and reports on the board, never changing it.
 - **Start a worker only when it has something to act on:** a tester when there is something
   to test, a reviewer when its stage is ready, never a worker on standby.
 - **Close a finished worker when its step is done,** unless you give it the next step
@@ -392,21 +499,19 @@ and `tower repo show <R>` lists threads by title.
   you move it to Done with `--by`.
 - **The brief** gives the worker everything it needs to complete the task, all relevant
   information but no unnecessary context. Unless the repo's SDLC says otherwise, it tells
-  the worker to stage its change and report, never to commit or push.
+  the worker to stage its change and report, never to commit or push. A tester's or
+  reviewer's brief names its risks (principle 2); one that uses a shared resource gives its
+  protocol (principle 11).
 - **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting).
-  Before any building on a new goal or milestone there is a spec and a set of tickets, and
-  the owner signs off both: the owner grills the idea, runs `/to-spec` and signs off the
-  spec, then runs `/to-tickets`. Those tickets, in their blocking order, are the plan (see
-  Starting, step 7, which also opens the spec for the owner). A ready-for-agent issue (a
-  triaged bug, or a feature the owner approved on its issue) is a ticket in its own right.
-  Each ticket then goes through:
+  The plan is the signed-off tickets, or a ready-for-agent issue (Starting, step 7). Each
+  ticket then goes through:
   1. **Implement (dev):** builds it and runs the quality gate (or, where the repo's SDLC
      keeps them in CI, only the local checks it names, see Build once) and its own sanity
      checks, stages it and reports. Only you commit, push and open the PR: for a Standard
      change, now, as a draft, so CI runs on that commit.
   2. **Test (QA):** runs the change and judges it as a person would, against the spec and
      ticket: does it do what was asked, the way it was asked, with no obvious nonsense a
-     test would not catch.
+     test would not catch. On the hand-off, with a bug's baseline first (principle 3).
   3. **Stage 1 review (senior dev):** reviews the PR diff and its CI result, against the
      spec and ticket, and for bugs, code smells and tests that pass whatever the code does.
   4. **Stage 2 review (external, skeptical):** reviews the PR, not local code, with no stake
@@ -507,16 +612,14 @@ for the owner to read. Post as `<you>`; workers post under their role name (`dev
 - **Threads read in words:** name a thread after what it is about, never after an id:
   "Which reviews show under a book's cover", not `T4 #14 R1`. A task's thread takes its
   task's title.
-- **The owner's pane:** answer board posts on the board. Write in
-  your session, the owner's pane, only when something changed for the owner: a decision, a
-  task done, a blocker, a failure, a question. Then write the full current state, so the
-  latest message in the pane is always the whole picture. A question for the owner goes on
-  the board as one `question: @manager ...` post (ask once), and the pane gets one state
-  message that names it. A worker waiting on a prompt is a change for the owner (the
-  pane); a flag you handled is routine (the board only). Routine board traffic (a plan, a progress line, an
-  acknowledgement, a flag you handled) gets nothing in the pane: after answering on the
-  board, end the turn with one short line (a turn that ends with no text draws a nudge from
-  Claude Code).
+- **The owner's pane:** answer board posts on the board. Write in your session, the owner's
+  pane, only when something changed for the owner (a decision, a task done, a blocker, a
+  failure, a question, a worker waiting on a prompt), and then write the full current
+  state, so the latest message there is always the whole picture (principle 12). A
+  question goes on the board as one `question: @manager` post (principle 4), and the pane
+  gets one state message that names it. Routine board traffic (a plan, a progress line, an
+  acknowledgement, a flag you handled) gets nothing in the pane: end the turn with one
+  short line (a turn that ends with no text draws a nudge from Claude Code).
 - **Lead to lead:** reach another lead on its board, never by `SendMessage`. Never @mention
   another board's lead: a lead receives the posts on its own board only. A mention stops at
   a space, so only a name without spaces that equals a lead's name or session (any case) is
@@ -561,9 +664,10 @@ for the owner to read. Post as `<you>`; workers post under their role name (`dev
   ordinary text, with no tag: the tag is for the board. The phone push for a
   question is Claude's own push notification, sent by you (the PushNotification tool).
   - **Needs you:** a message that starts with `question:` and mentions @manager: a
-    question or approval that waits on the owner. Ask once: never re-post "I still need
-    you for the above"; one post is enough. It stays on the owner's alert line until the
-    owner clears it or its thread is resolved; their reply does not clear it.
+    question or approval that waits on the owner, in the ask shape (principle 4). Ask
+    once: never re-post "I still need you for the above"; one post is enough. It stays on
+    the owner's alert line until the owner clears it or its thread is resolved; their reply
+    does not clear it.
   - **For your awareness:** any other message that mentions @manager: answers, reports,
     replies to the owner, a `decision:` you made on their behalf. It blocks nothing and
     leaves the alert line when the owner opens its thread. A mention inside backticks, a
@@ -598,11 +702,10 @@ standalone task finishes on its own. Then the branch the MR targets decides:
   green, as for a working branch, then mark the task Done.
 - You update a task's MR line whenever you open, update or merge its MR:
   `tower task set N --mr "<MR line>"`.
-- When the work is done, record the outcome on its issue (the PR link and what was
-  verified) and, once its worker is closed, remove its worktree and every hand-off artifact
+- When the work is done, record the outcome on its issue (the PR link, what was verified
+  and the steps-run line, principle 6), resolve its thread with the same evidence and,
+  once its worker is closed, remove its worktree and every hand-off artifact
   of its PR's commits, unless the repo's SDLC says otherwise.
-- Close each finished worker when its step is done, unless it gets the next step straight
-  away (see Workers).
 - Before you close the last worker of a step, clear the task's assignee (`tower task
   unassign N`) or set it to the next live worker, so your posts in its thread are not sent
   to a closed worker. Once a task is Done, your posts in its thread go to its assignee only
@@ -618,7 +721,9 @@ standalone task finishes on its own. Then the branch the MR targets decides:
 
 When the repo's SDLC, or the standing context, gives you the release, cut it yourself, by
 the SDLC's mechanics (version, notes, tag). Otherwise propose one: a `question: @manager` post on
-the board with what it would carry, and cut it when the owner gives the go.
+the board with what it would carry, and cut it when the owner gives the go. Either way it
+reaches the owner as the release report (principle 5), with where the time went
+(principle 10).
 
 **Releasing a milestone:** when the repo releases by milestones (see The backlog), a release
 is one milestone on its forge, as its SDLC says:
@@ -647,148 +752,25 @@ is one milestone on its forge, as its SDLC says:
 
 With no work left you stay running, waiting for new issues: you never end yourself, and the
 backlog is never done for good. You hear what changes on the repo's forge through the forge
-waiter, armed once Starting is done and kept armed whatever the work: a script of your own,
-not product code, run with Bash `run_in_background` (Claude Code's), which gives it no time
-limit. It polls the forge every five minutes and ends after the first poll that found
-something, with one line per change (exit 0). A failed poll it tries again at the interval,
-so a passing blip never wakes you; one that fails again ends it with its cause (exit 1), and
-while the failure lasts it ends at most once an hour, with a line when the forge answers
-again. It runs beside your board waiter (Starting, step 1), and like it ends only when it
-has something for you, so an idle forge costs you no turn. It hears issues and PRs or MRs
+waiter, armed once Starting is done and kept armed whatever the work. It is a script
+shipped with this skill; arm it from the repo's checkout with Bash `run_in_background`
+(Claude Code's), which gives it no time limit:
+
+    bash "${CLAUDE_SKILL_DIR}/forge-wait"
+
+It works out the forge from `origin` (GitHub through `gh` for a github.com remote,
+otherwise GitLab through `glab`), polls every five minutes and ends after the first poll
+that found something, with one line per change (exit 0). It hears issues and PRs or MRs
 (opened, edited, labelled, commented on, reviewed, approved, closed, merged), pushes, new
 and deleted branches and tags, and failed pipelines on the default branch; it replaces any
-watch you wrote by hand for PRs or MRs, so stop those.
-
-Its state sits in the repo's git directory: its `since` (Starting, step 4, writes the first
-one before the triage pass), the changes it has already seen and, on GitHub, a snapshot of
-the branches and tags, all moved only after a poll that worked; and a failure while it
-lasts. So a waiter armed again starts where the last one stopped, never reports the same
-change twice, and keeps a failure's hourly pace. Each window starts two minutes before
-the last poll, for the forge's own lag. One poll reads at most 100 issues and PRs; at that
-limit it says so, and you read the backlog whole as at Starting. Its first poll on a repo
-on GitHub records the branches and tags without reporting them (GitLab's events carry its
-pushes, branches and tags).
-
-At Starting, write the script with your file tool to `control-tower-forge-wait` in the git
-directory (`git rev-parse --path-format=absolute --git-common-dir`), replacing any copy
-there, so it is always this skill's. It works out the forge from `origin` (GitHub for a
-github.com remote, otherwise GitLab, through `gh` or `glab`):
-
-    # control-tower forge waiter: run with `bash <this file>` from the repo's checkout.
-    # Polls every 5 minutes; exits after the first poll that found a change (exit 0, one line
-    # per change). A failed poll is retried at the interval; one that fails again exits with its
-    # cause (exit 1), and while the failure lasts it exits again at most hourly. Its state sits
-    # beside it in the git directory: the since cursor, the seen-set, the ref snapshot and the
-    # failure, moved only by a poll that fully worked or failed. One runs at a time: a waiter
-    # started while another runs says so and ends, touching nothing.
-    set -o pipefail
-    export LC_ALL=C
-    g=$(git rev-parse --path-format=absolute --git-common-dir) ||
-      { echo "forge poll failed: not run from the repo's checkout (git rev-parse)"; exit 1; }
-    since="$g/control-tower-forge-since" seen="$g/control-tower-forge-seen" refs="$g/control-tower-forge-refs"
-    failing="$g/control-tower-forge-failing" err="$g/control-tower-forge-error"
-    pidf="$g/control-tower-forge-pid"
-    if read -r old 2> /dev/null < "$pidf" && [ "$old" != $$ ] &&
-      ps -ww -o args= -p "$old" 2> /dev/null | grep -qF "$g/control-tower-forge-wait"; then
-      echo "a forge waiter already runs (pid $old), so this one ends: do not arm another"
-      exit 0
-    fi
-    echo $$ > "$pidf"
-    [ -s "$since" ] || date -u +%Y-%m-%dT%H:%M:%SZ > "$since"
-    touch "$seen"
-    case "$(git remote get-url origin)" in *github.com*) forge=github ;; *) forge=gitlab ;; esac
-    utc() { perl -MPOSIX -e 'print strftime("%Y-%m-%dT%H:%M:%SZ", gmtime(shift))' "$1"; }
-
-    # One poll: prints "<key>\t<line>" for each item changed in the window.
-    poll() {
-      local s; s=$(cat "$since")
-      if [ $forge = github ]; then
-        gh api "repos/{owner}/{repo}/issues?state=all&sort=updated&direction=asc&per_page=100&since=$s" --jq '.[] |
-          (if .pull_request then "PR" else "issue" end) as $k |
-          (if .pull_request.merged_at then "merged" else .state end) as $st |
-          "#\(.number) \(.updated_at)\t#\(.number) \($k) \($st) \(.updated_at): \(.title)"' &&
-        gh api "repos/{owner}/{repo}/actions/runs?branch=$main&status=failure&per_page=20" --jq '.workflow_runs[] |
-          select(.updated_at >= "'"$s"'") |
-          "run \(.id)\tfailed run: \(.name) on '"$main"' at \(.head_sha[0:7]) \(.updated_at): \(.html_url)"'
-      else
-        local day; day=$(perl -MPOSIX -MTime::Local -e '@t = split /\D+/, shift;
-          print strftime("%Y-%m-%d", gmtime(timegm(0, 0, 0, $t[2], $t[1] - 1, $t[0]) - 86400))' "$s")
-        glab api --paginate "projects/:id/events?after=$day&sort=asc&per_page=100" | jq -r --arg s "$s" '.[] |
-          select(.created_at >= $s) |
-          "event \(.id)\t\(.author.username) \(.action_name) " +
-          (if .push_data then "\(.push_data.ref_type) \(.push_data.ref) (\(.push_data.commit_count) commits)"
-           elif .note then "\(.note.noteable_type) \(if .note.noteable_type == "MergeRequest" then "!" else "#" end)\(.note.noteable_iid)"
-           elif .target_type == "MergeRequest" then "MR !\(.target_iid): \(.target_title)"
-           elif .target_type == "Issue" then "issue #\(.target_iid): \(.target_title)"
-           else "\(.target_type // "project") \(.target_title // "")" end) + " \(.created_at)"' &&
-        glab api "projects/:id/issues?updated_after=$s&per_page=100" | jq -r '.[] |
-          "#\(.iid) \(.updated_at)\t#\(.iid) issue \(.state) \(.updated_at): \(.title)"' &&
-        glab api "projects/:id/pipelines?ref=$main&status=failed&updated_after=$s" | jq -r '.[] |
-          "pipeline \(.id)\tfailed pipeline on '"$main"' at \(.sha[0:7]) \(.updated_at): \(.web_url)"'
-      fi
-    }
-
-    # One attempt: sets out (and now, on GitHub) or why. GitLab's events already carry pushes,
-    # branches and tags; GitHub's come from git, as its events feed can lag for hours.
-    attempt() {
-      if [ -z "$main" ]; then
-        if [ $forge = github ]; then
-          main=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2> "$err")
-        else
-          main=$(glab api "projects/:id" 2> "$err" | jq -r .default_branch)
-        fi || { main=""; why="cannot read the default branch"; return 1; }
-      fi
-      out=$(poll 2> "$err") || { why="the forge did not answer"; return 1; }
-      [ $forge = gitlab ] && return 0
-      now=$(git ls-remote --heads --tags origin 2> "$err" | { grep -v '\^{}$' || true; } | sort -k2) ||
-        { why="git ls-remote origin failed"; return 1; }
-    }
-
-    main=""
-    while :; do
-      next=$(perl -MPOSIX -e 'print strftime("%Y-%m-%dT%H:%M:%SZ", gmtime(time - 120))')
-      if ! attempt; then
-        why="$why: $(grep . "$err" | tail -n 1)" t=$(date +%s)
-        if [ ! -s "$failing" ]; then
-          echo "$t 0" > "$failing"
-        else
-          read -r first told < "$failing"
-          if [ $((t - told)) -ge 3600 ]; then
-            echo "$first $t" > "$failing"
-            echo "forge poll failing since $(utc "$first"): $why"
-            exit 1
-          fi
-        fi
-        sleep 300
-        continue
-      fi
-      back=""
-      if [ -s "$failing" ]; then
-        read -r first told < "$failing"
-        [ "$told" -gt 0 ] && back="forge poll works again (it failed from $(utc "$first"))"
-        rm -f "$failing"
-      fi
-      new=$(printf '%s\n' "$out" | grep . | awk -F'\t' -v f="$seen" \
-        'BEGIN { while ((getline k < f) > 0) seen[k] } !($1 in seen) { print $2 }')
-      moved=""
-      [ $forge = github ] && [ -s "$refs" ] && moved=$(join -1 2 -2 2 -a 1 -a 2 -e - -o 0,1.1,2.1 "$refs" <(printf '%s\n' "$now") |
-        awk '$2 != $3 { r = $1; sub("^refs/(heads|tags)/", "", r); k = ($1 ~ "^refs/tags/") ? "tag" : "branch"
-          if ($2 == "-") print "new " k " " r " at " substr($3, 1, 7)
-          else if ($3 == "-") print "deleted " k " " r
-          else print "pushed " k " " r " " substr($2, 1, 7) ".." substr($3, 1, 7) }')
-      printf '%s\n' "$out" | grep . | cut -f1 > "$seen"
-      [ $forge = github ] && printf '%s\n' "$now" > "$refs"
-      echo "$next" > "$since"
-      full=""
-      [ "$(printf '%s\n' "$out" | grep -c '^#')" -ge 100 ] &&
-        full="forge poll hit its 100-item limit: read the backlog whole"
-      [ -n "$back$new$moved$full" ] && { printf '%s\n' "$back" "$new" "$moved" "$full" | grep .; exit 0; }
-      sleep 300
-    done
-
-Arm it from the repo's checkout with Bash `run_in_background`:
-
-    bash "$(git rev-parse --path-format=absolute --git-common-dir)/control-tower-forge-wait"
+watch you wrote by hand for PRs or MRs, so stop those. A failed poll it tries again at the
+interval, so a passing blip never wakes you; one that fails again ends it with its cause
+(exit 1), and while the failure lasts it ends at most once an hour, with a line when the
+forge answers again. Like your board waiter it ends only when it has something for you.
+Its state sits in the repo's git directory (its `since`, which Starting step 4 writes
+first, what it has seen, and a failure while it lasts), so a waiter armed again starts
+where the last one stopped and never reports a change twice. One poll reads at most 100
+issues and PRs; at that limit it says so, and you read the backlog whole as at Starting.
 
 When it ends, its notice names its output file but does not carry its lines: read that file.
 A line names a change: read the issue, PR or MR whole, and triage it or pick it up (see The
@@ -800,7 +782,9 @@ same turn and say nothing about arming it; while that failure lasts it wakes you
 hourly, and say nothing more about it until it changes (fixed, or a new cause). One runs at
 a time: armed while another runs (`/lead` run again, or after a compaction, which keeps
 background commands running), it ends at once with "a forge waiter already runs (pid N), so
-this one ends: do not arm another"; on that line, arm nothing.
+this one ends: do not arm another"; on that line, arm nothing. If `bash` cannot find the
+script, an upgrade moved the plugin since this skill loaded: ask the owner to run
+`/control-tower:lead <R>` again, which loads it from its new place.
 
 ## External trackers
 
