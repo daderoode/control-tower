@@ -4,9 +4,8 @@
 //! terminal module opens on that repo's main checkout). The CLI refuses the first two to
 //! agents, so the dashboard makes them itself, through the store's checked writes (the same
 //! validation and transactions `tower` uses), each on a thread of its own so the UI never
-//! waits. The
-//! writing connection is opened on that thread and closed with it; the dashboard keeps
-//! reading through its read-only connection. The store's busy timeout bounds a write
+//! waits. The writing connection is opened on that thread and closed with it; the dashboard
+//! keeps reading through its read-only connection. The store's busy timeout bounds a write
 //! waiting on another writer.
 
 use std::ffi::OsString;
@@ -216,12 +215,12 @@ pub struct Start<'a> {
 /// A repo that is gone or already has a lead is refused before anything is written. In no
 /// repo (`at.repo` `None`): only the milestone is added, in `home`, and the skill registers
 /// the lead once it has its repo. A start the terminal fails is undone on the board
-/// (`undone`), or, where it cannot be, says so; the module leaves no half-made place.
-/// `tower_db`, when given, is set as `TOWER_DB` in the new place, so the lead uses the same
-/// board. A name a
-/// lead on the board has already (as its name or session, ignoring case), or a task's
-/// assignee, gets the milestone id after it (`Store::start_repo_lead`,
-/// `Store::start_lead_in_no_repo`).
+/// (`undone`), or, where it cannot be, says so. The module closes a place it opened but
+/// could not start Claude in; herdr cannot close a workspace whose `workspace create` reply
+/// it could not read, so that one stays open. `tower_db`, when given, is set as `TOWER_DB`
+/// in the new place, so the lead uses the same board. A name a lead on the board has
+/// already (as its name or session, ignoring case), or a task's assignee, gets the
+/// milestone id after it (`Store::start_repo_lead`, `Store::start_lead_in_no_repo`).
 pub fn start_lead(
     store: &mut Store,
     db: &Path,
@@ -533,24 +532,37 @@ mod tests {
             crate::terminal::herdr::shell_line(&lead_command("Audiobooks Lead", MilestoneId(3))),
             "claude -n 'Audiobooks Lead' '/control-tower:lead M3'"
         );
-        // The shell reads a quoted hostile text back as one word, exactly as given, and
-        // runs nothing in it.
+        // The shell reads the line back as its words, exactly as given, and runs nothing in
+        // them: a hostile text is quoted, and a plain word stays one word.
         let dir = tempfile::tempdir().unwrap();
         let pwned = dir.path().join("pwned");
         let hostile = format!(
             "a'; touch {p}; echo '$(touch {p}) `touch {p}` \"$HOME\" \\ \n x",
             p = pwned.display()
         );
+        // Each a word with no space, so only the plain characters decide its quoting. A
+        // file in the shell's directory, so a bare `*` would expand to it.
+        std::fs::write(dir.path().join("f"), "").unwrap();
+        let one_word = [
+            "it's", "$HOME", "a;b", "`id`", "*", "~", "a|b", "a&b", "a>b", "a\\b", "#c",
+        ];
+        let plain = ["-n", "/control-tower:lead", "x@y%z+1,2"];
+        let mut words = vec!["printf".to_string(), "%s|".to_string(), hostile];
+        words.extend(one_word.iter().chain(&plain).map(|w| w.to_string()));
         let out = std::process::Command::new("/bin/sh")
             .arg("-c")
-            .arg(format!("printf '%s|' {}", sh_quote(&hostile)))
+            .arg(crate::terminal::herdr::shell_line(&words))
+            .current_dir(dir.path())
             .output()
             .unwrap();
-        assert_eq!(
-            String::from_utf8(out.stdout).unwrap(),
-            format!("{hostile}|")
-        );
+        let want: String = words[2..].iter().map(|w| format!("{w}|")).collect();
+        assert_eq!(String::from_utf8(out.stdout).unwrap(), want);
         assert!(!pwned.exists());
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "it wrote a file"
+        );
     }
 
     /// A fake herdr in a temp dir: each call appends its arguments, joined by "|", to

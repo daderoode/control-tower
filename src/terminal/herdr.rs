@@ -157,7 +157,7 @@ fn parse_created(json: &str) -> Result<(String, String)> {
 /// as it is, any other in single quotes (`sh_quote`).
 pub fn shell_line(words: &[String]) -> String {
     let plain = |w: &str| {
-        !w.is_empty() && (w.chars()).all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c))
+        !w.is_empty() && (w.chars()).all(|c| c.is_ascii_alphanumeric() || "-_./:@%+,".contains(c))
     };
     (words.iter())
         .map(|w| if plain(w) { w.clone() } else { sh_quote(w) })
