@@ -22,8 +22,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+use crate::terminal::herdr::run as herdr;
 use crate::ui::runner::{Outcome, Run, run_now};
-use crate::watch::herdr;
 
 /// The plugin id in `herdr-plugin.toml`.
 pub const PLUGIN_ID: &str = "control-tower";

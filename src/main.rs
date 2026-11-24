@@ -1260,7 +1260,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Ui => {
             // A brew tower opened by hand links the herdr plugin if herdr has none; it says
             // so only when it linked or could not, before the screen takes over.
-            let herdr = control_tower::watch::herdr_path();
+            let herdr = control_tower::terminal::herdr::path();
             match register(&herdr, &path, brew_dir().as_deref()) {
                 Ok(done @ Registered::Linked(_)) => eprintln!("tower: {done}"),
                 Ok(_) => {}
@@ -1269,7 +1269,7 @@ fn run(cli: Cli) -> Result<()> {
             control_tower::ui::run(&path)?
         }
         Command::Space => {
-            let herdr = control_tower::watch::herdr_path();
+            let herdr = control_tower::terminal::herdr::path();
             // herdr gives an action its server's socket and the workspace it was invoked from.
             let socket = std::env::var(control_tower::open::SOCKET_VAR).unwrap_or_default();
             let workspace = std::env::var("HERDR_WORKSPACE_ID").ok();
@@ -1280,7 +1280,7 @@ fn run(cli: Cli) -> Result<()> {
             println!("{}", control_tower::open::space(&herdr, &path, from)?);
         }
         Command::Popup => {
-            let herdr = control_tower::watch::herdr_path();
+            let herdr = control_tower::terminal::herdr::path();
             println!("{}", control_tower::open::popup(&herdr, &path)?);
         }
         Command::Watch => control_tower::watch::run(&path)?,

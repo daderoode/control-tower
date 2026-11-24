@@ -79,8 +79,8 @@ fn is_failure(m: &Message) -> bool {
     is_system(m) && m.text.starts_with(DELIVERY_FAILURE)
 }
 
-/// The watch's flag that a task's worker left herdr (`watch`): its line says so in a few
-/// words, and its details hold how to clear it.
+/// The watch's flag that a task's worker left the terminal (`watch`): its line says so in a
+/// few words, and its details hold how to clear it.
 fn is_orphan(m: &Message) -> bool {
     // On its first line, as `event_text` reads it.
     is_system(m) && m.text.lines().next().is_some_and(|l| l.contains(ORPHANED))
@@ -88,6 +88,8 @@ fn is_orphan(m: &Message) -> bool {
 
 /// What the watch's orphan flag says, after the task and before the worker.
 const ORPHANED: &str = " is in progress but its worker ";
+/// What the watch's orphan flag says before the terminal's name, which " (" ends.
+const GONE_FROM: &str = " is gone from ";
 
 /// Who posts on a board: its lead, and the leads of the other repos (each with its repo's
 /// name), who may post there lead to lead (spec 3a). A lead's name takes the accent and
@@ -147,8 +149,8 @@ pub enum Item {
     Bubble { segs: Vec<usize>, acks: Vec<usize> },
     /// Consecutive nudges of one worker.
     Nudged { who: String, times: usize },
-    /// A delivery failure, or the watch's flag that a worker left herdr: a line, wrapped
-    /// onto more in a chat narrower than it, whose details open its full text.
+    /// A delivery failure, or the watch's flag that a worker left the terminal: a line,
+    /// wrapped onto more in a chat narrower than it, whose details open its full text.
     Failure(usize),
     /// Any other message of tower's.
     Event(usize),
@@ -872,7 +874,12 @@ pub fn event_words(text: &str, lead: Option<&Lead>) -> String {
     if let Some((before, after)) = first.split_once(ORPHANED)
         && let (Some(task), Some(worker)) = (before.rsplit(' ').next(), after.split(' ').next())
     {
-        return then(format!("{worker} left herdr while on {task}"));
+        // The terminal as the flag names it, so its stored text is the one source.
+        let terminal = (after.split_once(GONE_FROM))
+            .and_then(|(_, rest)| rest.split(" (").next())
+            .filter(|t| !t.is_empty())
+            .unwrap_or("the terminal");
+        return then(format!("{worker} left {terminal} while on {task}"));
     }
     if let Some((before, after)) = first.split_once(" has not posted since it was nudged ") {
         let mut words = before.rsplit(' ');
@@ -897,9 +904,9 @@ pub fn event_words(text: &str, lead: Option<&Lead>) -> String {
     text.to_string()
 }
 
-/// A delivery failure's or the left-herdr flag's line, in its two parts: what it says with
-/// " · " after it ("delivery failed to X · "), and its link, "details" or "hide details"
-/// when `open`.
+/// A delivery failure's or the left-terminal flag's line, in its two parts: what it says
+/// with " · " after it ("delivery failed to X · "), and its link, "details" or "hide
+/// details" when `open`.
 fn failure_line(m: &Message, lead: Option<&Lead>, open: bool) -> (String, &'static str) {
     let said = if is_failure(m) {
         format!("delivery failed to {}", failed_to(&m.text))
@@ -1431,6 +1438,14 @@ mod tests {
         assert_eq!(
             event_text(&sys(gone), Some(&l)),
             "dev-7 left herdr while on #61"
+        );
+        // The terminal is the one the flag names.
+        let rex = "@kids-lead #1 is in progress but its worker dev-1 is gone from Rex (no live \
+                   agent by that name); if it was closed: tower task unassign 1, or set the \
+                   next worker.";
+        assert_eq!(
+            event_text(&sys(rex), Some(&l)),
+            "dev-1 left Rex while on #1"
         );
         let silent = "@kids-lead dev-5 on #28 has not posted since it was nudged 1 min ago \
                       (it was nudged for no post).";

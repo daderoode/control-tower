@@ -21,7 +21,7 @@
 //! the dashboard's pane both get.
 //!
 //! What to do is decided from herdr's JSON, parsed with serde; every herdr call goes through
-//! the bounded `watch::herdr`.
+//! the bounded `terminal::herdr::run`.
 
 use std::path::{Path, PathBuf};
 
@@ -29,7 +29,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::register::PLUGIN_ID;
-use crate::watch::herdr;
+use crate::terminal::herdr::run as herdr;
 
 /// The label of the dashboard's own workspace, and of its pane (the manifest pane's title).
 pub const LABEL: &str = "control-tower";
