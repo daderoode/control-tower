@@ -773,8 +773,9 @@ and an idle lead is never woken while nothing is posted:
   the lead's own Bash: it reads `CLAUDE_CODE_SESSION_ID`, and refuses unless
   `claude agents --json`, or `TOWER_CLAUDE`, lists that session under the session name the
   lead registered, ignoring case), with posts unread, it blocks the end of the turn and
-  names them, which counts as telling them, so it holds once per batch. Each stop of that
-  session also counts as a turn ended, for the watch's lead check ("Lead not listening"). It says so too when
+  names them, which counts as telling them, so it holds once per batch. A stop of that
+  session that ends its turn with no waiter running is counted, for the watch's lead check
+  ("Lead not listening"). It says so too when
   no waiter of the lead's is running, with how to arm one. Any other session,
   and any session when the board does not exist, passes. It looks the session up on the
   board opened read only, waiting at most a second on a writer, and opens it to write only
@@ -804,25 +805,26 @@ and an idle lead is never woken while nothing is posted:
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
   attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it
-  by its `CLAUDE_CODE_SESSION_ID` (`busy` is working, `idle` is idle, any other status
-  says nothing), asked once a look and only when a lead has no waiter running. The Stop
-  hook counts each turn the lead's attached session ends, on the board. With no waiter
-  running, it opens a repo-wide "Lead not listening" thread with one `system` message
-  mentioning `@manager` (for your awareness), once per episode, naming how to arm a waiter
-  and, for a lead nobody runs any more, `tower lead remove`. It does so for a lead with no attached
-  session once the watch has seen it so for 5 minutes (the time a lead started from the
-  dashboard takes to boot and arm its waiter; a restart of the watch starts the 5 minutes
-  again), for an attached lead when Claude no longer lists the session ("its Claude session
-  is gone"), or when it is idle having finished a turn since the watch first saw it, idle
-  or working, with no waiter (the hook's count moved). A turn that starts and ends between
-  two looks is counted; one that does so after a look that saw the waiter running is not
-  seen: the first idle look after it only records the count. So the gap between a
+  by its `CLAUDE_CODE_SESSION_ID` (`busy` is working, `idle` is idle, any other status says
+  nothing), asked once a look and only when a lead has no waiter running (a `claude` that
+  hangs holds that look up to 30 seconds). The Stop hook counts, on the board, each turn the
+  lead's attached session ends with no waiter running (not one it holds for unread posts,
+  which goes on). With no waiter running, it opens a repo-wide "Lead not listening" thread
+  with one `system` message mentioning `@manager` (for your awareness), once per episode,
+  naming how to arm a waiter and, for a lead nobody runs any more, `tower lead remove`. It
+  does so for a lead with no attached session once the watch has seen it so for 5 minutes
+  (the time a lead started from the dashboard takes to boot and arm its waiter; a restart of
+  the watch starts the 5 minutes again), for an attached lead when Claude no longer lists
+  the session ("its Claude session is gone"), or when it is idle having finished a turn with
+  no waiter since the watch last saw its waiter running, or first saw it, idle or working,
+  with none (the hook's count moved). So a turn that starts and ends between two looks is
+  counted, also right after a look that saw the waiter running, and the gap between a
   waiter's end and the lead re-arming never raises one: the end wakes the lead, which
-  re-arms in that turn. A session working, or with a status that says nothing, is not
-  raised, and an empty list (likelier a glitch than every Claude session gone) changes
-  nothing. A list that cannot be read skips those leads for the look, with one log line.
-  When a waiter runs again, the watch resolves that thread, which takes the item off the
-  alert line.
+  re-arms in that turn, and a turn ended with the waiter running is not counted. A session
+  working, or with a status that says nothing, is not raised, and an empty list (likelier a
+  glitch than every Claude session gone) changes nothing. A list that cannot be read skips
+  those leads for the look, with one log line. When a waiter runs again, the watch resolves
+  that thread, which takes the item off the alert line.
 
 ## The board
 

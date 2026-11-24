@@ -26,13 +26,14 @@
 //!   one orphaned by a Claude Code that went away never blocks a re-arm or reads as
 //!   listening for long. A held lock is what "listening" means.
 //! - `hook`: `tower lead hook`, the plugin's Stop hook. For the Claude session a lead
-//!   attached (`tower lead attach`), it counts the turn ended (`lead.turns`) and blocks the
-//!   end of the turn while posts are unread, naming them and so telling them; any other
-//!   session passes.
+//!   attached (`tower lead attach`), it blocks the end of the turn while posts are unread,
+//!   naming them and so telling them, and counts a turn it lets end with no listener running
+//!   (`lead.turns`); any other session passes.
 //! - `check_leads`: the watch, each look, for every registered lead: no listener
 //!   running while it has no attached Claude session for `NO_SESSION_GRACE`, or its Claude
-//!   session gone from `claude agents --json`, or idle having finished a turn since the
-//!   watch first saw it, idle or busy, with no listener (the Stop hook's count moved), opens
+//!   session gone from `claude agents --json`, or idle having finished a turn with no
+//!   listener since the watch last saw one running or first saw it with none (the Stop
+//!   hook's count of such turns moved), opens
 //!   one "lead not listening" episode (one awareness item for the owner); a listener running
 //!   again resolves it. A lead woken by its waiter's end re-arms in that turn, so the gap
 //!   between the end and the re-arm never raises one. No terminal is asked.
@@ -428,10 +429,12 @@ struct HookInput {
 }
 
 /// `tower lead hook`: given the Stop hook's JSON `input`, the hook's reply to print, or
-/// `None` to let the turn end. Each stop of the Claude session a lead attached counts as a
-/// turn ended (`Store::lead_turn_ended`), for the watch. Only that session is held, and only
+/// `None` to let the turn end. Only the Claude session a lead attached is held, and only
 /// while posts on its board are unread: the reply blocks the stop, naming them, and they
-/// count as told, so it blocks once per batch and never loops. The session is looked up on
+/// count as told, so it blocks once per batch and never loops. A stop of that session that
+/// ends its turn (nothing to hold it for) with no waiter running counts as a turn ended
+/// without one (`Store::lead_turn_ended`), for the watch; a turn ended while the waiter
+/// runs, and a stop held for posts, which goes on, are not counted. The session is looked up on
 /// the board opened read only, so a stop never waits long on a writer and the board is
 /// opened to write only for a lead. A board that does not exist yet holds no lead, so it
 /// passes without making one.
@@ -447,14 +450,17 @@ pub fn hook(db: &Path, input: &str) -> Result<Option<String>> {
         return Ok(None);
     };
     let mut store = Store::open(db)?;
-    // Every stop of the lead's session is a turn ended, for the watch's lead check.
-    store.lead_turn_ended(repo, &input.session_id)?;
+    let waiting = listening(db, repo)?;
     let mut reason = String::new();
     store.tell_lead(repo, |posts| {
-        reason = hook_reason(repo, posts, listening(db, repo)?);
+        reason = hook_reason(repo, posts, waiting);
         Ok(())
     })?;
     if reason.is_empty() {
+        // The turn ends, with nothing told that a failed count could lose.
+        if !waiting {
+            store.lead_turn_ended(repo, &input.session_id)?;
+        }
         return Ok(None);
     }
     Ok(Some(
@@ -703,7 +709,9 @@ fn check(
         };
         let step = (|| -> Result<Option<String>> {
             if listening(db, repo)? {
-                if lead.deaf.is_none() && lead.quiet_turns.is_none() {
+                // The count as the waiter runs is the baseline: a turn that ends after the
+                // waiter ends, without re-arming, moves it, however soon after this look.
+                if lead.deaf.is_none() && lead.quiet_turns == Some(lead.turns) {
                     return Ok(None);
                 }
                 let evidence =
@@ -743,12 +751,11 @@ fn check(
                 None => "its Claude session is gone",
                 Some(Status::Idle) => {
                     // Idle with no listener is the gap between a waiter's end and the lead's
-                    // re-arm until the lead has finished a turn since the watch first saw it
-                    // with no listener (idle or busy): a lead woken by its waiter's end
-                    // re-arms in that turn. The Stop hook counts every turn, so one that
-                    // starts and ends between two looks is counted too; one that does so
-                    // after a look that saw the waiter running is not seen: the first idle
-                    // look after it only records the count.
+                    // re-arm until the lead has finished a turn without a waiter since the
+                    // watch last saw the waiter running, or first saw it with none (idle or
+                    // busy): a lead woken by its waiter's end re-arms in that turn, which the
+                    // Stop hook then does not count. The hook counts every such turn, so one
+                    // that starts and ends between two looks is counted too.
                     match lead.quiet_turns {
                         None => {
                             store.lead_quiet(repo, lead.turns)?;
@@ -1145,7 +1152,7 @@ mod tests {
     }
 
     #[test]
-    fn the_hook_counts_each_stop_of_the_attached_session_only() {
+    fn the_hook_counts_a_turn_the_attached_session_ends_with_no_waiter_only() {
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
         ends_turn(&db, "sess-1");
@@ -1155,16 +1162,60 @@ mod tests {
             ends_turn(&db, other);
         }
         assert_eq!((turns(&mut store, 1), turns(&mut store, 2)), (2, 0));
-        // A stop that holds the lead for unread posts is counted too.
+        // A stop held for unread posts goes on: no turn ended, not counted; the stop that
+        // then ends it is.
         store.post(ThreadId(1), "dev-1", "status: one").unwrap();
         assert!(hook(&db, &input("sess-1")).unwrap().is_some());
+        assert_eq!(turns(&mut store, 1), 2);
+        ends_turn(&db, "sess-1");
         assert_eq!(turns(&mut store, 1), 3);
+        // A turn ended with its waiter running is no turn without one: not counted.
+        let held = waiter_runs(&db, 1);
+        ends_turn(&db, "sess-1");
+        assert_eq!(turns(&mut store, 1), 3);
+        drop(held);
         // Re-attached to a new session: the old one's stops no longer count.
         store.attach_lead(RepoId(1), "sess-2").unwrap();
         ends_turn(&db, "sess-1");
         assert_eq!(turns(&mut store, 1), 3);
         ends_turn(&db, "sess-2");
         assert_eq!(turns(&mut store, 1), 4);
+    }
+
+    #[test]
+    fn a_short_turn_right_after_a_look_that_saw_the_waiter_is_counted() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        let idle = agents(&[("sess-1", "idle")]);
+        // A look sees its waiter running. Before the next, the waiter ends on a post, and
+        // the lead reads it and ends a short turn without re-arming, then sits idle: the
+        // next look raises it.
+        let held = waiter_runs(&db, 1);
+        assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+        drop(held);
+        ends_turn(&db, "sess-1");
+        assert_eq!(
+            look_with(&mut store, &db, &idle, 30),
+            [
+                "Catalogue, the lead of R1, is not listening (its Claude session finished a turn \
+                 without one); told the owner in T3"
+            ]
+        );
+        // Resolved by its waiter, then the same again: raised again, as a new episode.
+        let held = waiter_runs(&db, 1);
+        assert_eq!(look_with(&mut store, &db, &idle, 40).len(), 1);
+        drop(held);
+        ends_turn(&db, "sess-1");
+        assert_eq!(look_with(&mut store, &db, &idle, 50).len(), 1);
+        // Re-armed in that turn instead: the turn is not counted, nothing raised.
+        let held = waiter_runs(&db, 1);
+        assert_eq!(look_with(&mut store, &db, &idle, 60).len(), 1);
+        drop(held);
+        let held = waiter_runs(&db, 1);
+        ends_turn(&db, "sess-1");
+        drop(held);
+        assert!(look_with(&mut store, &db, &idle, 70).is_empty());
+        assert_eq!(items(&mut store).len(), 0);
     }
 
     #[test]
@@ -1286,7 +1337,7 @@ mod tests {
         }
         ends_turn(&db, "sess-1");
         assert!(look(&mut store, &agents(&[("sess-1", "idle")])).is_empty());
-        // Busy and re-armed before the turn ended: the record goes, nothing raised.
+        // Busy and re-armed before the turn ended: that turn is not counted, nothing raised.
         let busy = agents(&[("sess-1", "busy")]);
         assert!(look(&mut store, &busy).is_empty());
         let held = waiter_runs(&db, 1);

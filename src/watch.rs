@@ -639,8 +639,10 @@ impl Watch {
 
     /// The look at whether each registered lead is listening, at `now`
     /// (`listen::check_leads`), asking `claude` (`claude agents --json`) only when a lead
-    /// needs it: no terminal, so it runs whether herdr answers or not. A line per change and
-    /// per failure.
+    /// needs it: no terminal, so it runs whether herdr answers or not. It runs on the
+    /// caller's thread: a claude that hangs holds it, and the look after it, up to
+    /// `CLAUDE_TIMEOUT` (30 s), and a stop asked meanwhile waits for that too. A line per
+    /// change and per failure.
     pub fn leads(&mut self, claude: &Path, now: i64) -> Vec<String> {
         if self.stopping() {
             return Vec::new();
@@ -847,7 +849,9 @@ pub fn run(db: &Path) -> Result<()> {
     let mut registered = false;
     // The lead skill registers with Claude Code likewise, retried less often: each try runs
     // claude, and what stops it (no login, no claude) does not clear in seconds. A try runs
-    // on its own thread and is polled between looks, so claude never holds a look.
+    // on its own thread and is polled between looks, so registering never holds a look. The
+    // lead check's claude agents --json does run in the look (`Watch::leads`), bounded by
+    // CLAUDE_TIMEOUT.
     let claude = crate::register::claude_path();
     let mut skill = crate::register::Skill::new(
         claude.clone(),

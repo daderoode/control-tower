@@ -12,9 +12,10 @@ tag's date, and a new empty Unreleased goes above it.
 ### Changed
 
 - **"Lead not listening" asks no terminal.** The watch judges whether a lead's session is
-  alive and working by `claude agents --json`, and whether it finished a turn by its Stop
-  hook, which now counts each turn the lead's attached session ends on the board, so the
-  check is right with the team in Rex and runs even when herdr does not answer. A lead
+  alive and working by `claude agents --json`, and whether it finished a turn without
+  re-arming by its Stop hook, which now counts on the board each turn the lead's attached
+  session ends with no waiter running, so a short turn between two looks is seen. The check
+  is right with the team in Rex and runs even when herdr does not answer. A lead
   Claude no longer lists is raised as "its Claude session is gone". A `claude agents --json`
   that cannot be read skips the check for that look with one log line. The board's schema
   moves to 19: an upgraded board keeps its "Lead not listening" episodes and raises nothing

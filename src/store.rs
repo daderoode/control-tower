@@ -384,11 +384,12 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
             AND n NOT IN (SELECT lower(name) FROM lead UNION SELECT lower(session) FROM lead);
 ",
     // The lead check needs no terminal. `turns` is how many turns the lead's attached
-    // session has ended, counted by its Stop hook; `quiet_seq`, herdr's state_change_seq,
-    // becomes `quiet_turns`, that count when the watch first saw the lead, idle or busy,
-    // with no waiter. A herdr seq means nothing to the count, so an open record starts again
-    // at the count's 0: it stays recorded (no fresh first look), and only a turn the hook
-    // counts from now on raises. The open episodes (`deaf_thread`) are kept as they are.
+    // session has ended with no waiter running, counted by its Stop hook; `quiet_seq`,
+    // herdr's state_change_seq, becomes `quiet_turns`, that count when the watch last saw
+    // the lead's waiter running, or first saw it, idle or busy, with none. A herdr seq
+    // means nothing to the count, so an open record starts again at the count's 0: it stays
+    // recorded (no fresh first look), and only a turn the hook counts from now on raises.
+    // The open episodes (`deaf_thread`) are kept as they are.
     "
     ALTER TABLE lead RENAME COLUMN quiet_seq TO quiet_turns;
     ALTER TABLE lead ADD COLUMN turns INTEGER NOT NULL DEFAULT 0;
@@ -1153,18 +1154,19 @@ pub const NOT_LISTENING: &str = "Lead not listening";
 
 /// A registered lead: its repo, itself, the Claude session it attached (`None` while it has
 /// not, or since `tower lead set --session` gave it a new one), the thread of its open
-/// "lead not listening" episode, if any, how many turns its session has ended, and that
-/// count when the watch first saw it quiet.
+/// "lead not listening" episode, if any, how many turns its session has ended with no
+/// waiter running, and that count when the watch last saw its waiter or first saw it quiet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Registered {
     pub repo: RepoId,
     pub lead: Lead,
     pub claude_session: Option<String>,
     pub deaf: Option<ThreadId>,
-    /// How many turns its attached session has ended, by its Stop hook (`lead_turn_ended`).
+    /// How many turns its attached session has ended with no waiter running, by its Stop
+    /// hook (`lead_turn_ended`).
     pub turns: i64,
-    /// `turns` when the watch first saw it, idle or busy, with no waiter, `None` while it
-    /// has not.
+    /// `turns` when the watch last saw its waiter running, or first saw it, idle or busy,
+    /// with none; `None` while it has seen neither since the session attached.
     pub quiet_turns: Option<i64>,
 }
 
@@ -3402,9 +3404,9 @@ impl Store {
         Ok(())
     }
 
-    /// The Claude session `session` ended a turn: one more turn ended for the lead of
-    /// `repo`, if `session` is still the one it attached (the Stop hook's count, which the
-    /// watch reads to know a lead finished a turn).
+    /// The Claude session `session` ended a turn with no waiter running: one more for the
+    /// lead of `repo`, if `session` is still the one it attached (the Stop hook's count,
+    /// which the watch reads to know a lead finished a turn without re-arming).
     pub fn lead_turn_ended(&mut self, repo: RepoId, session: &str) -> Result<()> {
         self.conn
             .execute(
@@ -3417,8 +3419,9 @@ impl Store {
 
     /// The lead of `repo` is listening: ends its "lead not listening" episode, if one is
     /// open, resolving its thread with `evidence` by `system` at `at` unless someone resolved
-    /// it already, and forgets when the watch first saw it quiet. Returns the episode's
-    /// thread, or `None` when none was open.
+    /// it already, and takes its count of turns ended now as the baseline (`quiet_turns`), so
+    /// a turn it ends without re-arming from here on is seen. Returns the episode's thread,
+    /// or `None` when none was open.
     pub fn lead_listening(
         &mut self,
         repo: RepoId,
@@ -3452,7 +3455,7 @@ impl Store {
             )?;
         }
         tx.execute(
-            "UPDATE lead SET deaf_thread = NULL, quiet_turns = NULL WHERE repo_id = ?1",
+            "UPDATE lead SET deaf_thread = NULL, quiet_turns = turns WHERE repo_id = ?1",
             params![repo.0],
         )
         .context(cannot_write.clone())?;
