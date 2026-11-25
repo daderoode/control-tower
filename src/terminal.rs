@@ -173,6 +173,15 @@ pub enum Shown {
     Stay(String),
 }
 
+/// What the dashboard's key found: what to show, and each block or session it passed over
+/// because the terminal could not read it (one closing as it looked), saying why, for the
+/// log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Answer {
+    pub shown: Shown,
+    pub passed_over: Vec<String>,
+}
+
 /// The terminal module interface. `db` is the board, passed to what the module runs as
 /// `TOWER_DB`.
 pub trait Terminal: Send + Sync {
@@ -196,8 +205,9 @@ pub trait Terminal: Send + Sync {
     /// The dashboard's key, pressed `here`: from the dashboard's tab, the place the key was
     /// last pressed outside it, as `back` (a file) holds it; from anywhere else, the
     /// dashboard's tab, opening one running `dashboard` (one word per argument) when there
-    /// is none, with `here` written to `back`.
-    fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Shown>;
+    /// is none, with `here` written to `back` (its folder made if need be). Another block or
+    /// session that cannot be read is passed over; the key fails when `here` cannot be.
+    fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Answer>;
     /// The popup's key, pressed `here`: opens `dashboard` in a popup over `here`'s tab.
     fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()>;
 }

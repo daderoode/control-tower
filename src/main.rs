@@ -13,7 +13,7 @@ use control_tower::store::{
     MilestoneFields, Moved, Removed, RepoDetails, SCHEMA_VERSION, Store, TaskFields, TaskRemoved,
     board_path,
 };
-use control_tower::terminal::{self, Here, Shown};
+use control_tower::terminal::{self, Answer, Here, Shown};
 
 /// The control-tower board: repos, their leads, milestones and tasks, and the dashboard.
 ///
@@ -1323,7 +1323,12 @@ fn run(cli: Cli) -> Result<()> {
             let here = Here { session, block };
             let terminal = terminal::module(terminal::exe_from_env());
             let dashboard = dashboard_command(&path, false)?;
-            match terminal.space(&path, &here, &back_path(&path), &dashboard)? {
+            let Answer { shown, passed_over } =
+                terminal.space(&path, &here, &back_path(&path), &dashboard)?;
+            for why in passed_over {
+                eprintln!("tower space: {why}");
+            }
+            match shown {
                 Shown::Go(place) => println!("{}", serde_json::to_string(&place)?),
                 Shown::Stay(why) => {
                     eprintln!("tower space: {why}");

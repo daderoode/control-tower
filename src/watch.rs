@@ -903,7 +903,7 @@ mod tests {
             _here: &crate::terminal::Here,
             _back: &Path,
             _dashboard: &[String],
-        ) -> Result<crate::terminal::Shown> {
+        ) -> Result<crate::terminal::Answer> {
             unreachable!("the watch has no key")
         }
         fn popup(&self, _db: &Path, _here: &crate::terminal::Here, _dash: &[String]) -> Result<()> {

@@ -21,8 +21,14 @@ local tower = prefix .. "/bin/tower"
 -- rex there (README, Install).
 local env = { PATH = prefix .. "/bin:/usr/bin:/bin" }
 
+-- `text` without the line breaks and spaces that end it.
+local function trimmed(text)
+  return (text:gsub("%s+$", ""))
+end
+
 -- Runs `tower <command>` for the key pressed at ctx, and returns what it printed and its
--- stderr. A tower that fails raises its reason, which Rex shows.
+-- stderr, trimmed. A tower that fails raises its reason, which already starts "tower:",
+-- and Rex shows it.
 local function run(command, ctx)
   if ctx.session_id == nil or ctx.block_id == nil then
     error("control-tower: Rex gave this key no session or block to act on", 0)
@@ -31,13 +37,13 @@ local function run(command, ctx)
     { tower, command, "--session", ctx.session_id, "--block", ctx.block_id },
     { env = env, timeout = 20 })
   if r == nil then
-    error("control-tower: cannot run " .. tower .. ": " .. err, 0)
+    error("control-tower: cannot run " .. tower .. ": " .. trimmed(err), 0)
   end
+  local said = trimmed(r.stderr)
   if not r.ok then
-    local why = r.stderr ~= "" and r.stderr or ("tower " .. command .. " exited " .. r.code)
-    error("control-tower: " .. why, 0)
+    error(said ~= "" and said or ("tower " .. command .. " exited " .. r.code), 0)
   end
-  return r.stdout, r.stderr
+  return r.stdout, said
 end
 
 rex.action{
@@ -46,11 +52,13 @@ rex.action{
   description = "Show the control-tower dashboard's tab, or from it, go back.",
   run = function(ctx, args)
     local out, said = run("space", ctx)
+    -- Why nothing moves, or what the key passed over.
+    if said ~= "" then
+      rex.log("info", said)
+    end
     local place = rex.json.decode(out)
     if place.session_id ~= nil then
       rex.client.queue("session.select", place)
-    elseif said ~= "" then
-      rex.log("info", said)
     end
   end,
 }

@@ -1006,8 +1006,11 @@ commands with its own PATH.
 The dashboard's tab is found by asking Rex, never by its label: a `tower ui` in a tab of
 its own names itself to Rex as `control-tower` in its program status (only when it runs in
 Rex, where `REX_BLOCK` is set), and a tab is the dashboard while the program that named it
-is still the tab's foreground process. Where the key was pressed is kept in a file beside
-the board, `~/.local/state/control-tower/board.space-back` (for a board `TOWER_DB` names,
+is still the tab's foreground process. A dashboard started by a tower older than these keys
+names nothing, so after upgrading close it and let the key open a new one. A tab or session
+Rex cannot read while the key looks (one closing just then) is passed over and Rex's log
+says so; the key fails, saying why, only when the tab it was pressed in cannot be read.
+Where the key was pressed is kept in a file beside the board, `~/.local/state/control-tower/board.space-back` (for a board `TOWER_DB` names,
 that file's name with `.space-back` in place of `.db`). The keys move what the Rex app
 shows only because a key was pressed in it, so Rex's Remote Control setting is never
 needed and tower never asks for it.
