@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-25
+
 ### Fixed
 
 - **A watch catching up after a stop no longer tells the owner about every closed worker.**
