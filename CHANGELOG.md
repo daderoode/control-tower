@@ -34,6 +34,14 @@ tag's date, and a new empty Unreleased goes above it.
   forge waiter is now a script shipped beside the skill (`forge-wait`) instead of one the
   lead writes into the git directory, and it sees a waiter started from the old copy as
   already running (#84).
+- **The dashboard's `n` starts the lead in a new Rex session.** It opens a Rex session
+  named after the lead on the repo's main checkout (or your home directory, for a milestone
+  in no repo), without moving the Rex app's focus, running Claude with the dashboard's board
+  as `TOWER_DB`, so the lead registers where you are looking. When Rex fails, the milestone
+  and the lead it registered are removed again and the keys line says why. `TOWER_REX`
+  names rex, else `rex` in `REX_BIN_DIR`, else on the PATH. A main checkout that is no
+  longer a directory, or a rex that cannot be found, is refused before anything is written
+  (#112).
 
 ## [0.5.3] - 2026-11-24
 

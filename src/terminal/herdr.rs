@@ -26,8 +26,7 @@ pub fn path() -> PathBuf {
 /// The one line saying herdr cannot be found, naming exactly what was tried.
 pub fn missing(herdr: &Path, path: Option<&OsStr>) -> String {
     format!(
-        "{}; set TOWER_HERDR to its full path if it is elsewhere (said once, until herdr is \
-         found)",
+        "{}; set TOWER_HERDR to its full path if it is elsewhere",
         not_found("herdr", herdr, path)
     )
 }
@@ -247,19 +246,18 @@ impl Terminal for Herdr {
     }
 
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle> {
-        let env = lead.board.map(|b| format!("TOWER_DB={b}"));
-        let mut create = vec![
+        let env = format!("TOWER_DB={}", lead.board);
+        let create = [
             "workspace",
             "create",
             "--label",
             lead.name,
             "--cwd",
             lead.dir,
+            "--env",
+            &env,
+            "--no-focus",
         ];
-        if let Some(env) = &env {
-            create.extend(["--env", env.as_str()]);
-        }
-        create.push("--no-focus");
         let (workspace, pane) = parse_created(&run(&self.exe, db, &create)?)?;
         let handle = Handle(workspace);
         let line = shell_line(lead.command);

@@ -41,20 +41,28 @@ The owner starts work without typing `tower`, in either of two ways:
   repo, named the goal's first words plus " Lead" ("Audiobooks Lead" for the goal
   "Audiobooks of the bestsellers"; in the board's name characters; a name another lead has
   gets the milestone id after it), as both its name and its session, so the repo's row shows
-  the lead at once and a second `n` on it is refused. Then it opens a herdr workspace named
-  after the lead on the repo's main checkout without taking focus, and starts `claude -n
-  "<lead name>" "/control-tower:lead <M>"` there; the skill finds itself registered, arms
-  its board waiter and attaches. A repo has one lead: on a repo that has one, or anything in
-  it, `n` is refused, naming the repo and its lead. A repo whose main checkout is not on the
-  board yet is refused too, saying to set it with `tower repo set R<n> --path <checkout>`.
+  the lead at once and a second `n` on it is refused. Then it opens a new Rex session named
+  after the lead on the repo's main checkout, running `env TOWER_DB=<the dashboard's board,
+  absolute> claude -n "<lead name>" "/control-tower:lead <M>"`, so the lead uses the board
+  you are looking at. Rex does not show a new session in the app, so your focus stays where
+  it is. The skill finds itself registered, arms its board waiter and attaches. A repo has
+  one lead: on a repo that has one, or anything in it, `n` is refused, naming the repo and
+  its lead. A repo whose main checkout is not on the
+  board yet is refused too, saying to set it with `tower repo set R<n> --path <checkout>`,
+  and so is one whose main checkout is no longer a directory.
   With something in no repo selected (or nothing), the milestone is added in no repo yet and
-  the workspace opens in your home directory, where the lead asks you for its repo's main
+  the session opens in your home directory, where the lead asks you for its repo's main
   checkout and registers itself. The keys line says "started Audiobooks Lead for M3 on
-  search in a new workspace". When herdr fails, the start is undone in one write: the
-  milestone and the lead it registered are removed again (a milestone something already
-  uses, or a lead that has attached, stays) and no half-made workspace is left, so `n` can
-  simply be pressed again. Only the lead name and the milestone id reach the shell, quoted.
-  `TOWER_HERDR` names herdr, as for the watch.
+  search in Rex". When Rex fails, the keys line says why and the start is undone in one
+  write: the milestone and the lead it registered are removed again (a milestone something
+  already uses, or a lead that has attached, stays), so `n` can simply be pressed again.
+  When `rex new` is stopped, or replies without the new session's id, the keys line also
+  says a session with that label may be left, to `rex kill`.
+  Every argument reaches Rex as its own word, never as a shell string, and of the goal only
+  the lead name does (made of letters, digits, spaces, `-`, `_` and `.`, starting with a
+  letter or digit). `TOWER_REX` names rex; else tower takes `rex` in `REX_BIN_DIR`, where
+  Rex keeps it and which Rex sets in its own tabs, else `rex` on the PATH. A rex that cannot
+  be found is refused before anything is written, saying what was tried.
 - **From a session in progress:** `/control-tower:lead <the goal in words>` creates the
   milestone from those words and the conversation, then leads it; `/control-tower:lead M3`
   takes over M3. A session with no name is told which `/rename` to type.

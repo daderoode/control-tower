@@ -182,8 +182,8 @@ pub enum Request {
         folded: bool,
     },
     /// Start a lead on the owner's goal, one line: a milestone (in `repo`, when given) and
-    /// Claude leading it in a new herdr workspace, through the store and herdr (see
-    /// `writer`).
+    /// Claude leading it in a new place the terminal module opens, through the store and
+    /// that module (see `writer`).
     StartLead { line: String, repo: Option<RepoId> },
     /// Close the dashboard: `q` outside the composer and the new lead's input, or, in the
     /// popup, Esc with nothing to go back from.
@@ -1140,7 +1140,7 @@ impl Dash {
                     self.notice = Some((why, true));
                     return None;
                 }
-                // Its workspace opens on the repo's main checkout, so it must be known.
+                // Its lead's place opens on the repo's main checkout, so it must be known.
                 if let Some(r) = repo.filter(|r| r.path.is_none()) {
                     self.notice = Some((super::writer::no_checkout(r), true));
                     return None;
