@@ -479,11 +479,13 @@ and `tower repo show <R>` lists threads by title.
   - **One live worker per name.** Claude does not keep session names unique, so before a
     start check that no live session has the name, ignoring case:
     `claude agents --json | jq -e --arg n "<name>" 'any(.[]; (.name // "" | ascii_downcase) == ($n | ascii_downcase))'`
-    succeeds when one has; then pick another name, never start a second.
+    exits 0 when the name is taken (pick another, never start a second), 1 when it is free;
+    any other exit means the list was not read: do not start, and retry.
   - **Check it started:** within about 30 s of the start, `claude agents --json` lists the
     name. When it does not, look at its block (`rex capture -s "$REX_SESSION" -b <its
-    block>`); a worker at the trust dialog is closed (see closing, below) and the folder
-    raised with the owner as a `question:` post to `@manager`.
+    block>`). A worker at the trust dialog is closed at once by its ids (an implementer:
+    `rex window close`, then `git worktree remove`), and the folder raised with the owner
+    as a `question:` post to `@manager`.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
   and reviewers (Senior dev for Stage 1, external for Stage 2); how many of each is your call.
 - **Standing roles, optional:** beside them you may keep a few standing workers, read-only
