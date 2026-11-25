@@ -37,9 +37,10 @@
 //!
 //! "No post" counts every post in the task's threads but the watch's own; a task with none
 //! counts from when the watch first saw it with that worker, kept on the board
-//! (`watch_seen`) so a restart does not reset it. The watch sees the local Rex server. If
-//! several workers match a name ignoring case, the first the terminal lists is used. Each
-//! flag is remembered on the board (`watch_flag`), so it is raised once per episode, never
+//! (`watch_seen`) so a restart does not reset it. The watch sees the local Rex server.
+//! Several live sessions can share a name (Claude does not keep names unique, and names
+//! are compared ignoring case): they are one worker, whose status is the busiest of theirs
+//! (`worker_agent`), and a prompt is raised when any of them is blocked. Each flag is remembered on the board (`watch_flag`), so it is raised once per episode, never
 //! every tick, and raised again only after the episode ends: the worker leaves the prompt
 //! or the team, a post arrives after a nudge, the worker is back in the terminal, or the
 //! task is Done or moved.
@@ -216,6 +217,30 @@ fn same_name(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
+/// The live worker `name` (ignoring case) as every agent by that name gives it, `None` when
+/// there is none: named as the first is listed, with the busiest status of them all, blocked
+/// over working over unknown over idle or done. Claude does not keep session names unique,
+/// so two sessions can share one: a stale twin never hides the other's prompt, nor draws a
+/// stopped nudge while the other works.
+fn worker_agent(agents: &[Agent], name: &str) -> Option<Agent> {
+    let rank = |s: &Status| match s {
+        Status::Blocked(_) => 3,
+        Status::Working => 2,
+        Status::Unknown => 1,
+        Status::Idle | Status::Done => 0,
+    };
+    let mut twins = agents.iter().filter(|a| same_name(&a.name, name));
+    let first = twins.next()?;
+    let busiest = std::iter::once(first)
+        .chain(twins)
+        .max_by_key(|a| rank(&a.status))?;
+    Some(Agent {
+        name: first.name.clone(),
+        status: busiest.status,
+        msg: busiest.msg.clone(),
+    })
+}
+
 /// What a prompt asks (`msg`, as the terminal gives it) as its need-you item quotes it: on
 /// one line, every hidden character dropped and runs of space made one, at most
 /// `ASKS_CHARS` characters (cut with "..."); `None` when nothing is left.
@@ -296,12 +321,13 @@ pub fn decide(
     terminal: &str,
 ) -> Vec<Action> {
     let task = |id: TaskId| tasks.iter().find(|t| t.task == id);
-    let agent = |worker: &str| agents.iter().find(|a| same_name(&a.name, worker));
+    let agent = |worker: &str| worker_agent(agents, worker);
     let mut actions = Vec::new();
     let mut on: Vec<&Flag> = Vec::new();
     for f in flags {
         let t = task(f.task);
         let a = agent(&f.worker);
+        let a = a.as_ref();
         if !still_on(f, t, a) {
             // The owner sees the prompt was handled; the need-you item itself stays until
             // its thread is resolved (spec 3a).
@@ -352,9 +378,10 @@ pub fn decide(
             lead_told_at: None,
         };
         // Each member of its team on a prompt, as the terminal lists them: the first of a
-        // name.
+        // name that is blocked, so a twin listed before it never hides it.
         for (i, b) in agents.iter().enumerate() {
-            if !b.status.is_blocked() || agents[..i].iter().any(|e| same_name(&e.name, &b.name)) {
+            let blocked_before = |e: &Agent| e.status.is_blocked() && same_name(&e.name, &b.name);
+            if !b.status.is_blocked() || agents[..i].iter().any(blocked_before) {
                 continue;
             }
             let Some((_, name)) = team_of(tasks, &b.name).filter(|(home, _)| home.task == t.task)
@@ -1224,6 +1251,39 @@ mod tests {
         assert_eq!(f.tick(1), ["flagged qa on #1 (prompt) in T1"]);
         assert_eq!(f.system(1).len(), 1);
         assert_eq!(f.store().flags().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn twins_by_name_are_one_worker_so_a_stale_one_hides_no_prompt_and_draws_no_nudge() {
+        let mut f = Fixture::new();
+        // A stale dev-1, idle, listed before the live one, which works.
+        f.agents(&[("dev-1", "idle"), ("dev-1", "working")]);
+        assert!(f.tick(6).is_empty(), "no stopped nudge while a twin works");
+        // The live one at a prompt: raised, quoting it, and kept while it waits.
+        f.asking(&[
+            ("dev-1", "idle", None),
+            ("dev-1", "blocked", Some("approve Bash: ls")),
+        ]);
+        assert_eq!(f.tick(7), ["flagged dev-1 on #1 (prompt) in T1"]);
+        assert!(
+            f.system(1)[0].ends_with("It asks: approve Bash: ls"),
+            "{:?}",
+            f.system(1)
+        );
+        assert!(
+            f.tick(8).is_empty(),
+            "the stale twin does not end the episode"
+        );
+        f.agents(&[("dev-1", "idle"), ("dev-1", "working")]);
+        assert_eq!(f.tick(9), ["#1's prompt episode for dev-1 ended"]);
+        assert_eq!(f.system(1)[1], "dev-1's prompt was answered.");
+        // Both idle: stopped, as one worker, with one nudge.
+        f.agents(&[("dev-1", "idle"), ("dev-1", "idle")]);
+        assert_eq!(
+            f.tick(10),
+            ["nudged dev-1 on #1 (stopped): no post on #1 for 10 min, post your status"]
+        );
+        assert_eq!(f.prompts().len(), 1);
     }
 
     #[test]

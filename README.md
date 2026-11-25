@@ -621,7 +621,10 @@ what it is). A block whose root record is Claude Code's, with the process that r
 it, is joined by that process id to `claude agents --json`: the worker's name is that
 Claude session's name and its status the record's state (`idle`, `working`, `done`,
 `blocked` with what it waits on). Blocks running no Claude, and Claude sessions Claude
-does not list, are no one; a state the watch does not know is unknown, never idle. The
+does not list, are no one. Claude does not list a session still at its "trust this folder"
+dialog, so a worker started in a folder Claude has not trusted is not seen (no need-you
+item for that dialog, and orphaned after three looks if its task is in progress) until
+the folder is trusted: start workers in a trusted folder; a state the watch does not know is unknown, never idle. The
 look has a 15 second limit, and one call that fails (Rex not running, a block that cannot
 be read, `claude` failing) skips the whole look, says so, and looks again 20 seconds
 later: a Rex half read never reads as workers gone. The watch never starts a Rex server.
@@ -668,8 +671,11 @@ unassigned task.
 
 A post is any message in the task's threads but the watch's own; a task with none counts
 from when the watch first saw it with that assignee, kept on the board so a restart does
-not reset it. When several workers match a name ignoring case, the first Rex lists is
-used. Changing a task's assignee ends the old assignee's
+not reset it. Claude does not keep session names unique, so several live sessions can
+share a worker's name (names are compared ignoring case): they are read as one worker. A
+prompt is raised when any of them is blocked, quoting the first that is, and the worker's
+status is the busiest of theirs (blocked over working over unknown over idle or done), so
+a stale twin never hides a prompt or draws a "stopped" nudge while the other works. Changing a task's assignee ends the old assignee's
 nudge and orphan episodes and starts the clock afresh; a prompt goes on while the old
 assignee is still on the team. Renaming a worker's Claude session away from the assignee
 makes it look gone (orphaned after three looks), so rename the assignee with it. Each flag is
