@@ -23,13 +23,16 @@
 //!
 //! The dashboard's key (`space`, run by `rex/control-tower.lua`'s `tower_space` action with
 //! the session and block the key was pressed in) finds the dashboard's tab by asking Rex, not
-//! by its label: the dashboard in a tab of its own names itself in its root `program_status`
-//! record (`dashboard_status`), and a block is the dashboard while that record's owner is
+//! by its label: the dashboard in a tab of its own names itself and its board in its root
+//! `program_status` record (`dashboard_status`, `dashboard_app`), and a block is a
+//! dashboard of the key's board while that record names the key's board and its owner is
 //! the block's foreground process, by pid and name (a record outlives its program). The
-//! key's session is looked in first, then the others in Rex's order. The key answers with
-//! the place for the snippet to show (`session.select`, which only the app does): from the
-//! dashboard's tab, the place in the back file, if Rex still has it; from anywhere else, the
-//! dashboard's tab, after writing where the key was pressed to the back file. With no
+//! key's session is looked in first, then the others in Rex's order; another session or
+//! block Rex cannot read is passed over, the key's own fails the key. The key answers with
+//! the place for the snippet to show (`session.select`, which only the app does): from a
+//! tab holding a dashboard, the place in the back file, if Rex still has it; from anywhere
+//! else, the first dashboard's tab, after writing where the key was pressed to the back
+//! file. With no
 //! dashboard, it opens a tab running it in the key's session first. The popup (`popup`)
 //! is a floating layer over the key's tab, 85% each way, focused; it goes when its block
 //! exits.
@@ -55,7 +58,8 @@ const TERMINAL_CREATOR: &str = "com.superlogical.terminal";
 const PROGRAM_STATUS: &str = "com.superlogical.terminal.program_status";
 /// The app Claude Code reports itself as.
 const CLAUDE_CODE: &str = "claude-code";
-/// The app the dashboard in a tab of its own reports itself as (`dashboard_status`).
+/// What the app the dashboard in a tab of its own reports itself as starts with, before its
+/// board's hash (`dashboard_app`).
 const DASHBOARD_APP: &str = "control-tower";
 /// The terminal block method naming a terminal's processes.
 const PROCESS: &str = "com.superlogical.terminal.process";
@@ -89,16 +93,30 @@ pub fn path_in(env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
     in_bin_dir.unwrap_or_else(|| PathBuf::from("rex"))
 }
 
-/// What the dashboard in a tab of its own writes to its terminal, by `env`: on start its
-/// root program status record, idle, as `control-tower`; on exit, the record cleared. `None`
-/// outside Rex, where Rex sets `REX_BLOCK` (an empty one counts as unset), so another
-/// terminal is never sent Rex's sequence.
+/// The app the dashboard on `board` reports itself as: `control-tower-` and the first 8 hex
+/// digits of the SHA-256 of the board's canonical path (its path as given when it cannot be
+/// resolved, as before the board file exists), so the key finds its own board's dashboard
+/// only. 22 bytes: Rex ignores a report whose app is longer than 32.
+pub fn dashboard_app(board: &Path) -> String {
+    use sha2::Digest;
+    use std::os::unix::ffi::OsStrExt;
+    let canonical = std::fs::canonicalize(board).unwrap_or_else(|_| board.to_path_buf());
+    let digest = sha2::Sha256::digest(canonical.as_os_str().as_bytes());
+    let hex: String = digest[..4].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{DASHBOARD_APP}-{hex}")
+}
+
+/// What the dashboard on `board` in a tab of its own writes to its terminal, by `env`: on
+/// start its root program status record, idle, as `dashboard_app(board)`; on exit, the
+/// record cleared. `None` outside Rex, where Rex sets `REX_BLOCK` (an empty one counts as
+/// unset), so another terminal is never sent Rex's sequence.
 pub fn dashboard_status(
     env: impl Fn(&str) -> Option<OsString>,
-) -> Option<(&'static str, &'static str)> {
+    board: &Path,
+) -> Option<(String, &'static str)> {
     env("REX_BLOCK").filter(|b| !b.is_empty())?;
     Some((
-        "\x1b]7501;state=idle:app=control-tower\x1b\\",
+        format!("\x1b]7501;state=idle:app={}\x1b\\", dashboard_app(board)),
         "\x1b]7501;state=clear\x1b\\",
     ))
 }
@@ -205,50 +223,52 @@ impl Rex {
 }
 
 impl Rex {
-    /// `call` for the dashboard's key, within the terminal time limit from `deadline`.
+    /// `call` for the dashboard's key, before `deadline`, the end of a look of `limit`.
     fn ask<T: DeserializeOwned>(
         &self,
         db: &Path,
         method: &str,
         input: serde_json::Value,
-        deadline: Instant,
+        (deadline, limit): (Instant, Duration),
     ) -> Result<T> {
-        Ok(self.call(db, method, input, deadline, terminal_timeout())?)
+        Ok(self.call(db, method, input, deadline, limit)?)
     }
 
-    /// Whether the terminal block `block` in `session` is the dashboard: its root record is
-    /// `control-tower`'s and its owner is the block's foreground process.
+    /// Whether the terminal block `block` in `session` is a dashboard of the board whose
+    /// dashboard reports itself as `app` (`dashboard_app`): its root record is that app's
+    /// and its owner is the block's foreground process, by pid, and by name when the record
+    /// names one.
     fn is_dashboard(
         &self,
         db: &Path,
-        session: &str,
-        block: &str,
-        deadline: Instant,
+        (session, block): (&str, &str),
+        app: &str,
+        time: (Instant, Duration),
     ) -> Result<bool> {
         let input = serde_json::json!({ "session_id": session, "block_id": block, "args": {} });
-        let records: Records = self.ask(db, PROGRAM_STATUS, input.clone(), deadline)?;
-        let Some(owner) = dashboard_in(records.records) else {
+        let records: Records = self.ask(db, PROGRAM_STATUS, input.clone(), time)?;
+        let Some(owner) = dashboard_in(records.records, app) else {
             return Ok(false);
         };
-        let processes: Processes = self.ask(db, PROCESS, input, deadline)?;
+        let processes: Processes = self.ask(db, PROCESS, input, time)?;
         Ok(processes.foreground.is_some_and(|f| {
             f.pid == owner.pid && owner.name.as_ref().is_none_or(|n| *n == f.name)
         }))
     }
 
-    /// The key's answer (`Terminal::space`), with each block or session it passed over in
-    /// `passed_over`.
+    /// The key's answer (`Terminal::space`) within `limit`, with each block or session it
+    /// passed over in `passed_over`.
     fn shown(
         &self,
         db: &Path,
-        here: &Here,
-        back: &Path,
-        dashboard: &[String],
+        (here, back, dashboard): (&Here, &Path, &[String]),
+        limit: Duration,
         passed_over: &mut Vec<String>,
     ) -> Result<Shown> {
-        let deadline = Instant::now() + terminal_timeout();
+        let time = (Instant::now() + limit, limit);
+        let app = dashboard_app(db);
         let none = serde_json::json!({});
-        let sessions: Sessions = self.ask(db, "session.list", none, deadline)?;
+        let sessions: Sessions = self.ask(db, "session.list", none, time)?;
         let mut ids: Vec<String> = (sessions.sessions.unwrap_or_default().into_iter())
             .map(|s| s.session_id)
             .collect();
@@ -257,48 +277,73 @@ impl Rex {
         };
         let key_session = ids.remove(at);
         ids.insert(0, key_session);
-        // Every block in a tab, as (session, block, window); the first dashboard found.
+        // Every block in a tab, as (session, block, window); the sessions passed over; the
+        // first dashboard found; whether a dashboard is in the key's own tab.
         let mut placed: Vec<(String, String, String)> = Vec::new();
+        let mut unread: Vec<String> = Vec::new();
         let mut found: Option<Place> = None;
+        let mut in_dashboard = false;
         // Another session or block Rex cannot read (one closing as the key looks) is passed
         // over; the key's own, or a look out of time, fails the key.
         let pass_over = |err: anyhow::Error, own: bool| {
-            if own || Instant::now() >= deadline {
+            if own || Instant::now() >= time.0 {
                 Err(err)
             } else {
                 Ok(format!("{err:#}"))
             }
         };
+        let mut pressed: Option<Place> = None;
         for s in &ids {
             let input = serde_json::json!({ "session_id": s });
-            let blocks: Blocks = match self.ask(db, "session.list_blocks", input, deadline) {
+            let blocks: Blocks = match self.ask(db, "session.list_blocks", input, time) {
                 Ok(blocks) => blocks,
                 Err(e) => {
                     let why = pass_over(e, *s == here.session)?;
                     passed_over.push(format!(
                         "passed over session {s}, which Rex could not list: {why}"
                     ));
+                    unread.push(s.clone());
                     continue;
                 }
             };
-            for b in blocks.blocks.unwrap_or_default() {
-                let (Some(block), Some(window)) = (b.block_id, b.window_id) else {
-                    continue;
+            let tabbed: Vec<(String, String, bool)> = (blocks.blocks.unwrap_or_default())
+                .into_iter()
+                .filter(|b| b.placement.as_deref() == Some("placed"))
+                .filter_map(|b| {
+                    let terminal = b.creator_name.as_deref() == Some(TERMINAL_CREATOR);
+                    Some((b.block_id?, b.window_id?, terminal))
+                })
+                .collect();
+            // The key's session comes first: the tab it was pressed in.
+            if *s == here.session {
+                let Some((_, window, _)) = tabbed.iter().find(|(b, _, _)| *b == here.block) else {
+                    bail!(
+                        "Rex has no block {} in a tab of session {}",
+                        here.block,
+                        here.session
+                    );
                 };
-                if b.placement.as_deref() != Some("placed") {
-                    continue;
-                }
-                if found.is_none() && b.creator_name.as_deref() == Some(TERMINAL_CREATOR) {
-                    match self.is_dashboard(db, s, &block, deadline) {
+                pressed = Some(Place {
+                    session_id: s.clone(),
+                    window_id: window.clone(),
+                });
+            }
+            for (block, window, terminal) in tabbed {
+                let in_key_tab =
+                    *s == here.session && pressed.as_ref().is_some_and(|p| p.window_id == window);
+                if terminal && (found.is_none() || (in_key_tab && !in_dashboard)) {
+                    let own = *s == here.session && block == here.block;
+                    match self.is_dashboard(db, (s, &block), &app, time) {
                         Ok(true) => {
-                            found = Some(Place {
+                            in_dashboard |= in_key_tab;
+                            found.get_or_insert_with(|| Place {
                                 session_id: s.clone(),
                                 window_id: window.clone(),
-                            })
+                            });
                         }
                         Ok(false) => {}
                         Err(e) => {
-                            let why = pass_over(e, *s == here.session && block == here.block)?;
+                            let why = pass_over(e, own)?;
                             passed_over.push(format!(
                                 "passed over block {block} in session {s}, which Rex could not \
                                  read: {why}"
@@ -309,20 +354,10 @@ impl Rex {
                 placed.push((s.clone(), block, window));
             }
         }
-        let Some((_, _, window)) =
-            (placed.iter()).find(|(s, b, _)| *s == here.session && *b == here.block)
-        else {
-            bail!(
-                "Rex has no block {} in a tab of session {}",
-                here.block,
-                here.session
-            );
+        let Some(pressed) = pressed else {
+            bail!("Rex has no session {}", here.session);
         };
-        let pressed = Place {
-            session_id: here.session.clone(),
-            window_id: window.clone(),
-        };
-        if found.as_ref() == Some(&pressed) {
+        if in_dashboard {
             let to = match read_back(back) {
                 Ok(Some(to)) => to,
                 Ok(None) => {
@@ -334,15 +369,21 @@ impl Rex {
                 }
                 Err(why) => return Ok(Shown::Stay(why)),
             };
+            let last = format!(
+                "the place the key was last pressed outside the dashboard (window {} in \
+                 session {})",
+                to.window_id, to.session_id
+            );
+            if unread.contains(&to.session_id) {
+                return Ok(Shown::Stay(format!(
+                    "{last} cannot be read: Rex could not list its session"
+                )));
+            }
             let there = (placed.iter()).any(|(s, _, w)| *s == to.session_id && *w == to.window_id);
             return Ok(if there {
                 Shown::Go(to)
             } else {
-                Shown::Stay(format!(
-                    "the place the key was last pressed outside the dashboard (window {} in \
-                     session {}) is gone",
-                    to.window_id, to.session_id
-                ))
+                Shown::Stay(format!("{last} is gone"))
             });
         }
         let json = serde_json::to_string(&pressed)?;
@@ -361,7 +402,7 @@ impl Rex {
             "window_label": DASHBOARD_LABEL,
             "layout": dashboard_block(dashboard),
         });
-        let made: NewWindow = self.ask(db, "session.new_window", input, deadline)?;
+        let made: NewWindow = self.ask(db, "session.new_window", input, time)?;
         std::thread::sleep(NEW_TAB_SETTLE);
         Ok(Shown::Go(Place {
             session_id: here.session.clone(),
@@ -520,11 +561,11 @@ fn claude_in(records: Vec<Record>) -> Option<(i64, Status, Option<String>)> {
     Some((pid, Status::of(&root.state, root.kind.as_deref()), root.msg))
 }
 
-/// The owner of a block's root record when that record is the dashboard's
-/// (`DASHBOARD_APP`); `None` for any other, or one that names no owner.
-fn dashboard_in(records: Vec<Record>) -> Option<Owner> {
+/// The owner of a block's root record when that record is `app`'s (`dashboard_app`);
+/// `None` for any other, or one that names no owner.
+fn dashboard_in(records: Vec<Record>, app: &str) -> Option<Owner> {
     let root = records.into_iter().find(|r| r.id.is_none())?;
-    if root.effective_app.as_deref() != Some(DASHBOARD_APP) {
+    if root.effective_app.as_deref() != Some(app) {
         return None;
     }
     root.owner
@@ -670,14 +711,15 @@ impl Terminal for Rex {
 
     fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Answer> {
         let mut passed_over = Vec::new();
-        let shown = self.shown(db, here, back, dashboard, &mut passed_over)?;
+        let asked = (here, back, dashboard);
+        let shown = self.shown(db, asked, terminal_timeout(), &mut passed_over)?;
         Ok(Answer { shown, passed_over })
     }
 
     fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()> {
-        let deadline = Instant::now() + terminal_timeout();
+        let time = (Instant::now() + terminal_timeout(), terminal_timeout());
         let input = serde_json::json!({ "session_id": here.session });
-        let blocks: Blocks = self.ask(db, "session.list_blocks", input, deadline)?;
+        let blocks: Blocks = self.ask(db, "session.list_blocks", input, time)?;
         let window = (blocks.blocks.unwrap_or_default().into_iter())
             .find(|b| b.block_id.as_deref() == Some(here.block.as_str()))
             .and_then(|b| b.window_id);
@@ -695,7 +737,7 @@ impl Terminal for Rex {
             "focus": true,
             "layout": dashboard_block(dashboard),
         });
-        let _: serde_json::Value = self.ask(db, "session.new_layer", input, deadline)?;
+        let _: serde_json::Value = self.ask(db, "session.new_layer", input, time)?;
         Ok(())
     }
 }
@@ -705,8 +747,9 @@ impl Terminal for Rex {
 /// block per line as "<block id> <creator>", `<block>.window` the window it is in (none
 /// when it is missing), `<block>.label` its label (`shell` when missing), `<block>.json`
 /// that block's `program_status` records (none when it is missing) and `<block>.process`
-/// its `process` answer (no processes when missing). `session.new_window` makes
-/// `window:new` and `session.new_layer` `layer:pop`. `claude.json` is what `claude
+/// its `process` answer (no processes when missing); a call about a block with a file
+/// `slow-<block>` first sleeps that file's seconds. `session.new_window` makes `window:new`
+/// and `session.new_layer` `layer:pop`. `claude.json` is what `claude
 /// agents --json` prints. Each call's words go to `calls.log`, one call per line joined by
 /// `|`; a call whose method or session or block has a file `fail-<it>` exits 1 saying so.
 ///
@@ -749,6 +792,7 @@ s=$(field session_id "$5"); b=$(field block_id "$5")
 for it in "$m" "$s" "$b"; do
   [ -n "$it" ] && [ -e "$d/fail-$it" ] && { cat "$d/fail-$it" >&2; exit 1; }
 done
+[ -n "$b" ] && [ -e "$d/slow-$b" ] && sleep "$(cat "$d/slow-$b")" </dev/null >/dev/null 2>&1
 case "$m" in
 session.list)
   printf '{"sessions":['; sep=
@@ -906,11 +950,17 @@ echo '{"type":"result","is_error":false,"num_turns":3,"total_cost_usd":0.00593,"
             self.write(&format!("{block}.process"), &answer.to_string());
         }
 
-        /// A root record as the dashboard reports itself, written by `pid` named `name`.
-        pub fn dashboard_record(pid: i64, name: &str) -> String {
+        /// A root record as the dashboard on the fake's board (`board.db` in its folder,
+        /// the key's board in these tests) reports itself, written by `pid` named `name`.
+        pub fn dashboard_record(&self, pid: i64, name: &str) -> String {
+            let app = super::dashboard_app(&self.dir.join("board.db"));
+            Self::app_record(&app, serde_json::json!({"pid": pid, "name": name}))
+        }
+
+        /// A root record, idle, as `app`, owned by `owner`.
+        pub fn app_record(app: &str, owner: serde_json::Value) -> String {
             serde_json::json!({
-                "state": "idle", "app": "control-tower", "effective_app": "control-tower",
-                "owner": {"pid": pid, "name": name},
+                "state": "idle", "app": app, "effective_app": app, "owner": owner,
                 "updated_at": "2026-01-02T03:04:05Z",
             })
             .to_string()
@@ -1455,10 +1505,10 @@ mod tests {
     fn the_dashboard_is_the_tab_whose_live_tower_named_itself_not_one_labelled_so() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());
-        let stale = FakeRex::dashboard_record(51, "tower");
+        let stale = f.dashboard_record(51, "tower");
         let claude = FakeRex::claude_record(52, "idle", None, None);
-        let reused = FakeRex::dashboard_record(53, "tower");
-        let live = FakeRex::dashboard_record(60, "tower");
+        let reused = f.dashboard_record(53, "tower");
+        let live = f.dashboard_record(60, "tower");
         f.tabs(&[
             (
                 "session:a",
@@ -1502,8 +1552,8 @@ mod tests {
     fn the_keys_own_session_is_looked_in_first() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());
-        let one = FakeRex::dashboard_record(60, "tower");
-        let two = FakeRex::dashboard_record(61, "tower");
+        let one = f.dashboard_record(60, "tower");
+        let two = f.dashboard_record(61, "tower");
         f.tabs(&[
             (
                 "session:a",
@@ -1530,7 +1580,7 @@ mod tests {
     fn from_the_dashboards_tab_the_key_goes_back_to_where_it_was_last_pressed() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());
-        let live = FakeRex::dashboard_record(60, "tower");
+        let live = f.dashboard_record(60, "tower");
         let server = |first: &str, window: &str| {
             f.tabs(&[
                 ("session:a", &[(first, window, "")]),
@@ -1580,7 +1630,7 @@ mod tests {
     fn with_no_dashboard_the_key_opens_one_in_its_own_session_and_shows_it() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());
-        let stale = FakeRex::dashboard_record(51, "tower");
+        let stale = f.dashboard_record(51, "tower");
         f.tabs(&[
             ("session:a", &[("block:1", "window:1", "")]),
             ("session:b", &[("block:6", "window:6", &stale)]),
@@ -1612,7 +1662,7 @@ mod tests {
     fn the_key_fails_saying_why_when_rex_cannot_say_where_it_was_pressed() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());
-        let live = FakeRex::dashboard_record(60, "tower");
+        let live = f.dashboard_record(60, "tower");
         f.tabs(&[(
             "session:a",
             &[("block:1", "window:1", ""), ("block:6", "window:6", &live)],
@@ -1649,8 +1699,8 @@ mod tests {
     fn a_block_or_session_rex_cannot_read_as_the_key_looks_is_passed_over_saying_so() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());
-        let closing = FakeRex::dashboard_record(50, "tower");
-        let live = FakeRex::dashboard_record(60, "tower");
+        let closing = f.dashboard_record(50, "tower");
+        let live = f.dashboard_record(60, "tower");
         f.tabs(&[
             (
                 "session:a",
@@ -1666,10 +1716,10 @@ mod tests {
         // A tab closing mid-look, and a session Rex cannot list.
         f.write("fail-block:2", "Error: block not found");
         f.write("fail-session:c", "Error: session gone");
-        let answer = answer(&f, &here("session:a", "block:1"), &back(&f)).unwrap();
-        assert_eq!(answer.shown, Shown::Go(place("session:b", "window:6")));
+        let pressed = answer(&f, &here("session:a", "block:1"), &back(&f)).unwrap();
+        assert_eq!(pressed.shown, Shown::Go(place("session:b", "window:6")));
         assert_eq!(
-            answer.passed_over,
+            pressed.passed_over,
             [
                 format!(
                     "passed over block block:2 in session session:a, which Rex could not \
@@ -1680,13 +1730,27 @@ mod tests {
                     .into(),
             ]
         );
+        // A back place in the session passed over cannot be read; it is not gone.
+        f.write(
+            "board.space-back",
+            r#"{"session_id":"session:c","window_id":"window:3"}"#,
+        );
+        let from_dashboard = answer(&f, &here("session:b", "block:6"), &back(&f)).unwrap();
+        assert_eq!(
+            from_dashboard.shown,
+            Shown::Stay(
+                "the place the key was last pressed outside the dashboard (window window:3 in \
+                 session session:c) cannot be read: Rex could not list its session"
+                    .into()
+            )
+        );
     }
 
     #[test]
     fn the_back_files_folder_is_made_when_there_is_none_yet() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());
-        let live = FakeRex::dashboard_record(60, "tower");
+        let live = f.dashboard_record(60, "tower");
         f.tabs(&[(
             "session:a",
             &[("block:1", "window:1", ""), ("block:6", "window:6", &live)],
@@ -1745,18 +1809,161 @@ mod tests {
     }
 
     #[test]
-    fn the_dashboard_names_itself_only_in_rex() {
+    fn the_dashboard_names_itself_and_its_board_only_in_rex() {
+        let board = Path::new("/nowhere/board.db");
         let status = |v: Option<&str>| {
-            dashboard_status(|n| (n == "REX_BLOCK").then(|| v.map(OsString::from)).flatten())
+            let env = |n: &str| (n == "REX_BLOCK").then(|| v.map(OsString::from)).flatten();
+            dashboard_status(env, board)
         };
+        // The first 8 hex digits of SHA-256("/nowhere/board.db"), a board not made yet.
         assert_eq!(
             status(Some("block:1")),
             Some((
-                "\x1b]7501;state=idle:app=control-tower\x1b\\",
+                "\x1b]7501;state=idle:app=control-tower-fbc1594c\x1b\\".into(),
                 "\x1b]7501;state=clear\x1b\\"
             ))
         );
         assert_eq!(status(Some("")), None);
         assert_eq!(status(None), None);
+    }
+
+    #[test]
+    fn a_board_is_named_by_its_canonical_path_within_rexs_32_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("state");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::write(real.join("board.db"), "").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let app = dashboard_app(&real.join("board.db"));
+        // Reached through a link, or with a `..` in it, it is the same board.
+        assert_eq!(dashboard_app(&link.join("board.db")), app);
+        assert_eq!(dashboard_app(&real.join("../state/board.db")), app);
+        // Another board, another name.
+        assert_ne!(dashboard_app(&real.join("other.db")), app);
+        assert!(
+            app.starts_with("control-tower-") && app.len() == 22,
+            "{app}"
+        );
+        let hex = &app["control-tower-".len()..];
+        assert!(
+            hex.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "{app}"
+        );
+    }
+
+    #[test]
+    fn a_dashboard_of_another_board_is_passed_by_and_the_key_opens_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let elsewhere = dashboard_app(&f.dir.join("try.db"));
+        let other =
+            FakeRex::app_record(&elsewhere, serde_json::json!({"pid": 60, "name": "tower"}));
+        // A tower older than the board's name in its record.
+        let older = FakeRex::app_record(
+            "control-tower",
+            serde_json::json!({"pid": 61, "name": "tower"}),
+        );
+        f.tabs(&[(
+            "session:a",
+            &[
+                ("block:1", "window:1", ""),
+                ("block:2", "window:2", &other),
+                ("block:3", "window:3", &older),
+            ],
+        )]);
+        f.foreground("block:2", 60, "tower");
+        f.foreground("block:3", 61, "tower");
+        assert_eq!(
+            space(&f, &here("session:a", "block:1")).unwrap(),
+            Shown::Go(place("session:a", "window:new"))
+        );
+        assert_eq!(inputs(&f, "session.new_window").len(), 1);
+    }
+
+    #[test]
+    fn a_record_whose_owner_has_no_name_is_taken_on_its_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let app = dashboard_app(&f.dir.join("board.db"));
+        let nameless = FakeRex::app_record(&app, serde_json::json!({"pid": 60}));
+        f.tabs(&[(
+            "session:a",
+            &[
+                ("block:1", "window:1", ""),
+                ("block:6", "window:6", &nameless),
+            ],
+        )]);
+        f.foreground("block:6", 60, "tower");
+        assert_eq!(
+            space(&f, &here("session:a", "block:1")).unwrap(),
+            Shown::Go(place("session:a", "window:6"))
+        );
+    }
+
+    #[test]
+    fn a_key_pressed_in_any_of_two_dashboards_goes_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let (one, two) = (
+            f.dashboard_record(60, "tower"),
+            f.dashboard_record(61, "tower"),
+        );
+        f.tabs(&[(
+            "session:a",
+            &[
+                ("block:1", "window:1", ""),
+                ("block:2", "window:2", &one),
+                ("block:3", "window:3", &two),
+            ],
+        )]);
+        f.foreground("block:2", 60, "tower");
+        f.foreground("block:3", 61, "tower");
+        assert_eq!(
+            space(&f, &here("session:a", "block:1")).unwrap(),
+            Shown::Go(place("session:a", "window:2"))
+        );
+        // From the second, back to where it was pressed, not on to the first; the back file
+        // stays as it was.
+        let pressed = Shown::Go(place("session:a", "window:1"));
+        assert_eq!(space(&f, &here("session:a", "block:3")).unwrap(), pressed);
+        assert_eq!(space(&f, &here("session:a", "block:2")).unwrap(), pressed);
+        assert_eq!(
+            std::fs::read_to_string(back(&f)).unwrap(),
+            "{\"session_id\":\"session:a\",\"window_id\":\"window:1\"}\n"
+        );
+    }
+
+    #[test]
+    fn a_look_out_of_time_fails_the_key_instead_of_passing_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let live = f.dashboard_record(60, "tower");
+        f.tabs(&[
+            (
+                "session:a",
+                &[("block:1", "window:1", ""), ("block:2", "window:2", &live)],
+            ),
+            ("session:b", &[("block:6", "window:6", &live)]),
+        ]);
+        f.foreground("block:6", 60, "tower");
+        // Rex answers about block:2 only after the look's second is over.
+        f.write("slow-block:2", "3");
+        let mut passed_over = Vec::new();
+        let (key, back_file, command) = (here("session:a", "block:1"), back(&f), dash());
+        let asked = (&key, back_file.as_path(), command.as_slice());
+        let db = f.dir.join("board.db");
+        let err = (f.module())
+            .shown(&db, asked, Duration::from_secs(1), &mut passed_over)
+            .unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            "Rex did not answer within 1 s and the look was stopped"
+        );
+        // Nothing passed over as if it were one tab closing, no back file, no tab.
+        assert_eq!(passed_over, Vec::<String>::new());
+        assert!(!back(&f).exists());
+        assert!(inputs(&f, "session.new_window").is_empty());
     }
 }

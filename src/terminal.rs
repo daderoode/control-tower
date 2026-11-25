@@ -202,11 +202,12 @@ pub trait Terminal: Send + Sync {
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle>;
     /// Undoes a start: closes the place `handle` names. Says what it did.
     fn undo(&self, db: &Path, handle: &Handle) -> Result<String>;
-    /// The dashboard's key, pressed `here`: from the dashboard's tab, the place the key was
-    /// last pressed outside it, as `back` (a file) holds it; from anywhere else, the
-    /// dashboard's tab, opening one running `dashboard` (one word per argument) when there
-    /// is none, with `here` written to `back` (its folder made if need be). Another block or
-    /// session that cannot be read is passed over; the key fails when `here` cannot be.
+    /// The dashboard's key, pressed `here`, for the board `db`'s dashboard only: from a tab
+    /// holding one, the place the key was last pressed outside it, as `back` (a file) holds
+    /// it; from anywhere else, the dashboard's tab, opening one running `dashboard` (one word
+    /// per argument) when there is none, with `here` written to `back` (its folder made if
+    /// need be). Another block or session that cannot be read is passed over; the key fails
+    /// when `here` cannot be, or the terminal does not answer in time.
     fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Answer>;
     /// The popup's key, pressed `here`: opens `dashboard` in a popup over `here`'s tab.
     fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()>;
@@ -229,11 +230,11 @@ pub fn outside_from_env() -> Option<String> {
     rex::outside(|name| std::env::var_os(name))
 }
 
-/// What the dashboard in a tab of its own writes to its terminal, by this process's
-/// environment, so the dashboard's key can find it: (on start, on exit), or `None` where
-/// the built-in module's terminal is not the one it runs in.
-pub fn dashboard_status_from_env() -> Option<(&'static str, &'static str)> {
-    rex::dashboard_status(|name| std::env::var_os(name))
+/// What the dashboard on `board` in a tab of its own writes to its terminal, by this
+/// process's environment, so the dashboard's key for that board can find it: (on start, on
+/// exit), or `None` where the built-in module's terminal is not the one it runs in.
+pub fn dashboard_status_from_env(board: &Path) -> Option<(String, &'static str)> {
+    rex::dashboard_status(|name| std::env::var_os(name), board)
 }
 
 /// How long one terminal command may take before it is stopped, unless a caller has its

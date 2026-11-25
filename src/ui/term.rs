@@ -52,10 +52,10 @@ pub fn run(path: &Path) -> Result<()> {
     // In a tab of its own, the dashboard names itself to the terminal, so the dashboard's
     // key can find it; the record is cleared when it closes.
     let status = match mode {
-        Mode::Space => crate::terminal::dashboard_status_from_env(),
+        Mode::Space => crate::terminal::dashboard_status_from_env(path),
         Mode::Popup => None,
     };
-    if let Some((on, _)) = status {
+    if let Some((on, _)) = &status {
         report(on);
     }
     let mut terminal = ratatui::init();
