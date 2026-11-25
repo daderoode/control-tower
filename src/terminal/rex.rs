@@ -60,6 +60,21 @@ pub fn path_in(env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
     in_bin_dir.unwrap_or_else(|| PathBuf::from("rex"))
 }
 
+/// What a lead running outside Rex is told, by `env`: `None` inside Rex, where Rex sets
+/// `REX_SESSION` (an empty one counts as unset).
+pub fn outside(env: impl Fn(&str) -> Option<OsString>) -> Option<String> {
+    if env("REX_SESSION").is_some_and(|s| !s.is_empty()) {
+        return None;
+    }
+    Some(
+        "control-tower: this session runs outside Rex (REX_SESSION is not set), but the \
+         board's team runs in Rex. Outside Rex the board does not see the workers you start: \
+         not their prompts, and posts and nudges are not delivered to them. Raise it with the \
+         owner in a question: post to @manager."
+            .into(),
+    )
+}
+
 /// Rex as the terminal module, run from `exe`, asking the `claude` at `claude` for the
 /// names of the Claude sessions it finds.
 pub struct Rex {
@@ -729,6 +744,25 @@ mod tests {
             began.elapsed() < Duration::from_secs(4),
             "{:?}",
             began.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_session_without_rex_session_is_told_it_runs_outside_rex() {
+        let with = |vars: &[(&str, &str)]| {
+            outside(|name| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.into()))
+        };
+        // Inside Rex: nothing, whatever else is set.
+        assert_eq!(with(&[("REX_SESSION", "session:7")]), None);
+        // Unset, or empty: told, naming what the board cannot see and whom to ask.
+        let told = with(&[("REX_BIN_DIR", "/opt/rex")]).unwrap();
+        assert_eq!(with(&[("REX_SESSION", "")]).as_deref(), Some(told.as_str()));
+        assert!(
+            told.starts_with(
+                "control-tower: this session runs outside Rex (REX_SESSION is not set)"
+            ) && told.contains("not their prompts, and posts and nudges are not delivered")
+                && told.ends_with("question: post to @manager."),
+            "{told}"
         );
     }
 

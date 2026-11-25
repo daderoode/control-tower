@@ -158,6 +158,12 @@ pub fn exe_from_env() -> PathBuf {
     rex::path()
 }
 
+/// What `tower lead attach` and the SessionStart hook tell a lead whose session runs outside
+/// the built-in module's terminal, by this process's environment; `None` inside it.
+pub fn outside_from_env() -> Option<String> {
+    rex::outside(|name| std::env::var_os(name))
+}
+
 /// herdr as a terminal module, its executable at `exe`: what delivery uses until #111
 /// builds it on Rex.
 pub fn herdr_module(exe: PathBuf) -> Arc<dyn Terminal> {

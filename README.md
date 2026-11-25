@@ -837,6 +837,12 @@ and an idle lead is never woken while nothing is posted:
   asked (each ask bounded to 5 s) or the board opened to write. A hook cannot stop a session
   from starting: a board that needs `tower upgrade`, or `claude` failing, prints nothing and
   goes to Claude Code's debug log.
+- **A lead outside Rex:** a lead's session with no `REX_SESSION` (not run in a Rex tab) is
+  attached all the same, by `tower lead attach` and by the SessionStart hook, and both tell
+  it that the board's team runs in Rex and what the board does not see from outside it (the
+  workers it starts there: their prompts, and delivery to them), to raise with you. The hook
+  says so even after a compaction that has nothing else to say. With `REX_SESSION` set,
+  nothing more is said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
   attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it
