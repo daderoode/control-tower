@@ -525,22 +525,7 @@ impl Watch {
                 .copied()
                 .unwrap_or(0);
         }
-        // The lead check reads herdr's own agent list (its sessions and turns), outside the
-        // terminal module, until #109 judges a lead by Claude's session list instead.
-        let mut log = if self.stopping() {
-            Vec::new()
-        } else {
-            match crate::terminal::herdr::run(self.terminal.exe(), &self.db, &["agent", "list"]) {
-                Ok(listed) => crate::listen::check_leads(
-                    &mut store,
-                    &self.db,
-                    &listed,
-                    now,
-                    &mut self.unheard,
-                ),
-                Err(e) => vec![format!("could not check the leads are listening: {e:#}")],
-            }
-        };
+        let mut log = Vec::new();
         let name = self.terminal.name();
         for action in decide(&tasks, &agents, &flags, now, name) {
             if self.stopping() {
@@ -552,6 +537,25 @@ impl Watch {
             });
         }
         Ok(log)
+    }
+
+    /// The look at whether each registered lead is listening, at `now`
+    /// (`listen::check_leads`), asking `claude` (`claude agents --json`) only when a lead
+    /// needs it: no terminal, so it runs whether herdr answers or not. It runs on the
+    /// caller's thread: a claude that hangs holds it, and the look after it, up to
+    /// `CLAUDE_TIMEOUT` (30 s), and a stop asked meanwhile waits for that too. A line per
+    /// change and per failure.
+    pub fn leads(&mut self, claude: &Path, now: i64) -> Vec<String> {
+        if self.stopping() {
+            return Vec::new();
+        }
+        let mut store = match Store::open(&self.db) {
+            Ok(store) => store,
+            Err(e) => return vec![format!("could not check the leads are listening: {e:#}")],
+        };
+        let agents =
+            || crate::register::claude(claude, &self.db, &self.stop, &["agents", "--json"]);
+        crate::listen::check_leads(&mut store, &self.db, agents, now, &mut self.unheard)
     }
 
     fn act(&self, store: &mut Store, action: &Action, now: i64) -> Result<String> {
@@ -737,9 +741,12 @@ pub fn run(db: &Path) -> Result<()> {
     let mut registered = false;
     // The lead skill registers with Claude Code likewise, retried less often: each try runs
     // claude, and what stops it (no login, no claude) does not clear in seconds. A try runs
-    // on its own thread and is polled between looks, so claude never holds a look.
+    // on its own thread and is polled between looks, so registering never holds a look. The
+    // lead check's claude agents --json does run in the look (`Watch::leads`), bounded by
+    // CLAUDE_TIMEOUT.
+    let claude = crate::register::claude_path();
     let mut skill = crate::register::Skill::new(
-        crate::register::claude_path(),
+        claude.clone(),
         crate::register::skill_dir(),
         Arc::clone(&stop),
     );
@@ -780,6 +787,7 @@ pub fn run(db: &Path) -> Result<()> {
             }
         }
         let now = chrono::Utc::now().timestamp();
+        watch.leads(&claude, now).iter().for_each(|l| log(l));
         match watch.tick(now) {
             Ok(lines) => lines.iter().for_each(|l| log(l)),
             Err(e) => log(&format!("skipped a look: {e:#}")),
@@ -1394,6 +1402,39 @@ mod tests {
             assert!(f.tick(m).is_empty(), "look {m}");
         }
         assert!(f.store().flags().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_lead_check_asks_no_terminal_and_claude_only_for_a_lead_with_no_waiter() {
+        let mut f = Fixture::new();
+        // No herdr answers: the workers' look is skipped, the lead check is not.
+        let none = crate::terminal::module(f.dir.path().join("no-herdr"));
+        f.watch = Watch::new(&f.db, none, Arc::default());
+        assert!(f.watch.tick(f.t0).is_err());
+        f.store()
+            .attach_lead(crate::board::RepoId(1), "sess-1")
+            .unwrap();
+        // A fake claude: notes each ask, lists only another session.
+        let claude = f.dir.path().join("claude");
+        crate::test_exe::executable(
+            &claude,
+            "#!/bin/sh\nd=$(dirname \"$0\")\necho \"$*\" >> \"$d/claude.log\"\n\
+             echo '[{\"sessionId\":\"sess-x\",\"kind\":\"interactive\",\"status\":\"idle\"}]'\n",
+        );
+        let asked = || std::fs::read_to_string(f.dir.path().join("claude.log")).unwrap_or_default();
+        // Its waiter runs: nothing, and claude is not asked.
+        assert!(f.watch.leads(&claude, f.t0).is_empty());
+        assert_eq!(asked(), "");
+        // Its waiter ended and Claude no longer lists its session: not listening.
+        f._listening.unlock().unwrap();
+        assert_eq!(
+            f.watch.leads(&claude, f.t0),
+            [
+                "Catalogue, the lead of R1, is not listening (its Claude session is gone); told \
+                 the owner in T2"
+            ]
+        );
+        assert_eq!(asked(), "agents --json\n");
     }
 
     #[test]

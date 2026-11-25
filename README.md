@@ -740,6 +740,8 @@ and an idle lead is never woken while nothing is posted:
   `run_in_background`: a background command in a terminal session has no time limit, and
   its end wakes the lead, so the lead is woken only when there is something to read. One
   waiter runs per repo: it holds a lock file beside the board (`board.db.R1.stream`). A
+  waiter that takes the lock marks the lead's turns ended so far as the watch's baseline, so
+  a turn counted just before it held the lock never raises "Lead not listening". A
   waiter whose repo is removed (`tower repo remove`) deletes its lock file, prints a line
   saying not to arm it again and ends; one stopped by a newer one (below) says so and ends.
   Every end is exit 0.
@@ -774,10 +776,15 @@ and an idle lead is never woken while nothing is posted:
   `claude agents --json`, or `TOWER_CLAUDE`, lists that session under the session name the
   lead registered, ignoring case), with posts unread, it blocks the end of the turn and
   names them, which counts as telling them, so it holds once per batch. It says so too when
-  no waiter of the lead's is running, with how to arm one. Any other session,
-  and any session when the board does not exist, passes. It looks the session up on the
-  board opened read only, waiting at most a second on a writer, and opens it to write only
-  for a lead's session. Right after `brew upgrade`, until the watch upgrades the board (its
+  no waiter of the lead's is running, with how to arm one. A stop of that session that ends
+  its turn with no waiter running is counted, for the watch's lead check ("Lead not
+  listening"). A turn that ends on an API error (a rate limit, an overload, the output
+  limit) runs no Stop hook: the plugin's StopFailure hook runs `tower lead hook` instead,
+  which counts it the same way and never tells (Claude Code ignores its output, so the posts
+  stay unread). A turn the user interrupts runs neither and is not counted. Any other
+  session, and any session when the board does not exist, passes. It looks the session up
+  on the board opened read only, waiting at most a second on a writer, and opens it to
+  write only for a lead's session. Right after `brew upgrade`, until the watch upgrades the board (its
   next look), each session's Stop hook says the board needs `tower upgrade` (not blocking
   the session). `tower milestone show` says whether the lead is attached;
   `tower lead set --session` with a new session forgets it until it attaches again.
@@ -801,23 +808,30 @@ and an idle lead is never woken while nothing is posted:
   from starting: a board that needs `tower upgrade`, or `claude` failing, prints nothing and
   goes to Claude Code's debug log.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
-  not; an attached one by its Claude session (matched by herdr's `agent_session` id,
-  which is the session's `CLAUDE_CODE_SESSION_ID`). With no waiter running, it
+  not, asking no terminal, so the check runs whether or not the terminal answers; an
+  attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it
+  by its `CLAUDE_CODE_SESSION_ID` (`busy` is working, `idle` is idle, any other status says
+  nothing), asked once a look and only when a lead has no waiter running (a `claude` that
+  hangs holds that look up to 30 seconds). The lead's hooks count, on the board, each turn
+  its attached session ends with no waiter running: by its Stop hook (not a stop it holds
+  for unread posts, which goes on) or, for a turn that ends on an API error, by its
+  StopFailure hook; a turn the user interrupts is not counted. With no waiter running, it
   opens a repo-wide "Lead not listening" thread with one `system` message mentioning
   `@manager` (for your awareness), once per episode, naming how to arm a waiter and, for a
   lead nobody runs any more, `tower lead remove`. It does so for a lead with no attached
   session once the watch has seen it so for 5 minutes (the time a lead started from the
   dashboard takes to boot and arm its waiter; a restart of the watch starts the 5 minutes
-  again), for an attached lead when the session is gone from herdr, or when it is idle (or
-  done) having finished a turn since
-  the watch first saw it, idle or working, with no waiter (herdr's `state_change_seq` moved,
-  kept on the board). A turn that starts and ends between two looks after one that saw the
-  waiter running is not seen: the first idle look after it only records the seq. So the gap
-  between a waiter's end and the lead re-arming never raises one: the end wakes the lead,
-  which re-arms in that turn. A session working or blocked is not raised, nor an idle one
-  when herdr gives no `state_change_seq`, and an empty herdr agent list changes nothing.
-  When a waiter runs again, the watch resolves that thread, which takes the item off the
-  alert line.
+  again), for an attached lead when Claude no longer lists the session ("its Claude session
+  is gone"), or when it is idle having finished a turn with no waiter since the watch last
+  saw its waiter running, or a waiter last took its lock, or the watch first saw it, idle or
+  working, with none (the count moved). So a turn that starts and ends between two looks is
+  counted, also right after a look that saw the waiter running, and the gap between a
+  waiter's end and the lead re-arming never raises one: the end wakes the lead, which
+  re-arms in that turn, and a turn ended with the waiter running is not counted. A session
+  working, or with a status that says nothing, is not raised, and an empty list (likelier a
+  glitch than every Claude session gone) changes nothing. A list that cannot be read skips
+  those leads for the look, with one log line. When a waiter runs again, the watch resolves
+  that thread, which takes the item off the alert line.
 
 ## The board
 

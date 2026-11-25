@@ -24,7 +24,7 @@ use crate::deliver::{LeadBoard, Pending, Post};
 use crate::watch::{Flag, Named, Signal};
 
 /// The schema this build reads and writes, kept in SQLite's `user_version`.
-pub const SCHEMA_VERSION: i32 = 18;
+pub const SCHEMA_VERSION: i32 = 19;
 
 /// `MIGRATIONS[n]` takes the schema from version `n` to `n + 1`.
 const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
@@ -382,6 +382,18 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
         WHERE n NOT IN ('', 'manager')
             AND n IN (SELECT lower(author) FROM message WHERE author != 'system')
             AND n NOT IN (SELECT lower(name) FROM lead UNION SELECT lower(session) FROM lead);
+",
+    // The lead check needs no terminal. `turns` is how many turns the lead's attached
+    // session has ended with no waiter running, counted by its Stop hook; `quiet_seq`,
+    // herdr's state_change_seq, becomes `quiet_turns`, that count when the watch last saw
+    // the lead's waiter running, or first saw it, idle or busy, with none. A herdr seq
+    // means nothing to the count, so an open record starts again at the count's 0: it stays
+    // recorded (no fresh first look), and only a turn the hook counts from now on raises.
+    // The open episodes (`deaf_thread`) are kept as they are.
+    "
+    ALTER TABLE lead RENAME COLUMN quiet_seq TO quiet_turns;
+    ALTER TABLE lead ADD COLUMN turns INTEGER NOT NULL DEFAULT 0;
+    UPDATE lead SET quiet_turns = 0 WHERE quiet_turns IS NOT NULL;
 ",
 ];
 
@@ -1142,16 +1154,21 @@ pub const NOT_LISTENING: &str = "Lead not listening";
 
 /// A registered lead: its repo, itself, the Claude session it attached (`None` while it has
 /// not, or since `tower lead set --session` gave it a new one), the thread of its open
-/// "lead not listening" episode, if any, and when the watch first saw it quiet.
+/// "lead not listening" episode, if any, how many turns its session has ended with no
+/// waiter running, and that count when the watch last saw its waiter or first saw it quiet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Registered {
     pub repo: RepoId,
     pub lead: Lead,
     pub claude_session: Option<String>,
     pub deaf: Option<ThreadId>,
-    /// herdr's state_change_seq of its session when the watch first saw it, idle or busy,
-    /// with no stream, `None` while it has not.
-    pub quiet_seq: Option<i64>,
+    /// How many turns its attached session has ended with no waiter running, by its Stop
+    /// hook (`lead_turn_ended`).
+    pub turns: i64,
+    /// `turns` when the watch last saw its waiter running, or a waiter last took its lock,
+    /// or the watch first saw it, idle or busy, with none; `None` while none of these has
+    /// happened since the session attached.
+    pub quiet_turns: Option<i64>,
 }
 
 /// How many messages in the threads `threads` selects (a query on `?2`, given `of`) the
@@ -3206,8 +3223,8 @@ impl Store {
             bail!("{repo} has no lead yet; add one with tower lead add {repo}");
         };
         tx.execute(
-            // A new session's herdr seqs are its own: the watch looks afresh.
-            "UPDATE lead SET claude_session = ?1, quiet_seq = NULL WHERE repo_id = ?2",
+            // A new session: the watch looks at it afresh.
+            "UPDATE lead SET claude_session = ?1, quiet_turns = NULL WHERE repo_id = ?2",
             params![session, repo.0],
         )
         .context(cannot_write.clone())?;
@@ -3310,8 +3327,8 @@ impl Store {
         let found = self
             .conn
             .prepare(
-                "SELECT repo_id, name, session, colour, claude_session, deaf_thread, quiet_seq \
-                 FROM lead ORDER BY repo_id",
+                "SELECT repo_id, name, session, colour, claude_session, deaf_thread, turns, \
+                 quiet_turns FROM lead ORDER BY repo_id",
             )?
             .query_map([], |r| {
                 Ok(Registered {
@@ -3319,7 +3336,8 @@ impl Store {
                     lead: lead_from_row(r)?,
                     claude_session: r.get("claude_session")?,
                     deaf: r.get::<_, Option<i64>>("deaf_thread")?.map(ThreadId),
-                    quiet_seq: r.get("quiet_seq")?,
+                    turns: r.get("turns")?,
+                    quiet_turns: r.get("quiet_turns")?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -3375,22 +3393,67 @@ impl Store {
         Ok(Some(thread))
     }
 
-    /// Records `seq`, herdr's state_change_seq of the lead of `repo`'s session, as when the
-    /// watch first saw it, idle or busy, with no stream, unless one is recorded already.
-    pub fn lead_quiet(&mut self, repo: RepoId, seq: i64) -> Result<()> {
+    /// Records `turns`, the turns the lead of `repo`'s session has ended, as when the watch
+    /// first saw it, idle or busy, with no waiter, unless one is recorded already.
+    pub fn lead_quiet(&mut self, repo: RepoId, turns: i64) -> Result<()> {
         self.conn
             .execute(
-                "UPDATE lead SET quiet_seq = ?1 WHERE repo_id = ?2 AND quiet_seq IS NULL",
-                params![seq, repo.0],
+                "UPDATE lead SET quiet_turns = ?1 WHERE repo_id = ?2 AND quiet_turns IS NULL",
+                params![turns, repo.0],
             )
             .context(self.cannot_write())?;
         Ok(())
     }
 
+    /// A waiter for `repo` has taken its lock: the turns its lead has ended are the watch's
+    /// baseline (`quiet_turns`), so a turn the Stop hook counted just before the waiter took
+    /// the lock is no turn ended without one.
+    pub fn lead_waiter_armed(&mut self, repo: RepoId) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE lead SET quiet_turns = turns WHERE repo_id = ?1",
+                params![repo.0],
+            )
+            .context(self.cannot_write())?;
+        Ok(())
+    }
+
+    /// The Claude session `session` ended a turn: one more turn ended with no waiter running
+    /// for the lead of `repo`, if `session` is still the one it attached and `waiting` (is a
+    /// waiter running?) says no (the Stop hook's count, which the watch reads to know a lead
+    /// finished a turn without re-arming). `waiting` is asked inside this write's own
+    /// transaction, so a waiter that took its lock first is seen, and one that takes it
+    /// later writes its baseline (`lead_waiter_armed`) after this commits, absorbing the
+    /// count. Returns whether it counted.
+    pub fn lead_turn_ended(
+        &mut self,
+        repo: RepoId,
+        session: &str,
+        waiting: impl FnOnce() -> Result<bool>,
+    ) -> Result<bool> {
+        let cannot_write = self.cannot_write();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context(cannot_write.clone())?;
+        if waiting()? {
+            return Ok(false);
+        }
+        let n = tx
+            .execute(
+                "UPDATE lead SET turns = turns + 1 WHERE repo_id = ?1 AND claude_session = ?2",
+                params![repo.0, session],
+            )
+            .context(cannot_write.clone())?;
+        tx.commit().context(cannot_write)?;
+        Ok(n > 0)
+    }
+
     /// The lead of `repo` is listening: ends its "lead not listening" episode, if one is
     /// open, resolving its thread with `evidence` by `system` at `at` unless someone resolved
-    /// it already, and forgets when the watch first saw it quiet. Returns the episode's
-    /// thread, or `None` when none was open.
+    /// it already, and takes its count of turns ended now as the baseline (`quiet_turns`), so
+    /// a turn it ends without re-arming from here on is seen. Returns the episode's thread,
+    /// or `None` when none was open.
     pub fn lead_listening(
         &mut self,
         repo: RepoId,
@@ -3424,7 +3487,7 @@ impl Store {
             )?;
         }
         tx.execute(
-            "UPDATE lead SET deaf_thread = NULL, quiet_seq = NULL WHERE repo_id = ?1",
+            "UPDATE lead SET deaf_thread = NULL, quiet_turns = turns WHERE repo_id = ?1",
             params![repo.0],
         )
         .context(cannot_write.clone())?;
@@ -6215,6 +6278,62 @@ mod tests {
             .collect::<rusqlite::Result<_>>()
             .unwrap();
         assert_eq!(retired, ["old-lead"]);
+    }
+
+    /// A schema 18 board, its lead check fed by herdr's state_change_seq, upgrades keeping
+    /// its "Lead not listening" episodes and first-seen records, and the next look raises
+    /// nothing new: a herdr seq is never compared with the Stop hook's count.
+    #[test]
+    fn a_schema_18_board_upgrades_keeping_its_lead_episodes_and_raising_nothing() {
+        let (_dir, path) = temp_board();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..18] {
+            conn.execute_batch(sql).unwrap();
+        }
+        // R1's lead in an open episode (T1); R2's seen quiet by herdr at seq 57; R3's not.
+        conn.execute_batch(
+            "INSERT INTO repo (path) VALUES (NULL), (NULL), (NULL);
+             INSERT INTO thread (repo_id, title) VALUES (1, 'Lead not listening');
+             INSERT INTO lead (repo_id, name, session, colour, claude_session, deaf_thread,
+                 quiet_seq) VALUES
+               (1, 'One', 'one-lead', 'blue', 'sess-1', 1, 12),
+               (2, 'Two', 'two-lead', 'blue', 'sess-2', NULL, 57),
+               (3, 'Three', 'three-lead', 'blue', 'sess-3', NULL, NULL);
+             PRAGMA user_version = 18;",
+        )
+        .unwrap();
+        drop(conn);
+        let mut store = Store::open(&path).unwrap();
+        let leads = store.leads().unwrap();
+        let kept: Vec<_> = (leads.iter())
+            .map(|l| (l.deaf, l.turns, l.quiet_turns))
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                (Some(ThreadId(1)), 0, Some(0)),
+                (None, 0, Some(0)),
+                (None, 0, None)
+            ]
+        );
+        // Each lead idle with no waiter: nothing raised, no thread opened.
+        let db = path.clone();
+        let idle = r#"[{"sessionId":"sess-1","status":"idle"},{"sessionId":"sess-2","status":"idle"},
+            {"sessionId":"sess-3","status":"idle"}]"#;
+        let log = crate::listen::check_leads(
+            &mut store,
+            &db,
+            || Ok(idle.to_string()),
+            10,
+            &mut std::collections::HashMap::new(),
+        );
+        assert!(log.is_empty(), "{log:?}");
+        let threads: i64 = store
+            .conn
+            .query_row("SELECT count(*) FROM thread", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(threads, 1);
     }
 
     /// `tower lead remove` keeps the lead's name and session as a retired lead's.
