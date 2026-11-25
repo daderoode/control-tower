@@ -30,6 +30,15 @@ tag's date, and a new empty Unreleased goes above it.
   the same name as the task's assignee, the board author and the Claude session, shown in
   its role's colour. Leads and workers already on the board keep their names (#92).
 
+### Fixed
+
+- **A brief posted just before its worker starts is no false alarm.** A post to a name Rex
+  did not list yet told the owner "could not deliver", or replied to the lead that no worker
+  is named so, though the worker was live seconds later. A send to a name Rex does not list
+  now waits until its oldest post is a minute old, holding back no other recipient's posts,
+  and goes the round Rex lists the name; only one still unlisted after the minute is a
+  failure (#133).
+
 ## [0.6.1] - 2026-11-25
 
 ### Fixed

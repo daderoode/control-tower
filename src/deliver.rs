@@ -49,6 +49,13 @@
 //! less than `CATCH_UP` old. Otherwise it is a closed worker, and the posts are ones a watch
 //! catching up after a stop found (#128): logged only, no episode and no item. A send to an
 //! agent the terminal lists goes whatever the post's age.
+//!
+//! A send to a name the terminal has no agent by waits first, while its oldest post is under
+//! `START_GRACE` old: a lead posts a worker's brief, then starts it, and the terminal lists
+//! it a few seconds later (#133). It is marked sent to no one, so it stays after the cursor,
+//! held for that name alone (every other recipient's sends go, recorded beyond the cursor),
+//! and goes the round the terminal lists the name. Only past the grace is it any of the
+//! failures above. Tower's replies are not held: they go to a post's author, who had started.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -80,6 +87,10 @@ pub const EPISODE_EXPIRES: i64 = 60 * 60;
 /// seconds, for its failure to be the owner's item when the worker is no task's assignee:
 /// an older one is a closed worker's, found by a watch catching up, and is logged only.
 pub const CATCH_UP: i64 = 60 * 60;
+/// How long a send to a name the terminal has no agent by waits, in seconds from its oldest
+/// post, before it is a failure: a worker is often started just after its brief is posted,
+/// and is listed a few seconds later (#133).
+pub const START_GRACE: i64 = 60;
 /// The most characters of a failure's reason a failure item quotes.
 const WHY_CHARS: usize = 300;
 /// How tower's reply to a post's author starts after "@<author> ", when the post named
@@ -496,6 +507,27 @@ impl Deliver {
             }
             let n = posts.len();
             let key = batch.to.key();
+            // Whether the terminal has an agent by the name: only one it has not can have
+            // been closed, or be starting still.
+            let listed = match &batch.to {
+                Recipient::Worker(name) => matches!(&agents,
+                    Some(Ok(a)) if a.iter().any(|a| a.eq_ignore_ascii_case(name))),
+            };
+            // Tower's replies, each to the author of a post: one that had started.
+            let replies = (posts.iter()).all(|p| p.author.eq_ignore_ascii_case(SYSTEM_AUTHOR));
+            let oldest = posts.iter().map(|p| p.posted_at).min().unwrap_or(now);
+            if !listed && !replies && now - oldest < START_GRACE {
+                // A worker started just after its brief was posted (#133): nothing is marked
+                // sent, so the send goes the round the terminal lists it, and is judged as
+                // any other once its oldest post is `START_GRACE` old.
+                log.push(format!(
+                    "{n} post(s) for {key} wait: {} has no agent named {key} yet; a worker may \
+                     be starting",
+                    self.terminal.name()
+                ));
+                left = Some(left.map_or(batch.posts[0], |l| l.min(batch.posts[0])));
+                continue;
+            }
             let last = posts.last().map_or(0, |p| p.id);
             match store.mark_sent(&key, last) {
                 Ok(true) => {}
@@ -506,11 +538,8 @@ impl Deliver {
                     continue;
                 }
             }
-            // Whether the terminal has no agent by the name: only then can it have been closed.
             let (who, sent, gone) = match &batch.to {
                 Recipient::Worker(name) => {
-                    let listed = matches!(&agents,
-                        Some(Ok(a)) if a.iter().any(|a| a.eq_ignore_ascii_case(name)));
                     let sent = if listed {
                         // A send that starts has its whole limit: the budget only stops the
                         // next one starting, so none is cut short and lost.
@@ -547,11 +576,7 @@ impl Deliver {
                 }
                 // Tower's reply to an author that is gone by now (closed after its post):
                 // advice no one else needs, so it is logged, never the owner's item.
-                Sent::Failed(why)
-                    if posts
-                        .iter()
-                        .all(|p| p.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)) =>
-                {
+                Sent::Failed(why) if replies => {
                     format!("could not deliver tower's reply to {who}: {why}; logged only")
                 }
                 Sent::Failed(why) if gone && !pending.knows(&who) => {
@@ -975,8 +1000,10 @@ mod tests {
             self.store().post_at(ThreadId(1), who, text, at);
         }
 
+        /// A drain a moment past every post's `START_GRACE` (`post` stamps the clock's time),
+        /// so a send to a name Rex does not list is judged at once.
         fn drain(&self) -> Vec<String> {
-            self.drain_at(1_000)
+            self.drain_at(chrono::Utc::now().timestamp() + START_GRACE)
         }
 
         /// A drain at `now`: its lines but the relay's traces (`drain_traced`).
@@ -1460,7 +1487,7 @@ mod tests {
         // open, and this failure would be logged as told already.
         let fresh = 10_000 + CATCH_UP + 60;
         f.post_at("dev-2", "@qa-9 a new one", fresh);
-        let log = f.drain_at(fresh);
+        let log = f.drain_at(fresh + START_GRACE);
         assert_eq!(log.len(), 1, "{log:?}");
         assert!(log[0].contains("; told the owner in "), "{log:?}");
         assert_eq!(f.items().len(), 1);
@@ -1525,6 +1552,138 @@ mod tests {
             ),
             "{items:?}"
         );
+    }
+
+    /// The case of #133: the lead posts a brief, then starts the worker, which Rex lists a
+    /// round later. Neither a name no worker has had (qa-7) nor the task's assignee (dev-1)
+    /// is a failure meanwhile: no item for the owner, no reply to the lead, and each gets
+    /// the brief once Rex lists it.
+    #[test]
+    fn a_worker_rex_lists_a_round_after_its_brief_gets_it_with_no_item_or_reply() {
+        let f = Fixture::new();
+        f.agents(&["dev-2", "qa-1"]);
+        f.post_at("cat-lead", "@qa-7 you test what dev-1 builds", 1_000);
+        assert_eq!(
+            f.drain_at(1_002),
+            [
+                "1 post(s) for qa-7 wait: Rex has no agent named qa-7 yet; a worker may be \
+                 starting",
+                "1 post(s) for dev-1 wait: Rex has no agent named dev-1 yet; a worker may be \
+                 starting",
+                "1 post(s) wait for the next round",
+            ]
+        );
+        assert!(f.prompts().is_empty(), "{:?}", f.prompts());
+        f.agents(&["dev-1", "dev-2", "qa-1", "qa-7"]);
+        assert_eq!(
+            f.drain_at(1_007),
+            [
+                "delivered 1 post(s) to qa-7",
+                "delivered 1 post(s) to dev-1"
+            ]
+        );
+        assert!(f.drain_at(1_100).is_empty());
+        assert!(f.items().is_empty(), "{:?}", f.items());
+        let board = f.store().load().unwrap();
+        let replies = (board.milestones[0].threads[0].messages.iter())
+            .filter(|m| m.author == "system")
+            .count();
+        assert_eq!(replies, 0);
+    }
+
+    /// The board's cursor is shared, but a send held for a starting worker holds back only
+    /// that worker: the other recipients of the same post, and of posts after it, are sent
+    /// at once and recorded beyond the cursor, so they are never sent again.
+    #[test]
+    fn a_send_held_for_a_starting_worker_holds_back_no_other_worker() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-7 @qa-1 the brief", 1_000);
+        f.post_at("dev-2", "@qa-2 next", 1_001);
+        assert_eq!(
+            f.drain_at(1_002),
+            [
+                "1 post(s) for qa-7 wait: Rex has no agent named qa-7 yet; a worker may be \
+                 starting",
+                "delivered 1 post(s) to qa-1",
+                "delivered 1 post(s) to qa-2",
+                "2 post(s) wait for the next round",
+            ]
+        );
+        assert_eq!(
+            f.drain_at(1_007),
+            [
+                "1 post(s) for qa-7 wait: Rex has no agent named qa-7 yet; a worker may be \
+                 starting",
+                "2 post(s) wait for the next round",
+            ]
+        );
+        f.agents(&["dev-1", "dev-2", "qa-1", "qa-2", "qa-7"]);
+        assert_eq!(f.drain_at(1_012), ["delivered 1 post(s) to qa-7"]);
+        assert!(f.drain_at(1_017).is_empty());
+        let prompts = f.prompts();
+        let to: Vec<&str> = prompts
+            .iter()
+            .map(|p| p.split('|').next().unwrap())
+            .collect();
+        assert_eq!(to, ["qa-1", "qa-2", "qa-7"], "{prompts:?}");
+        assert!(
+            prompts[2].ends_with("[T1 #1] dev-2: @qa-7 @qa-1 the brief"),
+            "{prompts:?}"
+        );
+    }
+
+    /// A worker that never starts is the owner's item once the oldest post to it is
+    /// `START_GRACE` old, not before; a newer post to it does not push the grace out.
+    #[test]
+    fn a_worker_that_never_starts_is_told_once_its_oldest_post_is_a_grace_old() {
+        let f = Fixture::new();
+        f.agents(&["dev-2", "qa-1"]);
+        f.post_at("cat-lead", "status?", 1_000);
+        assert_eq!(
+            f.drain_at(1_000 + START_GRACE - 1),
+            [
+                "1 post(s) for dev-1 wait: Rex has no agent named dev-1 yet; a worker may be \
+                 starting",
+                "1 post(s) wait for the next round",
+            ]
+        );
+        assert!(f.items().is_empty(), "{:?}", f.items());
+        f.post_at("cat-lead", "and this", 1_030);
+        let log = f.drain_at(1_000 + START_GRACE);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "could not deliver 2 post(s) to dev-1: Rex has no agent named dev-1; told the \
+                 owner in "
+            ),
+            "{log:?}"
+        );
+        assert_eq!(f.items().len(), 1, "{:?}", f.items());
+    }
+
+    /// A name no worker has had is its poster's to fix only once the grace has passed: until
+    /// then it may be a worker starting.
+    #[test]
+    fn a_name_no_worker_has_had_is_told_to_the_poster_only_after_the_grace() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-7 are you there?", 1_000);
+        assert_eq!(
+            f.drain_at(1_000 + START_GRACE - 1),
+            [
+                "1 post(s) for qa-7 wait: Rex has no agent named qa-7 yet; a worker may be \
+                 starting",
+                "1 post(s) wait for the next round",
+            ]
+        );
+        assert_eq!(
+            f.drain_at(1_000 + START_GRACE),
+            [
+                "could not deliver 1 post(s) to qa-7: Rex has no agent named qa-7, a name no \
+                 worker on the board has had; no item for the owner",
+                "told dev-2 in T1 of the name(s) no worker has had",
+            ]
+        );
+        assert!(f.items().is_empty(), "{:?}", f.items());
     }
 
     /// Names no worker on the board has had (an example, a misspelt
@@ -1809,12 +1968,14 @@ mod tests {
         // ghost-1 worked on this board and is gone from Rex (the owner is told).
         f.post("ghost-1", "status: done here");
         f.drain_at(500);
-        f.post("dev-1", "@ghost-1 one");
+        // Each post a grace old when it is drained, so it is judged at once.
+        let post = |text: &str, drained: i64| f.post_at("dev-1", text, drained - START_GRACE);
+        post("@ghost-1 one", 1_000);
         assert!(f.drain_at(1_000)[0].ends_with("told the owner in T1"));
-        f.post("dev-1", "@ghost-1 two");
+        post("@ghost-1 two", 1_000 + EPISODE_EXPIRES - 1);
         let log = f.drain_at(1_000 + EPISODE_EXPIRES - 1);
         assert!(log[0].ends_with("(the owner was told already)"), "{log:?}");
-        f.post("dev-1", "@ghost-1 three");
+        post("@ghost-1 three", 1_000 + EPISODE_EXPIRES);
         assert!(f.drain_at(1_000 + EPISODE_EXPIRES)[0].ends_with("told the owner in T1"));
         assert_eq!(f.items().len(), 2);
     }
