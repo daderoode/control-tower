@@ -548,45 +548,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_claude_line_is_one_shell_word_per_argument_whatever_the_text() {
-        assert_eq!(
-            crate::terminal::herdr::shell_line(&lead_command("Audiobooks Lead", MilestoneId(3))),
-            "claude -n 'Audiobooks Lead' '/control-tower:lead M3'"
-        );
-        // The shell reads the line back as its words, exactly as given, and runs nothing in
-        // them: a hostile text is quoted, and a plain word stays one word.
-        let dir = tempfile::tempdir().unwrap();
-        let pwned = dir.path().join("pwned");
-        let hostile = format!(
-            "a'; touch {p}; echo '$(touch {p}) `touch {p}` \"$HOME\" \\ \n x",
-            p = pwned.display()
-        );
-        // Each a word with no space, so only the plain characters decide its quoting. A
-        // file in the shell's directory, so a bare `*` would expand to it.
-        std::fs::write(dir.path().join("f"), "").unwrap();
-        let one_word = [
-            "it's", "$HOME", "a;b", "`id`", "*", "~", "a|b", "a&b", "a>b", "a\\b", "#c",
-        ];
-        let plain = ["-n", "/control-tower:lead", "x@y%z+1,2"];
-        let mut words = vec!["printf".to_string(), "%s|".to_string(), hostile];
-        words.extend(one_word.iter().chain(&plain).map(|w| w.to_string()));
-        let out = std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg(crate::terminal::herdr::shell_line(&words))
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        let want: String = words[2..].iter().map(|w| format!("{w}|")).collect();
-        assert_eq!(String::from_utf8(out.stdout).unwrap(), want);
-        assert!(!pwned.exists());
-        assert_eq!(
-            std::fs::read_dir(dir.path()).unwrap().count(),
-            1,
-            "it wrote a file"
-        );
-    }
-
     /// A fake rex in a temp dir: each call appends its arguments, joined by "|", to
     /// `calls.log`; `new` prints Rex's reply (session "session:7"), or the file `reply-new`
     /// when there is one, and a call fails as Rex does when its `fail-<command>` file exists.

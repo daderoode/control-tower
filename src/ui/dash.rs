@@ -295,7 +295,7 @@ pub struct Dash {
     /// repo (which has no lead, or `n` was refused); `None` starts it in no repo yet, for a
     /// selection in no repo or none.
     new_lead_repo: Option<RepoId>,
-    /// Where it runs: its own space or herdr's popup.
+    /// Where it runs: a pane of its own or a popup.
     pub mode: Mode,
     /// The repo or milestone being unfolded because the owner picked something folded in it
     /// (by its card or a line in a view), until a refresh shows it unfolded or the edge

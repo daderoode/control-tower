@@ -14,24 +14,19 @@ use ratatui::crossterm::execute;
 use ratatui::layout::Rect;
 
 use super::writer::{self, Write};
-use super::{Dash, Depth, Input, Mode, Reader, Request, View, draw, hyperlink, q_returns, refresh};
+use super::{Dash, Depth, Input, Mode, Reader, Request, View, draw, hyperlink, refresh};
 use crate::board::{ThreadId, Ticket};
-use crate::open;
 
 const REFRESH: Duration = Duration::from_secs(2);
 /// How long the input loop waits for input before redrawing (the clock and new board data).
 const TICK: Duration = Duration::from_millis(250);
-/// Runs the dashboard until `q` (outside the composer) or Ctrl-C, or in herdr's popup
-/// (`TOWER_UI_MODE=popup`) Esc at its top level. In its own space (`TOWER_UI_MODE=space`)
-/// `q` instead returns to the workspace `tower space` came from (`open::back`) and the
-/// dashboard keeps running; only Ctrl-C closes it there. It reads the board
-/// read-only; a missing or unreadable board is shown on screen and picked up once it
-/// appears. Its writes run off the UI thread: the owner's post, mark read, folds and a lead's
-/// start through the store (`writer`).
+/// Runs the dashboard until `q` (outside the composer) or Ctrl-C, or in a popup
+/// (`TOWER_UI_MODE=popup`) Esc at its top level. It reads the board read-only; a missing or
+/// unreadable board is shown on screen and picked up once it appears. Its writes run off the
+/// UI thread: the owner's post, mark read, folds and a lead's start through the store
+/// (`writer`).
 pub fn run(path: &Path) -> Result<()> {
-    let mode_var = std::env::var(open::MODE_VAR).ok();
-    let mode = Mode::from_env(mode_var.as_deref())?;
-    let own_space = q_returns(mode_var.as_deref());
+    let mode = Mode::from_env(std::env::var(super::MODE_VAR).ok().as_deref())?;
     let depth = Depth::from_colorterm(std::env::var("COLORTERM").ok().as_deref());
     let first = refresh(path);
     let (tx, rx) = mpsc::channel();
@@ -62,11 +57,7 @@ pub fn run(path: &Path) -> Result<()> {
     let result = execute!(stdout(), EnableMouseCapture, EnableBracketedPaste)
         .map_err(anyhow::Error::from)
         .and_then(|()| {
-            let edge = Edge {
-                mode,
-                own_space,
-                depth,
-            };
+            let edge = Edge { mode, depth };
             input_loop(&mut terminal, path, first, rx, &want_tx, edge)
         });
     let _ = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste);
@@ -74,11 +65,9 @@ pub fn run(path: &Path) -> Result<()> {
     result
 }
 
-/// What `run` learnt of where it runs: the mode, whether it is in its own space (where `q`
-/// returns rather than closes) and the terminal's colours.
+/// What `run` learnt of where it runs: the mode and the terminal's colours.
 struct Edge {
     mode: Mode,
-    own_space: bool,
     depth: Depth,
 }
 
@@ -90,13 +79,7 @@ fn input_loop(
     want_tx: &Sender<Option<ThreadId>>,
     edge: Edge,
 ) -> Result<()> {
-    let Edge {
-        mode,
-        own_space,
-        depth,
-    } = edge;
-    // The herdr server this pane is in, whose record `q` follows.
-    let socket = std::env::var(open::SOCKET_VAR).unwrap_or_default();
+    let Edge { mode, depth } = edge;
     let mut dash = Dash::default();
     dash.mode = mode;
     dash.set_now(chrono::Local::now().timestamp());
@@ -211,18 +194,6 @@ fn input_loop(
         // A mark read refreshes the board when done; a post updates its draft.
         match input.and_then(|i| dash.handle(&view, area, i)) {
             None => {}
-            // In its own space `q` returns to where the owner came from and the dashboard
-            // keeps running; with nowhere to go it stays put.
-            Some(Request::Quit) if own_space => {
-                match open::back(&crate::terminal::herdr::path(), path, &socket) {
-                    Ok(Some(_)) => {}
-                    Ok(None) => {
-                        dash.notice =
-                            Some(("no workspace to return to; Ctrl-C closes".into(), false))
-                    }
-                    Err(e) => dash.notice = Some((format!("{e:#}"), true)),
-                }
-            }
             Some(Request::Quit) => return Ok(()),
             // The ticket opens in the browser with `open`, waited for off this thread.
             Some(Request::Open(link)) => writes.open.push(open_link("open", link)),
@@ -266,7 +237,7 @@ type SeenRead = (Vec<i64>, Receiver<(String, bool)>);
 
 /// The writes in flight, each tracked on its own so one finishing never drops another: a
 /// mark read, the awareness items of an opened thread read, a lead started
-/// (the store and herdr), a post (the store) and folds (the store), as many as the owner
+/// (the store and the terminal), a post (the store) and folds (the store), as many as the owner
 /// asks for.
 #[derive(Default)]
 struct Writes {

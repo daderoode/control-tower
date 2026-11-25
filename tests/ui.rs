@@ -13,8 +13,8 @@ use control_tower::store::Store;
 use control_tower::ui::{
     Control, Dash, Depth, Fold, Input, Item, Layout, Mode, OverviewLayout, Reader, Request, Shown,
     Stop, View, ViewKind, accent, alert_line, bad, detail_layout, dim_colour, draw, hyperlink,
-    layout, lead_colour, milestone_detail, ok, overview, overview_layout, q_returns, refresh,
-    selected_bg, task_detail, tree_items, tree_lines, warn,
+    layout, lead_colour, milestone_detail, ok, overview, overview_layout, refresh, selected_bg,
+    task_detail, tree_items, tree_lines, warn,
 };
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -6762,14 +6762,6 @@ fn the_mode_comes_from_tower_ui_mode() {
     assert_eq!(Mode::from_env(Some("popup")).unwrap(), Mode::Popup);
     let e = Mode::from_env(Some("Popup")).unwrap_err().to_string();
     assert!(e.contains("TOWER_UI_MODE is \"Popup\""), "{e}");
-}
-
-#[test]
-fn q_returns_only_in_its_own_space_and_closes_in_the_popup_or_any_pane() {
-    assert!(q_returns(Some("space")));
-    for closes in [None, Some(""), Some("popup")] {
-        assert!(!q_returns(closes), "{closes:?}");
-    }
 }
 
 #[test]

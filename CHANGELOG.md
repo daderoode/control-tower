@@ -87,6 +87,20 @@ tag's date, and a new empty Unreleased goes above it.
   longer a directory, or a rex that cannot be found, is refused before anything is written
   (#112).
 
+### Removed
+
+- **herdr is no longer supported.** A team in herdr is no longer seen: the watch, delivery,
+  the lead check, the dashboard's `n` and the lead skill work in Rex only, and the watch
+  never runs `herdr`. The herdr plugin goes with it: `tower space`, `tower popup`, `q`
+  returning to the workspace `tower space` was pressed in, the plugin's self-linking,
+  `TOWER_HERDR` and `herdr-plugin.toml`; the formula installs no plugin files and needs
+  Rex. `tower ui` in a Rex tab works as before, and the lead skill's Claude Code
+  marketplace still registers itself. To clear what an older install left: `herdr plugin
+  unlink control-tower`, `rm -r "$(brew --prefix)/var/control-tower"`, any key binding
+  for `control-tower.space` or `control-tower.popup` in herdr's config, and the file
+  `tower space` kept beside the board, `rm -f ~/.local/state/control-tower/board.space-from`
+  (harmless; the formula's caveats say so too).
+
 ## [0.5.3] - 2026-11-24
 
 ### Changed

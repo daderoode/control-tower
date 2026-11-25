@@ -15,8 +15,8 @@
 //!   the composer the owner posts from as `manager`, through `tower post` and `runner`.
 //! - `inbox`: the alert line under the header and the inbox it opens (with `i`).
 //! - `layout`: the panes and hit-testing; `dash`: the state and its inputs.
-//! - `runner`: runs a bounded command off the calling thread; the watch runs its `herdr`
-//!   commands through it.
+//! - `runner`: runs a bounded command off the calling thread; the watch runs its terminal's
+//!   and `claude`'s commands through it.
 //! - `writer`: the owner's own writes, a post as `manager` and marking an inbox item read,
 //!   through the store on a thread of their own; the CLI refuses both.
 //! - `term`: the terminal and the input loop.
@@ -70,12 +70,14 @@ use dash::repo_of;
 use layout::{body_area, clamp_scroll};
 use theme::{bold, dim, fit};
 
-/// Where the dashboard runs: in its own herdr workspace (or any pane), or in herdr's popup
-/// over the work, which `tower popup` opens with `TOWER_UI_MODE=popup`. `tower space` opens
-/// it with `TOWER_UI_MODE=space`, which lays it out as any pane; what `q` does there is the
-/// edge's (`term::run`). In the popup the
-/// message board is compact (`message_board::Limits`), Esc at the top level closes it, and
-/// the keys line ends "esc back · q close".
+/// The environment variable telling `tower ui` where it runs: unset in a pane or tab of its
+/// own, `popup` in a popup over the work.
+pub const MODE_VAR: &str = "TOWER_UI_MODE";
+
+/// Where the dashboard runs: in a pane or tab of its own, or in a popup over the work, which
+/// `TOWER_UI_MODE=popup` names. In the popup the message board is compact
+/// (`message_board::Limits`), Esc at the top level closes it, and the keys line ends "esc
+/// back · q close".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
     #[default]
@@ -84,8 +86,8 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// The mode `TOWER_UI_MODE` names: unset, empty or `space` for its own space, `popup`
-    /// for the popup. Any other value is refused, naming it.
+    /// The mode `TOWER_UI_MODE` names: unset, empty or `space` for a pane of its own,
+    /// `popup` for the popup. Any other value is refused, naming it.
     pub fn from_env(value: Option<&str>) -> anyhow::Result<Mode> {
         match value {
             None | Some("" | "space") => Ok(Mode::Space),
@@ -95,13 +97,6 @@ impl Mode {
             ),
         }
     }
-}
-
-/// Whether `q` returns to the workspace `tower space` was pressed in, the dashboard kept
-/// running, rather than closing it: only in its own space, which `TOWER_UI_MODE` (`value`)
-/// names `space`. Unset or empty (any pane) and `popup` close.
-pub fn q_returns(value: Option<&str>) -> bool {
-    value == Some(crate::open::SPACE_MODE)
 }
 
 /// What the latest refresh found: the board, or why it could not be read.

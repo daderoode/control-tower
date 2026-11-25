@@ -35,8 +35,8 @@ approved on its issue) is a ticket in its own right and needs no spec.
 The owner grills the idea, runs `/to-spec` and signs off the spec, then runs `/to-tickets`.
 Those tickets, in their blocking order, are the plan. Both skills are the owner's to run:
 the lead asks the owner to run them in the session that holds the context. When the spec is
-posted, open a copy of it for the owner in Neovim in a pane to the right of yours (in Rex or
-herdr; otherwise give its link), and make any change they ask for on the issue.
+posted, open a copy of it for the owner in Neovim in a pane to the right of yours (in Rex;
+otherwise give its link), and make any change they ask for on the issue.
 
 Each step picks up work marked ready for it and marks it ready for the next, by reporting to
 the lead, who starts the next step (under `/lead`, the board shows it). Testing and review
@@ -94,14 +94,14 @@ other, and the dev waits for it as Build once says.
       cancelled by a newer push, or the artifact past its 7 days) gets one by running that
       commit's run again, `gh run rerun "$run" -R daderoode/control-tower`, or QA tests
       the newer hand-off instead;
-    - a change not in the binary (the lead skill, hooks, `herdr-plugin.toml`, docs): the
+    - a change not in the binary (the lead skill, hooks, docs): the
       commit alone. QA reads the changed files from it (or the PR), or installs them into
       the throwaway environment (Building and testing), never the owner's own install, with
       no build;
     - a change to both: both.
   - QA runs the hand-off: no build and no worktree of its own. In its throwaway
-    environment it puts the hand-off folder first on PATH, so the hooks and the herdr
-    plugin, which call `tower` by name, run the hand-off.
+    environment it puts the hand-off folder first on PATH, so the hooks and the lead
+    skill, which call `tower` by name, run the hand-off.
   - The dev's worktree stays until the PR is delivered: fixes from every stage, Stage 2
     included, are made in it.
   - Stage 1 reviews the PR diff and its CI result. If a finding can only be proven by
@@ -141,7 +141,7 @@ lifecycle applies.
 | Path | When | Steps |
 |---|---|---|
 | Light | Changes no behaviour: docs other than agent instructions, comments, typos, release notes | Implement, Test (read the rendered result against the ticket), Delivery. Can go to a subagent |
-| Standard | Changes what the program, the herdr plugin, the lead skill, the install or a release does, however small (lead-skill prose counts). Agent-instruction docs (CLAUDE.md, SDLC.md, skills) count as Standard | Every step |
+| Standard | Changes what the program, the lead skill, the install or a release does, however small (lead-skill prose counts). Agent-instruction docs (CLAUDE.md, SDLC.md, skills) count as Standard | Every step |
 
 ## Work items
 
@@ -189,12 +189,10 @@ lifecycle applies.
 - New tests are up to the dev and reviewer; no blanket rule.
 - Test data and examples are invented: never real hosts, projects, companies, customers,
   servers or people, and never text copied from a real board or another project.
-- Testing that touches herdr runs against a throwaway `herdr --session <name> server` with
-  every `HERDR_*` variable unset, a temp `TOWER_DB`, and no real `claude` reachable from its
-  panes (a temp HOME and a fake `claude`); delete its folder under
-  `~/.config/herdr/sessions/` afterwards. A herdr or board in real use is only ever read,
-  never written.
-- Anything started for a test (a herdr server, a background process) has a time limit and is
+- Testing that touches Rex runs in a throwaway Rex session the test creates and kills, with
+  a temp `TOWER_DB` and no real `claude` reachable from it (a temp HOME and a fake
+  `claude`). A Rex session or board in real use is only ever read, never written.
+- Anything started for a test (a Rex session, a background process) has a time limit and is
   stopped afterwards.
 - A database schema change ships a forward migration (`src/store.rs` `MIGRATIONS`) and never
   resets the board.
@@ -214,7 +212,7 @@ lifecycle applies.
   - `control-tower UI v0.1.14.html`.
 
   The spec kept with them records each file's sha256 and listed changes.
-- A UI change gets a new versioned copy, signed off by the owner in their own herdr or an
+- A UI change gets a new versioned copy, signed off by the owner in their own terminal or an
   artifact, never from a chat mockup, before it is built. A release milestone's UI changes
   share one copy, named in its description; when the milestone needs it, the copy is amended
   as its next version (for example v0.1.13), frozen and signed off the same way: a signed

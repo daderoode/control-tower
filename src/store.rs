@@ -2559,7 +2559,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context(cannot_write.clone())?;
         refuse_not_a_task(&tx, task).context(cannot_write.clone())??;
-        // A lead is never a task's assignee: the assignee is the herdr agent doing the
+        // A lead is never a task's assignee: the assignee is the worker doing the
         // current step, and a lead has none. `lead.session` is NOCASE, so ASCII case is
         // ignored as the watch compares names.
         if let Some(name) = &assignee {

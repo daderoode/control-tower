@@ -1887,11 +1887,6 @@ fn watch_starts_orphans_no_one_on_its_first_look_and_stops_cleanly_on_sigterm() 
         let out = tower(&db, args);
         assert!(out.status.success(), "{args:?}: {}", text(&out.stderr));
     }
-    let herdr = dir.path().join("herdr");
-    test_exe::executable(
-        &herdr,
-        "#!/bin/sh\necho '{\"result\":{\"agents\":[],\"type\":\"agent_list\"}}'\n",
-    );
     // A Rex with no sessions: the watch's look never reaches a real rex (REX_BIN_DIR).
     let rex = dir.path().join("rex");
     test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
@@ -1907,7 +1902,6 @@ fn watch_starts_orphans_no_one_on_its_first_look_and_stops_cleanly_on_sigterm() 
         Command::new(env!("CARGO_BIN_EXE_tower"))
             .arg("watch")
             .env("TOWER_DB", &db)
-            .env("TOWER_HERDR", &herdr)
             .env("TOWER_REX", &rex)
             .stderr(Stdio::piped())
             .spawn()
@@ -1917,9 +1911,7 @@ fn watch_starts_orphans_no_one_on_its_first_look_and_stops_cleanly_on_sigterm() 
     let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
     let mut next = || lines.next().unwrap().unwrap();
     assert!(next().contains("tower watch: watching"));
-    // A tower outside a brew Cellar has no plugin directory to link and asks herdr nothing.
-    assert!(next().ends_with("not linking the herdr plugin: this tower is not a brew install"));
-    // Nor does it register the lead skill: claude is never asked.
+    // A tower outside a brew Cellar does not register the lead skill: claude is never asked.
     assert!(next().ends_with("not registering the lead skill: this tower is not a brew install"));
     // SIGTERM ends it between looks, with a last line and a clean exit.
     let killed = Command::new("kill")
@@ -1946,11 +1938,6 @@ fn watch_restarts_itself_when_its_path_is_repointed_to_another_binary() {
     use std::time::{Duration, Instant};
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("board.db");
-    let herdr = dir.path().join("herdr");
-    test_exe::executable(
-        &herdr,
-        "#!/bin/sh\necho '{\"result\":{\"agents\":[],\"type\":\"agent_list\"}}'\n",
-    );
     // A Rex with no sessions: the watch's look never reaches a real rex (REX_BIN_DIR).
     let rex = dir.path().join("rex");
     test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
@@ -1973,7 +1960,6 @@ fn watch_restarts_itself_when_its_path_is_repointed_to_another_binary() {
         Command::new(opt.join("tower"))
             .arg("watch")
             .env("TOWER_DB", &db)
-            .env("TOWER_HERDR", &herdr)
             .env("TOWER_REX", &rex)
             .env("HOME", dir.path())
             .stderr(Stdio::piped())
@@ -2003,7 +1989,7 @@ fn watch_restarts_itself_when_its_path_is_repointed_to_another_binary() {
         }
     };
     wait_for("tower watch: watching");
-    wait_for("not linking the herdr plugin");
+    wait_for("not registering the lead skill");
     // brew upgrade: opt now points at the new version.
     let next = dir.path().join("opt.next");
     std::os::unix::fs::symlink(&new, &next).unwrap();
@@ -2057,379 +2043,21 @@ fn a_lead_session_name_with_spaces_works_end_to_end() {
     ok(&db, &["thread", "resolve", "T1", "--by", cl, "done"]);
 }
 
-/// A fake herdr in `dir` that logs each call's arguments, one call a line, to `calls`, and
-/// answers `pane list` and `workspace list` from the files `panes.json` and
-/// `workspaces.json` (which a test may rewrite between presses), `workspace create` with a
-/// new workspace w9 (root pane w9:p1), `plugin pane focus <pane>` and `workspace focus <ws>`
-/// from the file `focus <pane or ws>`, else failing with the file `fail <pane>`, else with
-/// herdr's not-found error (w9 is open), and anything else with an empty result.
-fn fake_herdr(dir: &Path, workspaces: &str, panes: &str) -> std::path::PathBuf {
-    std::fs::write(dir.join("workspaces.json"), workspaces).unwrap();
-    std::fs::write(dir.join("panes.json"), panes).unwrap();
-    let herdr = dir.join("herdr");
-    let script = format!(
-        "#!/bin/sh\nd='{}'\necho \"$*\" >> \"$d/calls\"\ncase \"$1 $2\" in\n\
-         'workspace list') cat \"$d/workspaces.json\" ;;\n\
-         'pane list') cat \"$d/panes.json\" ;;\n\
-         'workspace create') echo '{{\"id\":\"cli:workspace:create\",\"result\":{{\"root_pane\":{{\"pane_id\":\"w9:p1\",\"workspace_id\":\"w9\"}},\"tab\":{{\"tab_id\":\"w9:t1\"}},\"type\":\"workspace_created\",\"workspace\":{{\"label\":\"control-tower\",\"workspace_id\":\"w9\"}}}}}}' ;;\n\
-         'plugin pane') if [ \"$3\" != focus ]; then echo '{{\"result\":{{}}}}'; \
-           elif [ -f \"$d/focus $4\" ]; then cat \"$d/focus $4\"; \
-           elif [ -f \"$d/fail $4\" ]; then cat \"$d/fail $4\"; exit 1; \
-           else echo '{{\"error\":{{\"code\":\"plugin_pane_not_found\",\"message\":\"plugin pane not found\"}},\"id\":\"cli:plugin\"}}'; exit 1; fi ;;\n\
-         'workspace focus') if [ -f \"$d/focus $3\" ]; then cat \"$d/focus $3\"; \
-           else echo '{{\"error\":{{\"code\":\"workspace_not_found\",\"message\":\"workspace not found\"}},\"id\":\"cli:workspace:focus\"}}'; exit 1; fi ;;\n\
-         *) echo '{{\"result\":{{}}}}' ;;\nesac\n",
-        dir.display()
-    );
-    test_exe::executable(&herdr, script);
-    open_workspace(dir, "w9");
-    herdr
-}
-
-/// Makes the fake herdr in `dir` answer `plugin pane focus <pane>` as herdr 0.9.5 does for a
-/// plugin pane of `plugin`'s `entrypoint`.
-fn plugin_pane(dir: &Path, pane: &str, plugin: &str, entrypoint: &str) {
-    std::fs::write(
-        dir.join(format!("focus {pane}")),
-        format!(
-            r#"{{"id":"cli:plugin","result":{{"plugin_pane":{{"entrypoint":"{entrypoint}","pane":{{"label":"control-tower","pane_id":"{pane}"}},"plugin_id":"{plugin}"}},"type":"plugin_pane_focused"}}}}"#
-        ),
-    )
-    .unwrap();
-}
-
-/// Makes the fake herdr in `dir` answer `workspace focus <ws>` as for an open workspace.
-fn open_workspace(dir: &Path, ws: &str) {
-    std::fs::write(
-        dir.join(format!("focus {ws}")),
-        r#"{"id":"cli:workspace:focus","result":{"type":"ok"}}"#,
-    )
-    .unwrap();
-}
-
-/// The herdr servers' sockets the tests press from.
-const SOCK_A: &str = "/tmp/herdr-a/herdr.sock";
-const SOCK_B: &str = "/tmp/herdr-b/herdr.sock";
-
-/// Runs `tower <action>` against the fake herdr in `dir`, with a home of its own, as the
-/// herdr server `SOCK_A` invokes it from the workspace `from`, and returns its output and
-/// the herdr calls it made this time.
-fn run_action(dir: &Path, herdr: &Path, action: &str, from: Option<&str>) -> (Output, Vec<String>) {
-    run_action_on(dir, herdr, action, SOCK_A, from)
-}
-
-/// `run_action` from the herdr server whose socket is `socket` (`HERDR_SOCKET_PATH`) and the
-/// workspace `from` (`HERDR_WORKSPACE_ID`).
-fn run_action_on(
-    dir: &Path,
-    herdr: &Path,
-    action: &str,
-    socket: &str,
-    from: Option<&str>,
-) -> (Output, Vec<String>) {
-    let _ = std::fs::remove_file(dir.join("calls"));
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
-    cmd.arg(action)
-        .env("TOWER_DB", dir.join("board.db"))
-        .env("TOWER_HERDR", herdr)
-        .env("HOME", dir)
-        .env("HERDR_SOCKET_PATH", socket)
-        .env_remove("HERDR_WORKSPACE_ID");
-    if let Some(ws) = from {
-        cmd.env("HERDR_WORKSPACE_ID", ws);
-    }
-    let out = cmd.output().unwrap();
-    let calls = std::fs::read_to_string(dir.join("calls")).unwrap_or_default();
-    (out, calls.lines().map(String::from).collect())
-}
-
-/// The workspace `space` recorded for `q` to return to on the herdr server `SOCK_A`, if any.
-fn recorded_from(dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(dir.join("board.space-from")).unwrap_or_default();
-    text.lines()
-        .find_map(|l| l.strip_prefix(&format!("{SOCK_A}\t")).map(String::from))
-}
-
-/// `herdr pane list` as herdr 0.9.5 answers it: a working session in w3, a workspace w5
-/// labelled control-tower (by a renaming plugin) with a session running in it, and in w4 a
-/// plain shell renamed control-tower. None is the dashboard.
-const DECOYS: &str = r#"{"id":"cli:pane:list","result":{"type":"pane_list","panes":[
-    {"pane_id":"w3:p1","workspace_id":"w3","tab_id":"w3:t1","cwd":"/Users/me"},
-    {"pane_id":"w5:p1","workspace_id":"w5","tab_id":"w5:t1","cwd":"/Users/me/control-tower"},
-    {"pane_id":"w4:p2","workspace_id":"w4","tab_id":"w4:t2","label":"control-tower","cwd":"/Users/me"}]}}"#;
-/// The same with the dashboard open in w9.
-const WITH_DASHBOARD: &str = r#"{"id":"cli:pane:list","result":{"type":"pane_list","panes":[
-    {"pane_id":"w3:p1","workspace_id":"w3","tab_id":"w3:t1","cwd":"/Users/me"},
-    {"pane_id":"w5:p1","workspace_id":"w5","tab_id":"w5:t1","cwd":"/Users/me/control-tower"},
-    {"pane_id":"w4:p2","workspace_id":"w4","tab_id":"w4:t2","label":"control-tower","cwd":"/Users/me"},
-    {"pane_id":"w9:p2","workspace_id":"w9","tab_id":"w9:t2","label":"control-tower","cwd":"/opt/control-tower"}]}}"#;
-const WORKSPACES: &str = r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[
-    {"label":"[1] notes","number":1,"workspace_id":"w3"},
-    {"label":"[2] control-tower","number":2,"workspace_id":"w5"}]}}"#;
-
 #[test]
-fn space_never_takes_a_labelled_workspace_or_pane_and_a_second_press_focuses_its_own() {
+fn the_herdr_actions_space_and_popup_are_no_commands() {
     let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, DECOYS);
-    // The renamed shell in w4 is no plugin pane: herdr says so when asked to focus it.
-    let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w3"));
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(
-        calls,
-        [
-            "pane list",
-            "plugin pane focus w4:p2",
-            "workspace create --label control-tower --no-focus",
-            "plugin pane open --plugin control-tower --entrypoint ui --placement tab --workspace w9 \
-             --env TOWER_UI_MODE=space --focus",
-            "pane close w9:p1",
-            "workspace focus w9",
-        ]
-    );
-    assert_eq!(
-        text(&out.stdout).trim(),
-        "created the control-tower workspace w9 with the dashboard"
-    );
-    assert_eq!(recorded_from(dir.path()).as_deref(), Some("w3"));
-    // The dashboard is open now; a press from w5 focuses it and is where q goes.
-    std::fs::write(dir.path().join("panes.json"), WITH_DASHBOARD).unwrap();
-    plugin_pane(dir.path(), "w9:p2", "control-tower", "ui");
-    let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w5"));
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(
-        calls,
-        [
-            "pane list",
-            "plugin pane focus w4:p2",
-            "plugin pane focus w9:p2",
-            "workspace focus w9",
-        ]
-    );
-    assert_eq!(
-        text(&out.stdout).trim(),
-        "focused the control-tower workspace w9"
-    );
-    assert_eq!(recorded_from(dir.path()).as_deref(), Some("w5"));
-    // A press from the dashboard's own workspace leaves where q goes alone.
-    let (out, _) = run_action(dir.path(), &herdr, "space", Some("w9"));
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(recorded_from(dir.path()).as_deref(), Some("w5"));
-    // With no workspace from herdr, q has nowhere to go rather than somewhere stale.
-    let (out, _) = run_action(dir.path(), &herdr, "space", None);
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(recorded_from(dir.path()), None);
-}
-
-#[test]
-fn space_takes_a_plugin_pane_for_the_dashboard_only_if_it_is_control_towers_ui() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, DECOYS);
-    // Another plugin's pane labelled control-tower, and another control-tower entrypoint.
-    for (plugin, entrypoint) in [("renamer", "ui"), ("control-tower", "other")] {
-        plugin_pane(dir.path(), "w4:p2", plugin, entrypoint);
-        let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w3"));
-        assert!(out.status.success(), "{}", text(&out.stderr));
-        assert_eq!(
-            calls[2],
-            "workspace create --label control-tower --no-focus"
-        );
+    let db = dir.path().join("board.db");
+    for action in ["space", "popup"] {
+        let out = tower(&db, &[action]);
+        assert!(!out.status.success(), "tower {action} ran");
+        let err = text(&out.stderr);
         assert!(
-            !calls
-                .iter()
-                .any(|c| c.starts_with("pane close w4") || c.contains("w5")),
-            "{calls:?}"
+            err.contains(&format!("unrecognized subcommand '{action}'")),
+            "{action}: {err}"
         );
     }
-}
-
-#[test]
-fn space_fails_loudly_when_herdr_fails_confirming_the_dashboard() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, DECOYS);
-    std::fs::write(dir.path().join("focus w4:p2"), "herdr is not running").unwrap();
-    let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w3"));
-    assert!(!out.status.success());
-    assert!(
-        text(&out.stderr).contains("herdr plugin pane focus said something unexpected"),
-        "{}",
-        text(&out.stderr)
-    );
-    assert_eq!(calls, ["pane list", "plugin pane focus w4:p2"]);
-}
-
-#[test]
-fn space_fails_loudly_on_any_herdr_error_confirming_the_dashboard_but_not_a_plugin_pane() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, WITH_DASHBOARD);
-    // herdr stops answering while confirming: that is an error, never a reason to open a
-    // second dashboard.
-    std::fs::write(
-        dir.path().join("fail w4:p2"),
-        "Server is not running or cannot be reached at /tmp/x/herdr.sock",
-    )
-    .unwrap();
-    let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w3"));
-    assert!(!out.status.success());
-    assert!(
-        text(&out.stderr).contains("herdr plugin pane exited 1")
-            && text(&out.stderr).contains("cannot be reached"),
-        "{}",
-        text(&out.stderr)
-    );
-    assert_eq!(calls, ["pane list", "plugin pane focus w4:p2"]);
-}
-
-#[test]
-fn space_passes_over_a_candidate_that_closed_since_pane_list_to_the_dashboard() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, WITH_DASHBOARD);
-    std::fs::write(
-        dir.path().join("fail w4:p2"),
-        r#"{"error":{"code":"pane_not_found","message":"pane w4:p2 not found"},"id":"cli:plugin"}"#,
-    )
-    .unwrap();
-    plugin_pane(dir.path(), "w9:p2", "control-tower", "ui");
-    let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w3"));
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(
-        calls,
-        [
-            "pane list",
-            "plugin pane focus w4:p2",
-            "plugin pane focus w9:p2",
-            "workspace focus w9",
-        ]
-    );
-}
-
-#[test]
-fn a_record_space_cannot_read_never_stops_it_and_is_rewritten_clean() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, DECOYS);
-    let record = dir.path().join("board.space-from");
-    let garbage = format!("garbage\n{SOCK_B}\tw7\n\u{1}\t\n");
-    // With no dashboard it still creates one; the bad lines go, B's line stays.
-    std::fs::write(&record, &garbage).unwrap();
-    let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w3"));
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert!(calls.contains(&"workspace create --label control-tower --no-focus".into()));
-    assert!(
-        text(&out.stderr).contains("dropped a line") && text(&out.stderr).contains("garbage"),
-        "{}",
-        text(&out.stderr)
-    );
-    assert_eq!(
-        std::fs::read_to_string(&record).unwrap(),
-        format!("{SOCK_B}\tw7\n{SOCK_A}\tw3\n")
-    );
-    // With the dashboard open it focuses it, and invalid UTF-8 is as harmless.
-    std::fs::write(&record, b"\xff\xfe\n").unwrap();
-    std::fs::write(dir.path().join("panes.json"), WITH_DASHBOARD).unwrap();
-    plugin_pane(dir.path(), "w9:p2", "control-tower", "ui");
-    let (out, _) = run_action(dir.path(), &herdr, "space", Some("w5"));
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(
-        text(&out.stdout).trim(),
-        "focused the control-tower workspace w9"
-    );
-    assert_eq!(recorded_from(dir.path()).as_deref(), Some("w5"));
-    // No temporary file is left beside the board.
-    let left: Vec<_> = std::fs::read_dir(dir.path())
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".tmp"))
-        .collect();
-    assert!(left.is_empty(), "{left:?}");
-}
-
-#[test]
-fn back_focuses_the_recorded_workspace_and_stays_put_when_there_is_none() {
-    use control_tower::open::back;
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, DECOYS);
-    let db = dir.path().join("board.db");
-    let calls = || std::fs::read_to_string(dir.path().join("calls")).unwrap_or_default();
-    // Nothing recorded: no herdr call, nowhere to go.
-    assert_eq!(back(&herdr, &db, SOCK_A).unwrap(), None);
-    assert_eq!(calls(), "");
-    std::fs::write(
-        dir.path().join("board.space-from"),
-        format!("{SOCK_A}\tw3\n"),
-    )
-    .unwrap();
-    open_workspace(dir.path(), "w3");
-    assert_eq!(back(&herdr, &db, SOCK_A).unwrap().as_deref(), Some("w3"));
-    assert_eq!(calls(), "workspace focus w3\n");
-    // Another herdr server's press is not this one's to follow.
-    assert_eq!(back(&herdr, &db, SOCK_B).unwrap(), None);
-    // The workspace has gone since: stay put.
-    std::fs::remove_file(dir.path().join("focus w3")).unwrap();
-    assert_eq!(back(&herdr, &db, SOCK_A).unwrap(), None);
-    // Any other failure is an error, not a silent stay.
-    let broken = dir.path().join("broken");
-    test_exe::executable(&broken, "#!/bin/sh\necho 'socket gone' >&2; exit 2\n");
-    let e = back(&broken, &db, SOCK_A).unwrap_err();
-    assert!(format!("{e:#}").contains("socket gone"), "{e:#}");
-    // A record it cannot read is an error too.
-    std::fs::write(dir.path().join("board.space-from"), "w3\n").unwrap();
-    let e = back(&herdr, &db, SOCK_A).unwrap_err();
-    assert!(
-        format!("{e:#}").contains("not socket, tab, workspace"),
-        "{e:#}"
-    );
-}
-
-#[test]
-fn two_herdr_servers_on_one_board_each_return_to_their_own_press() {
-    use control_tower::open::back;
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, WITH_DASHBOARD);
-    plugin_pane(dir.path(), "w9:p2", "control-tower", "ui");
-    let db = dir.path().join("board.db");
-    // Both servers have a w2; A is pressed from its w2, then B from its w1.
-    for (socket, ws) in [(SOCK_A, "w2"), (SOCK_B, "w1")] {
-        let (out, _) = run_action_on(dir.path(), &herdr, "space", socket, Some(ws));
-        assert!(out.status.success(), "{}", text(&out.stderr));
-    }
-    for ws in ["w1", "w2"] {
-        open_workspace(dir.path(), ws);
-    }
-    assert_eq!(back(&herdr, &db, SOCK_A).unwrap().as_deref(), Some("w2"));
-    assert_eq!(back(&herdr, &db, SOCK_B).unwrap().as_deref(), Some("w1"));
-    // A press on B without a workspace drops B's record only.
-    let (out, _) = run_action_on(dir.path(), &herdr, "space", SOCK_B, None);
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(back(&herdr, &db, SOCK_B).unwrap(), None);
-    assert_eq!(back(&herdr, &db, SOCK_A).unwrap().as_deref(), Some("w2"));
-}
-
-#[test]
-fn space_fails_loudly_on_a_herdr_answer_it_cannot_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, "herdr is not running");
-    let (out, calls) = run_action(dir.path(), &herdr, "space", Some("w3"));
-    assert!(!out.status.success());
-    assert!(
-        text(&out.stderr).contains("herdr pane list said something unexpected"),
-        "{}",
-        text(&out.stderr)
-    );
-    assert_eq!(calls, ["pane list"]);
-}
-
-#[test]
-fn popup_opens_the_dashboard_in_an_85_percent_popup_told_it_is_one() {
-    let dir = tempfile::tempdir().unwrap();
-    let herdr = fake_herdr(dir.path(), WORKSPACES, "");
-    let (out, calls) = run_action(dir.path(), &herdr, "popup", Some("w3"));
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(
-        calls,
-        [
-            "plugin pane open --plugin control-tower --entrypoint ui --placement popup \
-          --width 85% --height 85% --env TOWER_UI_MODE=popup"
-        ]
-    );
+    // Refused before the board is opened: nothing was written.
+    assert!(!db.exists());
 }
 
 #[test]
@@ -3918,29 +3546,47 @@ fn a_relative_tower_db_is_handed_on_as_the_board_it_names_here() {
     let dir = tempfile::tempdir().unwrap();
     let shop = dir.path().join("shop");
     std::fs::create_dir(&shop).unwrap();
-    let relative = |args: &[&str], herdr: &Path| {
+    // A claude that records the TOWER_DB tower hands it, as a lead started from `n` gets it,
+    // and lists no session, so the attach that asks it goes no further.
+    let claude = dir.path().join("claude");
+    let handed = dir.path().join("handed");
+    test_exe::executable(
+        &claude,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$TOWER_DB\" > '{}'\necho '[]'\n",
+            handed.display()
+        ),
+    );
+    let relative = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_tower"))
             .args(args)
             .current_dir(&shop)
             .env("TOWER_DB", "board.db")
-            .env("TOWER_HERDR", herdr)
+            .env("TOWER_CLAUDE", &claude)
+            .env("CLAUDE_CODE_SESSION_ID", "sess-1")
             .env("HOME", dir.path())
             .output()
             .unwrap()
     };
-    // A herdr that records the TOWER_DB tower hands it, as a lead's workspace gets it.
-    let herdr = dir.path().join("herdr");
-    let handed = dir.path().join("handed");
-    test_exe::executable(
-        &herdr,
-        format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$TOWER_DB\" > '{}'\n",
-            handed.display()
-        ),
-    );
-    let out = relative(&["milestone", "add", "M", "--goal", "g"], &herdr);
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    relative(&["popup"], &herdr);
+    let checkout = dir.path().join("checkout");
+    std::fs::create_dir_all(checkout.join(".git")).unwrap();
+    for args in [
+        &["milestone", "add", "M", "--goal", "g"][..],
+        &["repo", "add", checkout.to_str().unwrap()],
+        &[
+            "lead",
+            "add",
+            "R1",
+            "--name",
+            "L",
+            "--session",
+            "shelf-lead",
+        ],
+    ] {
+        let out = relative(args);
+        assert!(out.status.success(), "{args:?}: {}", text(&out.stderr));
+    }
+    relative(&["lead", "attach", "R1"]);
     // The board named from `shop`, absolute, so a process started in any other directory
     // opens the same file.
     let board = shop.canonicalize().unwrap().join("board.db");

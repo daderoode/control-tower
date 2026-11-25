@@ -8,10 +8,10 @@ name: CI
 # gate", the check master's branch protection requires. The toolchain is stable, so a red
 # master after a new Rust release is a lint-drift fix, not a regression.
 #
-# `cargo test` needs no herdr, claude or network: the tests use fake herdr and claude
-# scripts and temp boards. The one test against a real herdr is #[ignore]d. It runs twice:
-# as the runner has it, with no TOWER_DB, then with TOWER_DB naming a temp board, reusing
-# the build, so a test whose result depends on the caller's TOWER_DB fails CI.
+# `cargo test` needs no rex, claude or network: the tests use fake rex and claude scripts
+# and temp boards. It runs twice: as the runner has it, with no TOWER_DB, then with
+# TOWER_DB naming a temp board, reusing the build, so a test whose result depends on the
+# caller's TOWER_DB fails CI.
 #
 # When the tests fail, the UI tests run once more with UPDATE_SNAPSHOTS=1 on this runner, so
 # with the same rendering; when a snapshot comes out new or changed, the whole snapshots
