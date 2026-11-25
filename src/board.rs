@@ -2242,6 +2242,11 @@ mod tests {
             ("QA", Role::Qa),
             ("qa-2", Role::Qa),
             ("qa1", Role::Qa),
+            // A worker's name, <role>-<task>-<area> (#92), reads its role from the front.
+            ("dev-119-db", Role::Dev),
+            ("qa-119-help", Role::Qa),
+            ("senior-119-api", Role::Senior),
+            ("db-119", Role::Other),
             ("developer", Role::Other),
             ("devon", Role::Other),
             ("device-x", Role::Other),

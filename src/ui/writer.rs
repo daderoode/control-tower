@@ -140,47 +140,32 @@ fn make(path: &Path, write: &Write) -> Result<String> {
     })
 }
 
-/// Words of the title a lead's name takes at most, before " Lead".
-const NAME_WORDS: usize = 3;
-/// The longest lead name made, " Lead" included.
+/// The longest lead name made, "-lead" included.
 const NAME_MAX: usize = 40;
 
-/// The lead's name for milestone `m` titled `title`: its first words plus " Lead", made
-/// of the board's name characters only (other characters dropped, any run of spaces one),
-/// starting with a letter or digit, so no command takes it for an option, at most
-/// `NAME_MAX` long; "<m> Lead" when no word is left. It always passes the board's name
-/// rule, and it is the only text from the owner that reaches the terminal.
-pub fn lead_name(title: &str, m: MilestoneId) -> String {
-    let kept: String = (title.chars())
-        .filter(|c| c.is_ascii_alphanumeric() || " -_.".contains(*c) || c.is_whitespace())
-        .map(|c| if c.is_whitespace() { ' ' } else { c })
-        .skip_while(|c| !c.is_ascii_alphanumeric())
-        .collect();
-    let mut words: Vec<&str> = kept.split_whitespace().take(NAME_WORDS).collect();
-    // "Audiobooks Lead" names a lead "Audiobooks Lead", not "Audiobooks Lead Lead".
-    if words.last().is_some_and(|w| w.eq_ignore_ascii_case("lead")) {
-        words.pop();
-    }
-    let room = NAME_MAX - " Lead".len();
-    let mut name = String::new();
-    for w in words {
-        let sep = usize::from(!name.is_empty());
-        if name.len() + sep + w.len() <= room {
-            if sep == 1 {
-                name.push(' ');
-            }
-            name.push_str(w);
-        } else {
-            if name.is_empty() {
-                name.push_str(&w[..room]);
-            }
-            break;
-        }
-    }
+/// The name of the lead the dashboard starts for milestone `m`: on the repo named `repo`
+/// (`Repo::name`), that name plus "-lead" (`checkpoint-lead`); in no repo yet, or when the
+/// repo's name has no ASCII letter or digit, `m` plus "-lead" (`m4-lead`). Lowercase ASCII
+/// letters and digits only, each run of anything else one "-", none at either end, at most
+/// `NAME_MAX` long: so no command takes it for an option, a mention (`@checkpoint-lead`)
+/// reads all of it, and it passes the board's name rule. None of the owner's goal is in
+/// it, so none reaches the terminal.
+pub fn lead_name(repo: Option<&str>, m: MilestoneId) -> String {
+    let words = |text: &str| {
+        (text.split(|c: char| !c.is_ascii_alphanumeric()))
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+            .to_ascii_lowercase()
+    };
+    let mut name = repo.map(words).unwrap_or_default();
+    // ASCII only, so any byte is a char boundary.
+    name.truncate(NAME_MAX - "-lead".len());
+    name.truncate(name.trim_end_matches('-').len());
     if name.is_empty() {
-        return format!("{m} Lead");
+        name = words(&m.to_string());
     }
-    format!("{name} Lead")
+    format!("{name}-lead")
 }
 
 /// `text` in single quotes for a POSIX shell, each `'` in it written as `'\''`, so the
@@ -260,7 +245,9 @@ pub fn start_lead(
             cwd = p.clone();
             place = format!(" on {}", r.name());
             // The "no lead" check runs again in the write's own transaction.
-            let (m, lead) = store.start_repo_lead(&title, line, id, |m| lead_name(&title, m))?;
+            let repo = r.name();
+            let (m, lead) =
+                store.start_repo_lead(&title, line, id, |m| lead_name(Some(&repo), m))?;
             (m, lead.name)
         }
         None => {
@@ -270,7 +257,7 @@ pub fn start_lead(
                     at.home
                 );
             }
-            store.start_lead_in_no_repo(&title, line, |m| lead_name(&title, m))?
+            store.start_lead_in_no_repo(&title, line, |m| lead_name(None, m))?
         }
     };
     let command = lead_command(&name, m);
@@ -354,7 +341,7 @@ pub fn poll(rx: &Receiver<(String, bool)>) -> Option<(String, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::{BoardOf, MilestoneId, check_session};
+    use crate::board::{BoardOf, MilestoneId, check_session, mentioned};
 
     /// A board with a lead, an open thread T1 holding a decision for the owner's awareness
     /// (message 1) and a need-you ask (message 2), and a resolved thread T2.
@@ -512,35 +499,39 @@ mod tests {
     }
 
     #[test]
-    fn a_lead_name_is_the_first_words_plus_lead_in_the_board_name_rule() {
+    fn a_lead_is_named_after_its_repo_in_lowercase_words_joined_by_hyphens() {
         let m = MilestoneId(3);
-        for (title, want) in [
-            (
-                "Reprint the poetry list for the book fair",
-                "Reprint the poetry Lead",
-            ),
-            ("  sort   the\tshelf ", "sort the shelf Lead"),
-            ("", "M3 Lead"),
-            ("🚀🔥 ✨", "M3 Lead"),
-            ("🚀 Launch day", "Launch day Lead"),
-            ("!@#$%^&*()+=[]{};:'\",<>/?`~|\\", "M3 Lead"),
-            ("don't $(rm -rf ~) `x`", "dont rm -rf Lead"),
-            ("manager", "manager Lead"),
-            ("system", "system Lead"),
-            ("Audiobooks Lead", "Audiobooks Lead"),
-            ("Ünïcödé café", "ncd caf Lead"),
-            ("--force the shelf", "force the shelf Lead"),
-            ("- . _", "M3 Lead"),
+        for (repo, want) in [
+            (Some("checkpoint"), "checkpoint-lead"),
+            (Some("control-tower"), "control-tower-lead"),
+            (Some("Control_Tower"), "control-tower-lead"),
+            (Some("my app.v2"), "my-app-v2-lead"),
+            (Some("--force"), "force-lead"),
+            (Some(".tmpAb3"), "tmpab3-lead"),
+            (Some("a  -_. b"), "a-b-lead"),
+            (Some("Ünïcödé café"), "n-c-d-caf-lead"),
+            (Some("🚀 launch"), "launch-lead"),
+            (Some("$(rm -rf ~)"), "rm-rf-lead"),
+            (Some("manager"), "manager-lead"),
+            (Some("system"), "system-lead"),
+            (Some("!@#$%^&*()+=[]{};:'\",<>/?`~|\\"), "m3-lead"),
+            (Some("🚀🔥"), "m3-lead"),
+            (Some(""), "m3-lead"),
+            (None, "m3-lead"),
         ] {
-            let name = lead_name(title, m);
-            assert_eq!(name, want, "{title:?}");
-            assert_eq!(check_session(&name).unwrap(), name, "{title:?}");
+            let name = lead_name(repo, m);
+            assert_eq!(name, want, "{repo:?}");
+            assert_eq!(check_session(&name).unwrap(), name, "{repo:?}");
+            // A mention reads the whole name, so a post can reach the lead by it.
+            let post = format!("@{name} please look");
+            assert_eq!(mentioned(&post), [name.as_str()], "{repo:?}");
         }
-        let long = lead_name(&format!("{} b c", "a".repeat(300)), m);
-        assert_eq!(long, format!("{} Lead", "a".repeat(35)));
-        let words = lead_name("Supercalifragilistic expialidociously extraordinary", m);
-        assert_eq!(words, "Supercalifragilistic Lead");
-        for name in [long, words] {
+        // A long name is cut to fit, with no "-" left at the cut.
+        let long = lead_name(Some(&"a".repeat(300)), m);
+        assert_eq!(long, format!("{}-lead", "a".repeat(35)));
+        let at_a_hyphen = lead_name(Some(&format!("{}-bc", "a".repeat(34))), m);
+        assert_eq!(at_a_hyphen, format!("{}-lead", "a".repeat(34)));
+        for name in [long, at_a_hyphen] {
             assert!(
                 name.len() <= NAME_MAX && check_session(&name).is_ok(),
                 "{name}"
@@ -588,6 +579,15 @@ mod tests {
         )
     }
 
+    /// A main checkout (a folder holding `.git`) named `name`, in a temp folder the caller
+    /// keeps, so a test knows the repo's name and so its lead's.
+    fn checkout(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join(name);
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        (parent, dir)
+    }
+
     /// The home a test start runs from: the board's own folder, a directory that exists.
     fn home(path: &Path) -> &str {
         path.parent().unwrap().to_str().unwrap()
@@ -619,21 +619,14 @@ mod tests {
         let goal = "Audiobook samples play on every book page; don't `rm` $(anything) 'x'";
         assert_eq!(
             start(&path, &exe, &format!("  {goal} ")),
-            (
-                "started Audiobook samples play Lead for M2 in Rex".into(),
-                false
-            )
+            ("started m2-lead for M2 in Rex".into(), false)
         );
         assert_eq!(titles(&path)[1], (format!("M2 {goal}"), goal.to_string()));
-        // One word per argument, the board as TOWER_DB, and of the goal only the name.
+        // One word per argument, the board as TOWER_DB, and none of the goal: a lead in no
+        // repo yet is named after its milestone.
         assert_eq!(
             calls(fake.path()),
-            [new_call(
-                "Audiobook samples play Lead",
-                dir.path(),
-                &path,
-                "M2"
-            )]
+            [new_call("m2-lead", dir.path(), &path, "M2")]
         );
         // A goal past a title's length: the title is cut, the goal kept whole.
         let long = format!("Long {}", "y".repeat(195));
@@ -642,13 +635,13 @@ mod tests {
     }
 
     #[test]
-    fn a_goal_that_starts_like_an_option_reaches_rex_as_its_label() {
+    fn a_goal_that_starts_like_an_option_never_reaches_rex() {
         let (dir, path) = board();
         let (fake, exe) = fake_rex();
         assert!(!start(&path, &exe, "--force -c /tmp it's $(touch x)").1);
         assert_eq!(
             calls(fake.path()),
-            [new_call("force -c tmp Lead", dir.path(), &path, "M2")]
+            [new_call("m2-lead", dir.path(), &path, "M2")]
         );
     }
 
@@ -685,7 +678,7 @@ mod tests {
         assert!(!write_now(&path, &write(other.path().to_str())).1);
         assert_eq!(
             calls(fake.path()),
-            [new_call("Comics Lead", other.path(), &path, "M2")]
+            [new_call("m2-lead", other.path(), &path, "M2")]
         );
         // A board named by a relative path reaches the lead made absolute.
         let mut store = Store::open(&path).unwrap();
@@ -699,7 +692,7 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         assert_eq!(
             calls(fake.path())[1],
-            new_call("Atlases Lead", dir.path(), &cwd.join(relative), "M3")
+            new_call("m3-lead", dir.path(), &cwd.join(relative), "M3")
         );
     }
 
@@ -746,18 +739,18 @@ mod tests {
             exe_path: None,
         };
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at()).unwrap();
-        assert_eq!(said, "started Comics Lead for M2 in Rex");
+        assert_eq!(said, "started m2-lead for M2 in Rex");
+        // Another lead's session, in any case, is taken: the next start (M4) gets "-m4".
         let m = store.add_milestone("x", "g", None).unwrap();
-        store
-            .lead_milestone(m, "Shown", "taken lead", None)
-            .unwrap();
-        let said = start_lead(&mut store, &path, &*rex(&exe), "TAKEN", at()).unwrap();
-        assert_eq!(said, "started TAKEN Lead M4 for M4 in Rex");
+        store.lead_milestone(m, "Shown", "M4-Lead", None).unwrap();
+        let said = start_lead(&mut store, &path, &*rex(&exe), "Atlases", at()).unwrap();
+        assert_eq!(said, "started m4-lead-m4 for M4 in Rex");
+        assert_eq!(check_session("m4-lead-m4").unwrap(), "m4-lead-m4");
         assert_eq!(
             calls(fake.path()),
             [
-                new_call("Comics Lead", dir.path(), &path, "M2"),
-                new_call("TAKEN Lead M4", dir.path(), &path, "M4"),
+                new_call("m2-lead", dir.path(), &path, "M2"),
+                new_call("m4-lead-m4", dir.path(), &path, "M4"),
             ]
         );
     }
@@ -767,43 +760,41 @@ mod tests {
     {
         let (dir, path) = board();
         let (fake, exe) = fake_rex();
-        let checkout = tempfile::tempdir().unwrap();
-        std::fs::create_dir(checkout.path().join(".git")).unwrap();
+        let (_kept, shop) = checkout("Comic_Shop");
         let mut store = Store::open(&path).unwrap();
-        let free = store.add_repo(checkout.path(), None).unwrap();
+        let free = store.add_repo(&shop, None).unwrap();
         let at = |repo| Start {
             repo: Some(repo),
             home: home(&path),
             exe_path: None,
         };
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at(free)).unwrap();
-        let name = checkout.path().file_name().unwrap().to_str().unwrap();
-        assert_eq!(said, format!("started Comics Lead for M2 on {name} in Rex"));
+        assert_eq!(said, "started comic-shop-lead for M2 on Comic_Shop in Rex");
         let board = store.load().unwrap();
         assert_eq!(board.milestones[1].repo, Some(free));
-        // The lead is registered at start, under the name Claude runs as.
+        // The lead is registered at start, under the name Claude runs as: its repo's.
         let lead = board.repo(free).unwrap().lead.clone().unwrap();
         assert_eq!(
             (lead.name.as_str(), lead.session.as_str()),
-            ("Comics Lead", "Comics Lead")
+            ("comic-shop-lead", "comic-shop-lead")
         );
-        let real = checkout.path().canonicalize().unwrap();
+        let real = shop.canonicalize().unwrap();
         assert_eq!(
             calls(fake.path()),
-            [new_call("Comics Lead", &real, &path, "M2")]
+            [new_call("comic-shop-lead", &real, &path, "M2")]
         );
         // A second start on the same repo is refused before anything is written.
         let err = start_lead(&mut store, &path, &*rex(&exe), "Comics again", at(free)).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
-            format!("{name} already has its lead, Comics Lead")
+            "Comic_Shop already has its lead, comic-shop-lead"
         );
         // ...and in the write itself, should a load have missed the lead.
         let err = store
-            .start_repo_lead("again", "g", free, |m| lead_name("again", m))
+            .start_repo_lead("again", "g", free, |m| lead_name(Some("again"), m))
             .unwrap_err();
         assert!(
-            format!("{err:#}").contains("already has its lead, Comics Lead"),
+            format!("{err:#}").contains("already has its lead, comic-shop-lead"),
             "{err:#}"
         );
         // R1 has its lead (the fixture's): refused too.
@@ -816,36 +807,34 @@ mod tests {
         assert_eq!(store.load().unwrap().milestones.len(), 2);
         assert_eq!(calls(fake.path()).len(), 1);
         // A name another repo's lead has (even one with no milestone) gets the milestone id,
-        // on a repo and in no repo alike, so no registration is refused.
-        let other = tempfile::tempdir().unwrap();
-        std::fs::create_dir(other.path().join(".git")).unwrap();
-        let r = store.add_repo(other.path(), None).unwrap();
+        // so no registration is refused: a second checkout named the same way elsewhere.
+        let (_kept_other, other) = checkout("comic.shop");
+        let r = store.add_repo(&other, None).unwrap();
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at(r)).unwrap();
-        assert!(
-            said.starts_with("started Comics Lead M3 for M3 on "),
-            "{said}"
+        assert_eq!(
+            said,
+            "started comic-shop-lead-m3 for M3 on comic.shop in Rex"
         );
         let board = store.load().unwrap();
-        assert_eq!(
-            board.repo(r).unwrap().lead.as_ref().unwrap().name,
-            "Comics Lead M3"
-        );
+        let lead = board.repo(r).unwrap().lead.clone().unwrap();
+        assert_eq!(lead.name, "comic-shop-lead-m3");
+        assert_eq!(check_session(&lead.name).unwrap(), lead.name);
         let at_home = || Start {
             repo: None,
             home: home(&path),
             exe_path: None,
         };
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at_home()).unwrap();
-        assert_eq!(said, "started Comics Lead M4 for M4 in Rex");
+        assert_eq!(said, "started m4-lead for M4 in Rex");
         // A task's assignee is taken too, in no repo as on one: a lead is never a
         // task's assignee, so its own registration would be refused under that name.
         let task = store.add_task(MilestoneId(1), "t").unwrap();
         store.exec_sql(&format!(
-            "UPDATE task SET assignee = 'atlases lead' WHERE id = {}",
+            "UPDATE task SET assignee = 'M5-Lead' WHERE id = {}",
             task.0
         ));
         let said = start_lead(&mut store, &path, &*rex(&exe), "Atlases", at_home()).unwrap();
-        assert_eq!(said, "started Atlases Lead M5 for M5 in Rex");
+        assert_eq!(said, "started m5-lead-m5 for M5 in Rex");
         drop(dir);
     }
 
@@ -871,7 +860,7 @@ mod tests {
         assert!(failed && msg.contains("M3 was removed again"), "{msg}");
         assert!(
             msg.contains(
-                r#"a Rex session labelled "Atlases Lead" may be left: rex ls, then rex kill its id: rex new said something unexpected: {"sessions":[]}"#
+                r#"a Rex session labelled "m3-lead" may be left: rex ls, then rex kill its id: rex new said something unexpected: {"sessions":[]}"#
             ),
             "{msg}"
         );
@@ -890,11 +879,10 @@ mod tests {
         let (_dir, path) = board();
         let (fake, exe) = fake_rex();
         let none = fake.path().join("none");
-        let checkout = tempfile::tempdir().unwrap();
-        std::fs::create_dir(checkout.path().join(".git")).unwrap();
+        let (_kept, checkout) = checkout("comics");
         let r = Store::open(&path)
             .unwrap()
-            .add_repo(checkout.path(), None)
+            .add_repo(&checkout, None)
             .unwrap();
         let on_repo = |exe: &Path| Write::StartLead {
             line: "Comics".into(),
@@ -931,7 +919,7 @@ mod tests {
         // Once rex is found, the start takes the next id, as no failed press used one.
         let (said, failed) = write_now(&path, &on_repo(&exe));
         assert!(
-            !failed && said.starts_with("started Comics Lead for M2 on "),
+            !failed && said == "started comics-lead for M2 on comics in Rex",
             "{said}"
         );
     }
@@ -940,10 +928,9 @@ mod tests {
     fn a_failed_start_on_a_repo_removes_its_lead_too_so_n_works_again() {
         let (_dir, path) = board();
         let (fake, exe) = fake_rex();
-        let checkout = tempfile::tempdir().unwrap();
-        std::fs::create_dir(checkout.path().join(".git")).unwrap();
+        let (_kept, checkout) = checkout("comics");
         let mut store = Store::open(&path).unwrap();
-        let r = store.add_repo(checkout.path(), None).unwrap();
+        let r = store.add_repo(&checkout, None).unwrap();
         let at = || Start {
             repo: Some(r),
             home: home(&path),
@@ -953,7 +940,7 @@ mod tests {
         let err = start_lead(&mut store, &path, &*rex(&exe), "Comics", at()).unwrap_err();
         assert!(
             format!("{err:#}")
-                .starts_with("could not start the lead, so M2 and Comics Lead were removed again"),
+                .starts_with("could not start the lead, so M2 and comics-lead were removed again"),
             "{err:#}"
         );
         let board = store.load().unwrap();
@@ -962,9 +949,9 @@ mod tests {
         // The retry starts it.
         std::fs::remove_file(fake.path().join("fail-new")).unwrap();
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at()).unwrap();
-        assert!(said.starts_with("started Comics Lead for M3 on "), "{said}");
+        assert_eq!(said, "started comics-lead for M3 on comics in Rex");
         let lead = store.load().unwrap().repo(r).unwrap().lead.clone().unwrap();
-        assert_eq!(lead.name, "Comics Lead");
+        assert_eq!(lead.name, "comics-lead");
     }
 
     #[test]

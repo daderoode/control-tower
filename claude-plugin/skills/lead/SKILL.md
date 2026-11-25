@@ -160,7 +160,8 @@ implement, test or review.
    milestone and standalone task in it. First find `<you>`: `claude agents --json` lists
    the live sessions; yours is the entry whose `sessionId` is `$CLAUDE_CODE_SESSION_ID`, and
    its `name` is `<you>`. If it has no name, tell the owner to type `/rename <lead name>`
-   (suggest one after the repo, like "Catalogue Lead"), then use that name.
+   (suggest the repo's name in lowercase with `-lead` after it, like `catalogue-lead`, as
+   the dashboard names the leads it starts), then use that name.
    Then find `<R>`:
    - from a repo id, it is that id. If `tower repo show <R>` says its path is not set, ask
      the owner once for its main checkout and `cd` there. Record the path with
@@ -200,8 +201,9 @@ implement, test or review.
    - another session that is live: that lead leads this repo; tell the owner and stop;
    - no lead yet: `tower lead add <R> --name "<lead name>" --session "<you>"`.
 
-   If `tower lead add` refuses the name as taken, add the repo id ("Catalogue Lead R4"),
-   register with that, and tell the owner the `/rename Catalogue Lead R4` to match.
+   If `tower lead add` refuses the name as taken, add the repo id in lowercase
+   (`catalogue-lead-r4`), register with that, and tell the owner the
+   `/rename catalogue-lead-r4` to match.
    Then arm your board waiter and attach your session, in that order:
    1. Run `tower lead unread <R>`, then `tower lead wait <R>` with the Bash tool's
       `run_in_background`. `unread` prints one line per post on your board by anyone else
@@ -540,11 +542,16 @@ and `tower repo show <R>` lists threads by title.
   the task's implementer, or whoever does its current step, by the worker's name: the watch
   nudges only that worker, linked by the name (a mismatch gives false flags and no nudges).
   The rest of the team joins through the thread: when you start a tester or reviewer, name
-  it there (`@qa-12 please test X`), so the watch flags it if it waits on a prompt before
-  its
-  first post. Name agents by role and task (`dev-12`, `qa-12`, `senior-12`), so it is also
-  the name they post under and are named by, and a reused name is not taken for a member of
-  its earlier task.
+  it there (`@qa-119-deliver please test X`), so the watch flags it if it waits on a prompt
+  before its first post. Name each worker `<role>-<task>-<area>`: its role (`dev`, `qa` or
+  `senior`), its task's id number, then one short lowercase word for the part of the code
+  the task is in. For task 119, a fix to how posts are delivered: `dev-119-deliver` builds
+  it, `qa-119-deliver` tests it, `senior-119-deliver` reviews it; work on the dashboard
+  would be `ui`, on the board's storage `store`. A task with no clear area takes the repo's
+  short name (`dev-119-checkpoint`). That one name is its Claude session name (`claude -n`),
+  the task's assignee, the name it posts under and its @mention handle; the role comes
+  first, so the board shows it in its role's colour, and the task number keeps a reused
+  name from being taken for a member of its earlier task.
   Subtasks have no assignee or thread of their own: their parent task's gate applies.
   The merge task or subtask is exempt: it has no worker, stays Waiting until merged, then
   you move it to Done with `--by`.
@@ -653,8 +660,8 @@ and `tower repo show <R>` lists threads by title.
 ## The message board
 
 Messages go through the board, the repo's, which outlives any one lead. Everything on it is
-for the owner to read. Post as `<you>`; workers post under their role name (`dev`, `senior`,
-`qa`, alone or with `-` or a digit, like `dev-2`).
+for the owner to read. Post as `<you>`; workers post under their `<role>-<task>-<area>`
+name (see Workers), like `dev-119-deliver`.
 
 - **Threads:** open one for whatever comes up (a problem, a question, a decision). Each task
   team has its own thread, opened when you dispatch it (see Workers). Any other thread is
