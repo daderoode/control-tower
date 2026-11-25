@@ -2027,7 +2027,7 @@ fn a_lead_session_name_with_spaces_works_end_to_end() {
     assert_eq!(m.lead.as_ref().unwrap().session, cl);
     assert_eq!(m.threads[0].authors, [cl]);
     // The lead is never on its own team, by its spaced name.
-    assert!(m.team().is_empty());
+    assert!(m.team(&board).is_empty());
     for (by, why) in [
         ("Catalogue  Desk", "has two spaces in a row"),
         (" manager ", "only the owner posts as manager"),

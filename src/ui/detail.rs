@@ -485,7 +485,12 @@ fn milestone_lines(
         None => Span::styled(no_lead_line(m.id, m.repo.is_some()), pen.dim()),
     };
     lines.push(field("lead", vec![lead], w, pen));
-    let team = team_lines(m.team(), m.lead.as_ref(), w.saturating_sub(VALUE_X), pen);
+    let team = team_lines(
+        m.team(board),
+        m.lead.as_ref(),
+        w.saturating_sub(VALUE_X),
+        pen,
+    );
     if team.is_empty() {
         lines.push(field(
             "team",
@@ -600,7 +605,8 @@ fn repo_lines(board: &Board, r: &Repo, w: usize, shown: Shown, now: i64, pen: Pe
     let done = board.done_of(r.id);
     let loose: Vec<&Task> = board.standalone_of(Some(r.id)).collect();
     let tasks = (milestones.iter().flat_map(|m| &m.tasks)).chain(loose.iter().copied());
-    let names = team(r.lead.as_ref(), tasks, r.threads.iter());
+    let leads: Vec<&Lead> = board.leads().collect();
+    let names = team(&leads, tasks, r.threads.iter());
     let team = team_lines(names, r.lead.as_ref(), w.saturating_sub(VALUE_X), pen);
     if team.is_empty() {
         lines.push(field(
@@ -821,7 +827,7 @@ fn task_lines(
     }];
     // The team on the same line, cut to fit, as in the signed design.
     if let Some(names) =
-        m.and_then(|m| team_lines(m.team(), m.lead.as_ref(), usize::MAX, pen).pop())
+        m.and_then(|m| team_lines(m.team(board), m.lead.as_ref(), usize::MAX, pen).pop())
     {
         assigned.push(Span::styled(" · team ", pen.dim()));
         assigned.extend(names);

@@ -21,6 +21,15 @@ tag's date, and a new empty Unreleased goes above it.
   program status, only in Rex, so a dashboard on another board is passed by. The keys move the Rex app only from your key press, so Remote Control is
   never needed (#85).
 
+### Changed
+
+- **Leads and workers go by one readable name.** A lead the dashboard starts (`n`) is named
+  after its repo, `<repo>-lead` (`checkpoint-lead`; `m4-lead` in no repo yet), not the
+  goal's first words plus " Lead", so `@checkpoint-lead` is read as one mention; a taken name
+  gets `-m4` after it. The lead skill names workers `<role>-<task>-<area>` (`dev-119-db`),
+  the same name as the task's assignee, the board author and the Claude session, shown in
+  its role's colour. Leads and workers already on the board keep their names (#92).
+
 ## [0.6.1] - 2026-11-25
 
 ### Fixed
