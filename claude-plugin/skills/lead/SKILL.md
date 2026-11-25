@@ -460,6 +460,15 @@ and `tower repo show <R>` lists threads by title.
           --focus=false -c <the worktree's absolute path> --json \
           -- claude -n <name> "<brief>"
 
+    A Stage 2 reviewer works as a block beside the implementer's too, but in a folder of its
+    own outside any worktree: it reviews the PR on the forge, never local code. Keep its
+    printed `.block_ids[0]`; its folder stays when its block closes:
+
+        mkdir -p ../<repo>.review/<name>
+        d=$(cd ../<repo>.review/<name> && pwd)
+        rex split -s "$REX_SESSION" -b <the implementer's block> --split right \
+          --focus=false -c "$d" --json -- claude -n <name> "<brief>"
+
   - **In herdr**, as a herdr worktree space:
 
         herdr worktree create --workspace "$HERDR_WORKSPACE_ID" --branch <branch> \
@@ -475,7 +484,7 @@ and `tower repo show <R>` lists threads by title.
     `claude agents --json`, so the watch cannot see it: it raises nothing and later reads as
     gone. Start a worker only in a folder Claude trusts, itself or a folder above it: the
     folder holding the repo, trusted once by the owner, covers the checkout and the
-    `<repo>.worktrees` and `<repo>.standing` folders beside it.
+    `<repo>.worktrees`, `<repo>.review` and `<repo>.standing` folders beside it.
   - **One live worker per name.** Claude does not keep session names unique, so before a
     start check that no live session has the name, ignoring case:
     `claude agents --json | jq -e --arg n "<name>" 'any(.[]; (.name // "" | ascii_downcase) == ($n | ascii_downcase))'`
@@ -518,9 +527,10 @@ and `tower repo show <R>` lists threads by title.
   - a tester or reviewer working beside the implementer: in Rex, `rex block close -s
     "$REX_SESSION" <its block>`; in herdr, `herdr pane close <its pane id>`. Either leaves
     the worktree alone;
-  - the implementer, with its worktree, once Test, Stage 1 and every fix re-check are
-    closed: the tester and Stage 1 reviewer work beside it, and fixes are made in its
-    worktree, so it stays until then although its own step ended at Implement. In Rex,
+  - the implementer, with its worktree, once its PR is delivered (merged, or handed to
+    the owner or the named reviewer to merge): the tester and both reviewers work beside
+    it, a fix from any step is made in its worktree, and closing its tab closes every block
+    in it, so it stays until then although its own step ended at Implement. In Rex,
     `rex window close -s "$REX_SESSION" <its window>`, then `git worktree remove <its
     worktree's absolute path>`; in herdr, `herdr worktree remove --workspace <its workspace
     id from the create>`.
@@ -767,9 +777,9 @@ standalone task finishes on its own. Then the branch the MR targets decides:
 - You update a task's MR line whenever you open, update or merge its MR:
   `tower task set N --mr "<MR line>"`.
 - When the work is done, record the outcome on its issue (the PR link, what was verified
-  and the steps-run line, principle 6), resolve its thread with the same evidence and,
-  once its worker is closed, remove its worktree and every hand-off artifact
-  of its PR's commits, unless the repo's SDLC says otherwise.
+  and the steps-run line, principle 6), resolve its thread with the same evidence, close
+  its implementer with its worktree as Workers says, and remove every hand-off artifact of
+  its PR's commits, unless the repo's SDLC says otherwise.
 - Before you close the last worker of a step, clear the task's assignee (`tower task
   unassign N`) or set it to the next live worker, so your posts in its thread are not sent
   to a closed worker. Once a task is Done, your posts in its thread go to its assignee only
