@@ -897,6 +897,18 @@ mod tests {
         fn undo(&self, _db: &Path, _handle: &Handle) -> Result<String> {
             unreachable!("the watch starts no lead")
         }
+        fn space(
+            &self,
+            _db: &Path,
+            _here: &crate::terminal::Here,
+            _back: &Path,
+            _dashboard: &[String],
+        ) -> Result<crate::terminal::Answer> {
+            unreachable!("the watch has no key")
+        }
+        fn popup(&self, _db: &Path, _here: &crate::terminal::Here, _dash: &[String]) -> Result<()> {
+            unreachable!("the watch has no key")
+        }
     }
 
     /// The watch's terminal over the fakes in `dir`.

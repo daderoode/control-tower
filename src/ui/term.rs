@@ -21,8 +21,10 @@ const REFRESH: Duration = Duration::from_secs(2);
 /// How long the input loop waits for input before redrawing (the clock and new board data).
 const TICK: Duration = Duration::from_millis(250);
 /// Runs the dashboard until `q` (outside the composer) or Ctrl-C, or in a popup
-/// (`TOWER_UI_MODE=popup`) Esc at its top level. It reads the board read-only; a missing or
-/// unreadable board is shown on screen and picked up once it appears. Its writes run off the
+/// (`TOWER_UI_MODE=popup`) Esc at its top level. In a tab of its own it writes the
+/// terminal module's dashboard status on start and on exit (`dashboard_status_from_env`).
+/// It reads the board read-only; a missing or unreadable board is shown on screen and
+/// picked up once it appears. Its writes run off the
 /// UI thread: the owner's post, mark read, folds and a lead's start through the store
 /// (`writer`).
 pub fn run(path: &Path) -> Result<()> {
@@ -47,6 +49,15 @@ pub fn run(path: &Path) -> Result<()> {
             }
         }
     });
+    // In a tab of its own, the dashboard names itself to the terminal, so the dashboard's
+    // key can find it; the record is cleared when it closes.
+    let status = match mode {
+        Mode::Space => crate::terminal::dashboard_status_from_env(path),
+        Mode::Popup => None,
+    };
+    if let Some((on, _)) = &status {
+        report(on);
+    }
     let mut terminal = ratatui::init();
     // ratatui's own panic hook restores the screen but not mouse reporting.
     let hook = std::panic::take_hook();
@@ -62,7 +73,20 @@ pub fn run(path: &Path) -> Result<()> {
         });
     let _ = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste);
     ratatui::restore();
+    if let Some((_, off)) = status {
+        report(off);
+    }
     result
+}
+
+/// Writes `sequence` to the terminal at once. A terminal that cannot be written to shows
+/// nothing either, so a failure is not the dashboard's to report.
+fn report(sequence: &str) {
+    use std::io::Write;
+    let mut out = stdout();
+    let _ = out
+        .write_all(sequence.as_bytes())
+        .and_then(|()| out.flush());
 }
 
 /// What `run` learnt of where it runs: the mode and the terminal's colours.

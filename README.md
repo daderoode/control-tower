@@ -982,19 +982,65 @@ switch it to the brew one. If the plugin is installed but disabled, it stays dis
 uninstall` leaves the marketplace pointing at nothing (`claude plugin list` shows the plugin
 failed to load); `claude plugin marketplace remove control-tower` clears it.
 
-The dashboard is a plain `tower ui` in a Rex tab. herdr is no longer supported: a team
-in herdr is not seen, and its plugin, with `tower space` and `tower popup`, is gone. If an
-older control-tower linked that plugin, remove what it left: `herdr plugin unlink
-control-tower`, then `rm -r "$(brew --prefix)/var/control-tower"`, delete any key binding
-for its actions (`control-tower.space`, `control-tower.popup`) in herdr's config
-(`~/.config/herdr/config.toml`), and, if you used `tower space`, the file it kept beside
-the board, which nothing reads now:
-`rm -f ~/.local/state/control-tower/board.space-from` (for a board `TOWER_DB` names, that
-file's name with `.space-from` in place of `.db`).
-
 Every `tower` command, the dashboard and the watch use the board at
 `~/.local/state/control-tower/board.db`; set `TOWER_DB` to another file in each of their
 environments to use another board (see "The board" above).
+
+### The dashboard's keys in Rex
+
+The dashboard is `tower ui` in a Rex tab. Two keys bring it into view, as Rex actions that
+brew installs in `$(brew --prefix)/opt/control-tower/share/control-tower/rex/control-tower.lua`,
+with brew's prefix written in. Nothing loads that file until you do: add to
+`~/.config/rex/init.lua`, with the keys you want, and run `rex config reload`:
+
+    dofile("/opt/homebrew/opt/control-tower/share/control-tower/rex/control-tower.lua")
+    rex.bind("<key>", "tower_space")
+    rex.bind("<key>", "tower_popup")
+
+(That is Apple silicon's prefix; `brew info control-tower` prints the line with yours.) Each action runs
+`tower space` or `tower popup` with the session and block the key was pressed in; tower
+reaches Rex through the rex linked into Homebrew's bin (above), since Rex runs the
+commands with its own PATH.
+
+- **`tower_space`, the dashboard's tab.** Pressed anywhere else, it shows the dashboard's
+  tab, in whichever session it is (the key's own session first), and remembers the tab it
+  was pressed in. With no dashboard yet, it opens one in a new tab of the key's session,
+  labelled control-tower. Pressed in the dashboard's tab, it goes back to the tab it was
+  last pressed in, if Rex still has it; if not, or if it was never pressed elsewhere,
+  nothing moves and Rex's log says why. `q` in the dashboard's tab only closes the
+  dashboard; it does not go back.
+- **`tower_popup`, the popup.** Opens the dashboard over the tab the key was pressed in,
+  85% of it each way, compact; `q`, or Esc at its top level, closes it, and the popup goes
+  with it.
+
+The dashboard's tab is found by asking Rex, never by its label: a `tower ui` in a tab of
+its own names itself and its board to Rex in its program status, as
+`control-tower-<8 hex digits>`, from a hash of the board's path (only when it runs in Rex,
+where `REX_BLOCK` is set). A tab is the dashboard while the program that named it is still
+the tab's foreground process and it names the key's own board: a `tower ui` on another
+board (a try on a `TOWER_DB` of its own) is passed by. Pressed in any tab of a dashboard of
+the key's board, if there are two, the key goes back. A dashboard started by a tower older
+than these keys names nothing, so after upgrading close it and let the key open a new one.
+A tab or session Rex cannot read while the key looks (one closing just then) is passed over
+and Rex's log says so. The key fails, saying why in Rex's log and changing nothing on
+screen, when Rex cannot list its sessions, the session or tab it was pressed in cannot be
+read, Rex does not answer within 15 seconds, the back file cannot be written, or the new
+dashboard's tab cannot be opened; the popup fails when the tab cannot be read or the
+popup cannot be opened.
+Where the key was pressed is kept in a file beside the board,
+`~/.local/state/control-tower/board.space-back` (for a board `TOWER_DB` names, that file's
+name with `.space-back` in place of `.db`), its folder made if need be. The keys move what the Rex app
+shows only because a key was pressed in it, so Rex's Remote Control setting is never
+needed and tower never asks for it.
+
+herdr is no longer supported: a team in herdr is not seen, and its plugin is gone. If an
+older control-tower linked that plugin, remove what it left: `herdr plugin unlink
+control-tower`, then `rm -r "$(brew --prefix)/var/control-tower"`, delete any key binding
+for its actions (`control-tower.space`, `control-tower.popup`) in herdr's config
+(`~/.config/herdr/config.toml`), and, if you used herdr's `tower space`, the file it kept
+beside the board, which nothing reads now:
+`rm -f ~/.local/state/control-tower/board.space-from` (for a board `TOWER_DB` names, that
+file's name with `.space-from` in place of `.db`).
 
 ### From a checkout (development)
 

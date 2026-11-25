@@ -9,6 +9,18 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Added
+
+- **Keys for the dashboard in Rex: its own tab and a popup.** brew installs two Rex
+  actions with its prefix written in; load them from `~/.config/rex/init.lua` with
+  `dofile` and bind keys of your choice (README, The dashboard's keys in Rex).
+  `tower_space` shows the dashboard's tab, opening one if there is none, and pressed in
+  that tab goes back to where it was last pressed; `q` there only closes the dashboard.
+  `tower_popup` opens the dashboard over your tab, 85% each way; `q` closes it. The tab is
+  found by asking Rex: `tower ui` in a tab of its own names itself and its board in its
+  program status, only in Rex, so a dashboard on another board is passed by. The keys move the Rex app only from your key press, so Remote Control is
+  never needed (#85).
+
 ### Changed
 
 - **Leads and workers go by one readable name.** A lead the dashboard starts (`n`) is named

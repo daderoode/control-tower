@@ -2044,17 +2044,27 @@ fn a_lead_session_name_with_spaces_works_end_to_end() {
 }
 
 #[test]
-fn the_herdr_actions_space_and_popup_are_no_commands() {
+fn space_and_popup_are_the_rex_keys_commands_and_need_where_the_key_was_pressed() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("board.db");
-    for action in ["space", "popup"] {
-        let out = tower(&db, &[action]);
-        assert!(!out.status.success(), "tower {action} ran");
-        let err = text(&out.stderr);
-        assert!(
-            err.contains(&format!("unrecognized subcommand '{action}'")),
-            "{action}: {err}"
-        );
+    for command in ["space", "popup"] {
+        // With neither, clap names both; with only the session, the block alone.
+        for (args, missing) in [
+            (
+                &[command][..],
+                "  --session <SESSION>\n  --block <BLOCK>\n\n",
+            ),
+            (
+                &[command, "--session", "session:a"],
+                "  --block <BLOCK>\n\n",
+            ),
+        ] {
+            let out = tower(&db, args);
+            assert!(!out.status.success(), "tower {args:?} ran");
+            let err = text(&out.stderr);
+            let want = format!("the following required arguments were not provided:\n{missing}");
+            assert!(err.contains(&want), "{args:?}: {err}");
+        }
     }
     // Refused before the board is opened: nothing was written.
     assert!(!db.exists());
