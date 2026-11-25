@@ -624,14 +624,13 @@ Claude session's name and its status the record's state (`idle`, `working`, `don
 does not list, are no one. Claude does not list a session still at its "trust this folder"
 dialog, so a worker started in a folder Claude has not trusted is not seen (no need-you
 item for that dialog, and orphaned after three looks if its task is in progress) until
-the folder is trusted: start workers in a trusted folder; a state the watch does not know is unknown, never idle. The
-look has a 15 second limit, and one call that fails (Rex not running, a block that cannot
+the folder is trusted: start workers in a trusted folder; a state the watch does not know
+is unknown, never idle. The look has a 15 second limit, and one call that fails (Rex not running, a block that cannot
 be read, `claude` failing) skips the whole look, says so, and looks again 20 seconds
 later: a Rex half read never reads as workers gone. The watch never starts a Rex server.
 `TOWER_REX` names the rex executable, else `rex` in `$REX_BIN_DIR` (where Rex keeps it),
 else `rex` on the PATH; `TOWER_CLAUDE` names `claude`. When rex cannot be found the log
-says once what it tried and how to link it into Homebrew's bin. Until #111, nudges go
-through Rex and are recorded as refused, and delivery still goes through herdr.
+says once what it tried and how to link it into Homebrew's bin.
 
 A worker is linked to its live Claude session in Rex by name: **a task's assignee is the
 Claude session name of the worker on it** (compared ignoring case; the lead names it with
@@ -660,9 +659,9 @@ unassigned task.
 - **Says it is stuck** (its own `blocked:` post): nothing for the watch.
 - **Stopped without reporting** (the assignee idle or done, no post for 5 min) and **silent
   while working** (task in progress, assignee working, no post for 30 min): the worker is
-  nudged through the terminal, "no post on #N for M min, post your status", and the
-  nudge is recorded as a plain message, "nudged dev-1: ...", saying so if Rex refused
-  delivery; with no post 2 minutes later, a message tells the lead. A task flagged blocked
+  nudged through the relay (Live delivery), "no post on #N for M min, post your status",
+  and the nudge is recorded as a plain message, "nudged dev-1: ...", saying so if Rex
+  refused delivery, with the relay's line in the watch's log; with no post 2 minutes later, a message tells the lead. A task flagged blocked
   is never nudged: its worker already said it is stuck, and the lead owns it.
 - **Orphaned** (task in progress, no live Claude session in Rex by its assignee's name for
   three looks in a row): a message to the lead, saying it is "gone from Rex" and ending
@@ -675,8 +674,9 @@ not reset it. Claude does not keep session names unique, so several live session
 share a worker's name (names are compared ignoring case): they are read as one worker. A
 prompt is raised when any of them is blocked, quoting the first that is, and the worker's
 status is the busiest of theirs (blocked over working over unknown over idle or done), so
-a stale twin never hides a prompt or draws a "stopped" nudge while the other works. Changing a task's assignee ends the old assignee's
-nudge and orphan episodes and starts the clock afresh; a prompt goes on while the old
+a stale twin never hides a prompt or draws a "stopped" nudge while the other works.
+Changing a task's assignee ends the old assignee's nudge and orphan episodes and starts the
+clock afresh; a prompt goes on while the old
 assignee is still on the team. Renaming a worker's Claude session away from the assignee
 makes it look gone (orphaned after three looks), so rename the assignee with it. Each flag is
 raised once, and again only after its episode ends (the prompt answered or the member off
@@ -695,42 +695,70 @@ session) until `brew upgrade control-tower`.
 ### Live delivery
 
 The watch also delivers the board: every 5 seconds, on a thread of its own so a slow
-herdr never holds a look, it hands out the posts made since it last did, by the CLI, the
+terminal never holds a look, it hands out the posts made since it last did, by the CLI, the
 watch itself or the dashboard alike. The posts for one recipient in one round are one send,
 so a burst is one message. A post made while no watch runs is delivered when one starts, so
 after a long outage old posts and mentions arrive late.
 
 Each post reaches each recipient at most once. The board keeps a cursor (every recipient
 has been offered every post up to it) and how far each recipient was sent beyond it,
-recorded before each send. A round spends at most 10 seconds sending to workers, gives each
-herdr call what is left of that, and checks for a stop before every send; what it does not
-get to (out of time, stopped, or herdr not answering) stays after the cursor and goes in
-the next round, to the recipients that have not had it. So a stop (SIGTERM, Ctrl-C) or an
-upgrade restart waits at most about that long and loses nothing. A crash or a kill during a
+recorded before each send. A round starts sends to workers for at most 10 seconds and
+checks for a stop before every send; a send it starts has its own limit of 60 seconds, so
+none is cut short. What a round does not get to (out of time, stopped, or Rex not
+answering) stays after the cursor and goes in the next round, to the recipients that have
+not had it. So a stop (SIGTERM, Ctrl-C) or an upgrade restart waits at most about 70
+seconds and loses nothing. A crash or a kill during a
 send loses that one send, and no one is told.
 
 - **To the lead:** nothing: a lead hears of its board's posts through its own waiter and
   Stop hook (below, "How posts reach a lead").
 - **To workers:** a post that @mentions a worker (as the team rule reads mentions), and the
   lead's posts in the thread of a task not done to that task's assignee (a done task's
-  worker has finished and may be closed already; @mention it to reach it), are typed into
-  the worker's pane with `herdr agent prompt`, every control character but newline stripped
-  first. Only to an agent `herdr agent list` shows by exactly that name, so a mention never
-  resolves to a pane id or an index; herdr agent names are lower case, so `@Senior` reaches
-  senior. A name must start with a letter or digit. Never the post's author, a lead or the
-  owner, and never a `system` post (the watch nudges workers itself), except tower's reply
-  to an author below, which goes to that author. A name that is no herdr agent counts as a
-  failed send, so quote example names in backticks. Code is no mention: a name followed
+  worker has finished and may be closed already; @mention it to reach it), reach the
+  worker's Claude session as a message from `@control-tower`, through the relay (below),
+  every control character but newline stripped first. Only to a worker the look finds in
+  Rex by that name (its Claude session name, compared ignoring case, so `@Senior` reaches
+  senior). A name must start with a letter or digit. Never the post's author, a lead or
+  the owner, and never a `system` post (the watch nudges workers itself), except tower's
+  reply to an author below, which goes to that author. A name that is no worker in Rex
+  counts as a failed send, so quote example names in backticks. Code is no mention: a name followed
   straight by `(` and an ASCII character or the end of its line (`@cart(x)`), or by `.`
   and an ASCII letter, digit or `_` (`@cart.isEmpty()`), while a sentence ending on a name
   (`@qa.`) still mentions it, and so does a name before `.` or `(` and any character that
-  is not ASCII, such as Chinese or Japanese (`请@qa.谢谢`). While herdr cannot list its
-  agents, posts for workers wait (said once in the log) and go when it answers. A lead
+  is not ASCII, such as Chinese or Japanese (`请@qa.谢谢`). While Rex cannot be read,
+  posts for workers wait (said once in the log) and go when it answers. A lead
   receives the posts on its own board only: a worker naming another board's lead reaches
   no one.
 - **To the owner:** unchanged, the `@manager` items.
 
-A name herdr has no agent for, that no worker on the board ever had (no task's assignee has
+**The relay.** tower cannot use Claude Code's cross-session messaging itself, so each send
+to a worker (a post or a nudge) starts a headless Claude session named `control-tower`
+(`claude -p -n control-tower --model haiku`) that sends the text with its SendMessage tool,
+once, to the worker's Claude session by name; the worker sees "Message from
+@control-tower". There is no typing into the worker's terminal. The relay has only the
+SendMessage, ListAgents and ToolSearch tools, so a post's text can never get it to run a
+command, no MCP servers, and no saved session. It gets its instruction and the text on
+stdin, never in its arguments, the text between markers and named as data to pass on,
+never instructions. It loads the owner's plugins and hooks as any Claude session does.
+Each send is a paid model call (about $0.003 to $0.006, and 6 to 10 seconds, on Haiku),
+and the text is copied by a model, so it may not arrive verbatim.
+
+A worker at a prompt (any of its Claude sessions blocked in Rex, looked up afresh just
+before the send) is sent nothing: the send fails "at a permission prompt (approve Bash:
+...)", naming the kind and what it asks. How a send went is read from the relay's own
+events, never from what the model says: a SendMessage to the worker that its tool answered
+as sent is delivered; one to any other session fails, naming who got it; one with no answer,
+or a relay stopped at its 60 second limit, may have arrived, so it is logged and never
+resent; one refused (no session by that name, two sharing it), or none at all, fails. A
+worker running with permissions bypassed holds a cross-session message for its own user's
+approval (Claude Code's rule), which the relay cannot see: that send reads as delivered.
+
+Every send logs one line starting `relay to <name>:`: how the relay ended, how long it
+took, its cost and turns, each SendMessage it made with the tool's answer and whether the
+text went verbatim (and what went if not), the model's closing words, any stderr, and the
+text tower asked it to send, so the relay can be checked in use.
+
+A name Rex has no worker for, that no worker on the board ever had (no task's assignee has
 had it and nobody has posted under it, in any case), is a name the post only seemed to give:
 an example like `@name`, a CSS rule like `@media`, or a worker's name misspelt. A lead
 taken off the board with `tower lead remove` counts as no worker too, though it posted there:
@@ -743,18 +771,20 @@ theirs, finds it in the inbox for awareness. A reply that cannot reach its autho
 since it posted) is only logged, never an item for the owner. A reply is never written for
 tower's own posts, nor on a thread resolved meanwhile (the log says so).
 
-Any other send that fails (herdr's `agent_blocked` for a worker at a dialog, a worker the
-board knew that herdr no longer has) opens a failure episode for that recipient
+Any other send that fails (a worker at a prompt, a worker the board knew that Rex no longer
+has, a relay that sent nothing or sent to another session) opens a failure episode for that
+recipient
 and posts an item for the owner's awareness (not need-you), a `system` message starting
 "@manager could not deliver to" in the thread of the
 first post it carried (or a new "Delivery failed" thread when that one is resolved). A
 round posts one item per board, naming each recipient newly failing there and why, so a
-post naming several gone workers is one item. A recipient herdr has no agent for that is the
-assignee of a task not done on that board has its line end with how to clear it ("if it
-was closed: tower task unassign N, or set the next worker"). While an episode is open, further failures
-to that recipient are only logged; a send that gets through ends it, and one still failing
-after an hour is told again with a new item. herdr timing out or seeing no activity (the text may have arrived) is logged only, and never
-resent.
+post naming several gone workers is one item. A recipient Rex has no worker for that is
+the assignee of a task not done on that board has its line end with how to clear it ("if it
+was closed: tower task unassign N, or set the next worker"). While an episode is open,
+further failures to that recipient are only logged; a send that gets through ends it, and
+one still failing after an hour is told again with a new item. A send that may have
+arrived (the relay stopped at its limit, or a SendMessage with no answer) is logged only,
+and never resent.
 
 ### How posts reach a lead
 

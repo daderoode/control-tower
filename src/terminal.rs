@@ -3,15 +3,17 @@
 //! workers (`agents`), has it deliver a text to one by name (`prompt`), and has it open a
 //! new place for a lead (`start_lead`, undone by `undo`); its display name names the
 //! terminal in the core's texts and logs. A module is built in: `module` gives the one this
-//! build has, Rex (`rex`), so another slots in here without touching the core. Until #111
-//! builds Rex's prompt, delivery still reaches herdr (`herdr`, `herdr_module`), which #114
-//! removes.
+//! build has, Rex (`rex`), so another slots in here without touching the core. Rex's prompt
+//! reaches a worker's Claude session through the relay (`relay`). What is left of herdr
+//! (`herdr`: its path, bounded run and shell line, for its plugin, `tower space` and `tower
+//! popup`) goes with #114.
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
 //! blocked kind where the terminal gives it). A value the core does not know is
 //! `Status::Unknown`: present, with nothing to judge by.
 
 pub mod herdr;
+pub mod relay;
 pub mod rex;
 
 use std::ffi::OsStr;
@@ -111,6 +113,26 @@ pub enum Sent {
     Failed(String),
 }
 
+/// What a prompt did: how the send went, and the one line the module has on how it made it
+/// (for the relay: who, the text, its exit, duration, cost and answer), for the log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prompted {
+    pub sent: Sent,
+    pub trace: Option<String>,
+}
+
+impl From<Sent> for Prompted {
+    /// A send with nothing more to log.
+    fn from(sent: Sent) -> Prompted {
+        Prompted { sent, trace: None }
+    }
+}
+
+/// How long one prompt may take, the module's look for the worker and its send together. A
+/// relay send takes about 6 to 10 s; a round of delivery starts no send after its budget,
+/// but never cuts one short (`deliver::WORKER_BUDGET`).
+pub const SEND_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// A lead to start: its place named `name`, opened in `dir`, with the board's absolute path
 /// `board` set as `TOWER_DB` there, running `command` (one word per argument, never a
 /// shell string).
@@ -139,8 +161,9 @@ pub trait Terminal: Send + Sync {
     fn missing(&self, path: Option<&OsStr>) -> Option<String>;
     /// The live named workers, within `timeout`.
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread>;
-    /// Delivers `text` to the worker `name`, within `timeout`.
-    fn prompt(&self, db: &Path, name: &str, text: &str, timeout: Duration) -> Sent;
+    /// Delivers `text` to the worker `name` (ignoring case), within `timeout`. A worker at a
+    /// prompt is sent nothing.
+    fn prompt(&self, db: &Path, name: &str, text: &str, timeout: Duration) -> Prompted;
     /// Opens a new place for a lead without taking focus and starts it there.
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle>;
     /// Undoes a start: closes the place `handle` names. Says what it did.
@@ -156,12 +179,6 @@ pub fn module(exe: PathBuf) -> Arc<dyn Terminal> {
 /// The built-in module's executable as the environment names it.
 pub fn exe_from_env() -> PathBuf {
     rex::path()
-}
-
-/// herdr as a terminal module, its executable at `exe`: what delivery uses until #111
-/// builds it on Rex.
-pub fn herdr_module(exe: PathBuf) -> Arc<dyn Terminal> {
-    Arc::new(herdr::Herdr::new(exe))
 }
 
 /// How long one terminal command may take before it is stopped, unless a caller has its
@@ -270,12 +287,6 @@ mod tests {
         assert_eq!(
             not_found("herdr", &gone, None),
             format!("herdr not found: tried {}", gone.display())
-        );
-        let said = herdr::missing(Path::new("herdr"), Some(OsStr::new("/a:/b")));
-        assert_eq!(
-            said,
-            "herdr not found: tried herdr on PATH /a:/b; set TOWER_HERDR to its full path if it \
-             is elsewhere"
         );
     }
 }

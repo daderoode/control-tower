@@ -27,8 +27,10 @@
 //! - Stopped without reporting: the worker is `idle` or `done`, no post for `STOPPED_AFTER`.
 //! - Silent while working: the task is In progress, the worker `working`, no post for
 //!   `SILENT_AFTER`.
-//!   Both nudge the worker directly (the terminal's prompt) and record the nudge as a plain
-//!   `system` message in the task's thread (saying so when the terminal refused delivery);
+//!   Both nudge the worker directly (the terminal's prompt; in Rex, a message from
+//!   `@control-tower` through the relay, never to a worker at a prompt) and record the nudge
+//!   as a plain `system` message in the task's thread (saying so when the terminal refused
+//!   delivery), the relay's trace in the watch's log;
 //!   if no post comes within `ANSWER_WITHIN`, a `system` message tells the lead.
 //! - Orphaned: the task is In progress and the terminal's worker list, not empty, has had no
 //!   live Claude session by the worker's name for `ORPHANED_AFTER` looks in a row. A
@@ -40,10 +42,11 @@
 //! (`watch_seen`) so a restart does not reset it. The watch sees the local Rex server.
 //! Several live sessions can share a name (Claude does not keep names unique, and names
 //! are compared ignoring case): they are one worker, whose status is the busiest of theirs
-//! (`worker_agent`), and a prompt is raised when any of them is blocked. Each flag is remembered on the board (`watch_flag`), so it is raised once per episode, never
-//! every tick, and raised again only after the episode ends: the worker leaves the prompt
-//! or the team, a post arrives after a nudge, the worker is back in the terminal, or the
-//! task is Done or moved.
+//! (`worker_agent`), and a prompt is raised when any of them is blocked. Each flag is
+//! remembered on the board (`watch_flag`), so it is raised once per episode, never every
+//! tick, and raised again only after the episode ends: the worker leaves the prompt or the
+//! team, a post arrives after a nudge, the worker is back in the terminal, or the task is
+//! Done or moved.
 //! Reassigning a task ends the old assignee's nudge and orphan episodes; a prompt goes on
 //! while the old assignee is still on the team.
 //!
@@ -66,7 +69,7 @@ use anyhow::{Context, Result};
 
 use crate::board::{OWNER_AUTHOR, OWNER_HANDLE, QUESTION, Stage, TaskId, closed_worker_hint};
 use crate::store::{FlagChange, Store};
-use crate::terminal::{Agent, Sent, Status, Terminal, terminal_timeout};
+use crate::terminal::{Agent, SEND_TIMEOUT, Sent, Status, Terminal, terminal_timeout};
 
 /// How often the watch looks.
 pub const TICK: Duration = Duration::from_secs(20);
@@ -593,7 +596,8 @@ impl Watch {
                 // the terminal delivered it, and the lead still hears in time either way.
                 store.watch_step(flag.task, FlagChange::Raise(flag), None, now)?;
                 let terminal = &self.terminal;
-                let sent = terminal.prompt(&self.db, agent, text, terminal_timeout());
+                let prompted = terminal.prompt(&self.db, agent, text, SEND_TIMEOUT);
+                let (sent, trace) = (prompted.sent, prompted.trace);
                 let record = match &sent {
                     Sent::Delivered => format!("nudged {agent}: {text}"),
                     Sent::Unsure(why) | Sent::Failed(why) => {
@@ -605,9 +609,13 @@ impl Watch {
                     }
                 };
                 store.watch_step(flag.task, FlagChange::None, Some(&record), now)?;
+                let traced = |line: String| match &trace {
+                    Some(trace) => format!("{line}; {trace}"),
+                    None => line,
+                };
                 match sent {
-                    Sent::Delivered => Ok(what),
-                    Sent::Unsure(why) | Sent::Failed(why) => Err(anyhow::anyhow!(why)),
+                    Sent::Delivered => Ok(traced(what)),
+                    Sent::Unsure(why) | Sent::Failed(why) => Err(anyhow::anyhow!(traced(why))),
                 }
             }
             Action::Raise { flag, text } => {
@@ -761,9 +769,7 @@ pub fn run(db: &Path) -> Result<()> {
     }
     let mut failed_at: Option<std::time::Instant> = None;
     // Delivery runs on its own thread, so a look waiting on the terminal never holds a post.
-    // It reaches workers through herdr until #111 builds Rex's prompt.
-    let delivery = crate::terminal::herdr_module(herdr.clone());
-    let deliver = crate::deliver::Deliver::new(db, delivery, Arc::clone(&stop));
+    let deliver = crate::deliver::Deliver::new(db, Arc::clone(&terminal), Arc::clone(&stop));
     let gate = deliver.gate();
     let delivering = std::thread::spawn(move || deliver.run(log));
     while !stop.load(Ordering::Relaxed) {
@@ -841,13 +847,14 @@ mod tests {
     use crate::board::{BoardOf, MilestoneId, ThreadId, Tone, tone_of};
     use crate::store::{FlagChange, TaskFields};
     use crate::terminal::rex::fake::FakeRex;
-    use crate::terminal::{Handle, Unread};
+    use crate::terminal::{Handle, Prompted, Unread};
 
     const MIN: i64 = 60;
 
-    /// The watch's terminal in these tests: Rex's look over the fake rex and claude in
-    /// `rex/`, and a prompt that appends "name|text" to `prompts.log`, or refuses with the
-    /// text of `refuse` when that file exists. Rex's own prompt is #111's.
+    /// The watch's terminal in most of these tests: Rex's look over the fake rex and claude
+    /// in `rex/`, and a prompt that appends "name|text" to `prompts.log`, or refuses with the
+    /// text of `refuse` when that file exists, with no trace, so each test reads only the
+    /// watch's own lines. Rex's own prompt, the relay, is in `a_nudge_reaches_a_rex_worker...`.
     struct Team {
         rex: crate::terminal::rex::Rex,
         dir: PathBuf,
@@ -866,9 +873,9 @@ mod tests {
         fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
             self.rex.agents(db, timeout)
         }
-        fn prompt(&self, _db: &Path, name: &str, text: &str, _timeout: Duration) -> Sent {
+        fn prompt(&self, _db: &Path, name: &str, text: &str, _timeout: Duration) -> Prompted {
             if let Ok(why) = std::fs::read_to_string(self.dir.join("refuse")) {
-                return Sent::Failed(why);
+                return Sent::Failed(why).into();
             }
             let mut log = std::fs::OpenOptions::new()
                 .create(true)
@@ -877,7 +884,7 @@ mod tests {
                 .unwrap();
             use std::io::Write;
             writeln!(log, "{name}|{text}").unwrap();
-            Sent::Delivered
+            Sent::Delivered.into()
         }
         fn start_lead(&self, _db: &Path, _lead: &crate::terminal::LeadStart) -> Result<Handle> {
             unreachable!("the watch starts no lead")
@@ -1320,6 +1327,21 @@ mod tests {
         ]);
         assert!(f.tick(1).is_empty());
         assert!(f.store().flags().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_nudge_reaches_a_rex_worker_through_the_relay_and_logs_its_trace() {
+        let mut f = Fixture::new();
+        f.watch = Watch::new(&f.db, Arc::new(f.rex.module()), Arc::default());
+        let lines = f.tick(6);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let text = "no post on #1 for 6 min, post your status";
+        let (nudged, trace) = lines[0].split_once("; relay to dev-1: exit 0, ").unwrap();
+        assert_eq!(nudged, format!("nudged dev-1 on #1 (stopped): {text}"));
+        assert!(trace.ends_with(&format!("; text: {text:?}")), "{trace}");
+        let sent = std::fs::read_to_string(f.dir.path().join("rex/prompts.log")).unwrap();
+        assert_eq!(sent, format!("dev-1|{text}\n"));
+        assert_eq!(f.system(1), [format!("nudged dev-1: {text}")]);
     }
 
     #[test]

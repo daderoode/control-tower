@@ -3,27 +3,29 @@
 //! watch and the dashboard alike: the board keeps a cursor, the last message id every
 //! recipient has been offered, and how far each recipient was sent beyond it, recorded
 //! before each send (`Store::mark_sent`), so a post reaches each recipient at most once.
-//! A round sends to workers within `WORKER_BUDGET` and checks for a stop before each send;
-//! what it did not get to (out of time, stopped, the terminal not answering its agent list)
-//! stays after the cursor and goes next round, so a stalled terminal never holds a stop or
-//! an upgrade for long and loses nothing. The terminal is reached only through the
-//! terminal module (`terminal`): its agents, and its prompt to one by name.
+//! A round starts sends to workers within `WORKER_BUDGET` and checks for a stop before each
+//! send; a send it starts has its whole limit (`terminal::SEND_TIMEOUT`), so none is cut
+//! short. What it did not get to (out of time, stopped, the terminal not answering its agent
+//! list) stays after the cursor and goes next round, so a stalled terminal never holds a
+//! stop or an upgrade for long and loses nothing. The terminal is reached only through the
+//! terminal module (`terminal`): its agents, and its prompt to one by name, whose trace
+//! (for Rex, the relay's: who, the text, exit, duration, cost, answer) is logged before
+//! how the send went.
 //!
 //! Who gets a post (`plan`): never a lead, who hears of its board's posts through its own
 //! board waiter and Stop hook (`listen`), but:
 //! - Each worker a post @mentions (`board::mentioned`), and the task's assignee when the
 //!   lead posts in the thread of a task not done (a done task's worker has finished,
 //!   and the lead closes it, often seconds after its sign-off; a post meant for it @mentions
-//!   it), through `herdr agent prompt` to an agent `herdr agent
-//!   list` shows by exactly that name (never a pane id or index), the text stripped of
-//!   control characters first (`sanitise`), so a post cannot escape bracketed paste. Never
+//!   it), through the terminal's prompt to an agent its agent list shows by that name
+//!   (ignoring case), the text stripped of control characters first (`sanitise`). Never
 //!   the author, a lead or the owner, and never for a `system` post: the watch prompts
 //!   workers itself.
 //!
 //! The posts for one recipient in one drain are one send, so a burst is one message and no
 //! session's burst or repeat limits drop it.
 //!
-//! A name no herdr agent has and no worker on the board ever had (no task's assignee, no
+//! A name no agent in the terminal has and no worker on the board ever had (no task's assignee, no
 //! post's author: `Pending::known`) is someone the post only seemed to name, like `@name` or
 //! `@media` quoted without backticks, or a worker's name misspelt. Its failure is
 //! no item for the owner: tower replies on the post's thread to its author instead
@@ -31,14 +33,14 @@
 //! cannot reach its author (closed since its post, say), the failure is only logged: no
 //! item for the owner, no reply to a reply.
 //!
-//! Any other send that fails (herdr's `agent_blocked`, a worker the board knew that herdr no
-//! longer has) opens a failure episode for its recipient, which posts one `@manager` item for
-//! the owner's awareness
-//! (`Store::delivery_failed`); while it is open further failures are only logged, and a send
-//! that gets through ends it; one open longer than `EPISODE_EXPIRES` is told again. The item
-//! is a `system` post, so it goes to no worker: it cannot start a storm. herdr stopping a
-//! prompt that may have arrived (a timeout, a stall) is logged only, never resent and no
-//! item.
+//! Any other send that fails (a worker at a prompt, a worker the board knew that the
+//! terminal no longer has, a relay that sent nothing or sent to someone else) opens a
+//! failure episode for its recipient, which posts one `@manager` item for the owner's
+//! awareness (`Store::delivery_failed`); while it is open further failures are only logged,
+//! and a send that gets through ends it; one open longer than `EPISODE_EXPIRES` is told
+//! again. The item is a `system` post, so it goes to no worker: it cannot start a storm. A
+//! send that may have arrived (stopped at its limit, no answer) is logged only, never
+//! resent and no item.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -59,7 +61,9 @@ use crate::terminal::{Sent, Terminal};
 pub const DELIVER_EVERY: Duration = Duration::from_secs(5);
 /// The most characters one send to a worker carries; the rest is named, not typed.
 pub const WORKER_CAP: usize = 8000;
-/// How long one round may spend sending to workers; the rest goes next round.
+/// How long one round may go on starting sends to workers; the rest goes next round. A send
+/// started has its own limit (`terminal::SEND_TIMEOUT`), so a round can run that much past
+/// this, and none is cut short.
 pub const WORKER_BUDGET: Duration = Duration::from_secs(10);
 /// How long a failure episode stays told: a recipient still failing after this is told
 /// again, with a new item.
@@ -142,7 +146,7 @@ impl Pending {
 /// Who a send is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Recipient {
-    /// A worker, by its herdr agent name: lower case, as herdr requires.
+    /// A worker, by its name in lower case: names are compared ignoring case.
     Worker(String),
 }
 
@@ -188,7 +192,7 @@ pub fn plan(pending: &Pending) -> Vec<Batch> {
         let mut named: Vec<&str> = Vec::new();
         for name in names {
             // A name must start with a letter or digit, so no post puts an option ("@--help")
-            // in herdr's arguments.
+            // in a terminal's arguments.
             let skip = !name.starts_with(|c: char| c.is_ascii_alphanumeric())
                 || name.eq_ignore_ascii_case(&post.author)
                 || name.eq_ignore_ascii_case(OWNER_AUTHOR)
@@ -204,7 +208,7 @@ pub fn plan(pending: &Pending) -> Vec<Batch> {
                 .find(|b| matches!(&b.to, Recipient::Worker(w) if w.eq_ignore_ascii_case(name)));
             match found {
                 Some(b) => b.posts.push(i),
-                // herdr names are lower case and matched exactly: `@Senior` is senior.
+                // Names are compared ignoring case: `@Senior` is senior.
                 None => workers.push(Batch {
                     to: Recipient::Worker(name.to_ascii_lowercase()),
                     posts: vec![i],
@@ -253,10 +257,9 @@ fn unknown_text(author: &str, names: &[String], terminal: &str) -> String {
     )
 }
 
-/// `text` as it is safe to type into a pane: every control character but newline dropped
-/// (tab made a space), so no escape sequence can end bracketed paste or drive the
-/// terminal, and every character `board::hidden` names (format, line and paragraph
-/// separators) dropped too.
+/// `text` as it is safe to hand on to a worker: every control character but newline dropped
+/// (tab made a space), so no escape sequence reaches a terminal, and every character
+/// `board::hidden` names (format, line and paragraph separators) dropped too.
 pub fn sanitise(text: &str) -> String {
     text.chars()
         .filter_map(|c| match c {
@@ -348,7 +351,7 @@ pub fn check_asker(json: &str, session: &str, lead: &Lead, repo: RepoId) -> Resu
 }
 
 /// One recipient a drain could not reach, as the failure item names it: who and why, as
-/// "dev-1: <why>", and how to clear it when it is gone from herdr and the assignee of
+/// "dev-1: <why>", and how to clear it when it is gone from the terminal and the assignee of
 /// `tasks` (not done, on the item's board).
 fn failure_line(to: &Recipient, why: &str, tasks: &[TaskId]) -> String {
     let why: String = why.chars().take(WHY_CHARS).collect();
@@ -397,8 +400,10 @@ pub struct Deliver {
     /// before it restarts itself (an exec ends every thread), so an upgrade never drops
     /// posts already taken.
     gate: Arc<Mutex<()>>,
-    /// How long a round may spend on workers (`WORKER_BUDGET`; shorter in tests).
+    /// How long a round may start sends to workers (`WORKER_BUDGET`; shorter in tests).
     budget: Duration,
+    /// How long one send may take (`terminal::SEND_TIMEOUT`; shorter in tests).
+    send_limit: Duration,
     /// Why the terminal's agent list last failed, said once until it answers or the reason
     /// changes.
     unread_said: Mutex<Option<String>>,
@@ -412,6 +417,7 @@ impl Deliver {
             stop,
             gate: Arc::default(),
             budget: WORKER_BUDGET,
+            send_limit: crate::terminal::SEND_TIMEOUT,
             unread_said: Mutex::default(),
         }
     }
@@ -483,14 +489,16 @@ impl Deliver {
             // Whether the terminal has no agent by the name: only then can it have been closed.
             let (who, sent, gone) = match &batch.to {
                 Recipient::Worker(name) => {
-                    let listed = matches!(&agents, Some(Ok(a)) if a.iter().any(|a| a == name));
+                    let listed = matches!(&agents,
+                        Some(Ok(a)) if a.iter().any(|a| a.eq_ignore_ascii_case(name)));
                     let sent = if listed {
-                        let timeout = deadline
-                            .saturating_duration_since(Instant::now())
-                            .min(crate::terminal::terminal_timeout())
-                            .max(Duration::from_millis(100));
+                        // A send that starts has its whole limit: the budget only stops the
+                        // next one starting, so none is cut short and lost.
                         let text = worker_text(&posts);
-                        self.terminal.prompt(&self.db, name, &text, timeout)
+                        let prompted =
+                            (self.terminal).prompt(&self.db, name, &text, self.send_limit);
+                        log.extend(prompted.trace);
+                        prompted.sent
                     } else {
                         let terminal = self.terminal.name();
                         Sent::Failed(format!("{terminal} has no agent named {name}"))
@@ -657,7 +665,8 @@ mod tests {
     use super::*;
     use crate::board::{BoardOf, Stage};
     use crate::store::TaskFields;
-    use crate::watch::{TEST_WAIT, hold_until_released};
+    use crate::terminal::rex::fake::FakeRex;
+    use crate::watch::TEST_WAIT;
 
     fn lead(repo: i64, name: &str, session: &str) -> LeadBoard {
         LeadBoard {
@@ -739,9 +748,9 @@ mod tests {
             post(4, Some(9), "cat-lead", "noted"),
             // A quoted name is no mention.
             post(5, None, "dev-3", "`@dev-9` is an example"),
-            // A name that starts like an option never reaches herdr's arguments.
+            // A name that starts like an option never reaches a terminal's arguments.
             post(6, None, "dev-3", "@--help x @-x @_y"),
-            // Names in any case are one worker, by its lower-case herdr name.
+            // Names in any case are one worker, by its name in lower case.
             post(7, None, "dev-3", "@Qa-One and @Dev-One again"),
             // Right after kana, with no space, as Japanese is written; an e-mail address
             // names no one.
@@ -828,15 +837,13 @@ mod tests {
     }
 
     /// A temp board with M1 led by Catalogue (session cat-lead), task #1 assigned to dev-1 and
-    /// In progress with thread T1, and a fake herdr:
-    /// `agent prompt` appends "name|text" (newlines as `\n`, and one more after the text)
-    /// to `prompts.log`, or, when
-    /// `fail-<name>` exists, prints it to stderr and exits 1; with `slow` (or `hang`), it
-    /// touches `started` and sleeps a second (or 30) first. `agent list` lists the names in
-    /// `agents`, or fails when `list-fails` exists.
+    /// In progress with thread T1, and the fake rex and claude (`FakeRex`) in its folder:
+    /// the workers in Rex (`agents`, `asking`), and the relay, which appends each send it
+    /// makes as "name|text" (newlines as `\n`) to `prompts.log` (its other files: `FakeRex`).
     struct Fixture {
         dir: tempfile::TempDir,
         db: PathBuf,
+        rex: FakeRex,
         deliver: Deliver,
     }
 
@@ -844,22 +851,7 @@ mod tests {
         fn new() -> Fixture {
             let dir = tempfile::tempdir().unwrap();
             let db = dir.path().join("board.db");
-            let herdr = dir.path().join("herdr");
-            crate::test_exe::executable(&herdr, "#!/bin/sh\nd=$(dirname \"$0\")\n\
-                 if [ \"$1 $2\" = \"agent list\" ]; then\n\
-                 [ -f \"$d/list-fails\" ] && { echo down >&2; exit 1; }\n\
-                 printf '{\"result\":{\"agents\":['; sep=\n\
-                 for n in $(cat \"$d/agents\"); do\n\
-                 printf '%s{\"name\":\"%s\",\"agent_status\":\"idle\"}' \"$sep\" \"$n\"; sep=,; done\n\
-                 printf ']}}\\n'; exit 0; fi\n\
-                 [ \"$1 $2\" = \"agent prompt\" ] || exit 2\n\
-                 if [ -f \"$d/fail-$3\" ]; then cat \"$d/fail-$3\" >&2; exit 1; fi\n\
-                 if [ -f \"$d/hold\" ]; then : > \"$d/started\"; HOLD; : > \"$d/ended\"; fi\n\
-                 printf '%s|%s\\n' \"$3\" \"$(printf '%s' \"$4\" | awk 1 ORS='\\\\n')\" \
-                 >> \"$d/prompts.log\"\n"
-                    .replace("HOLD", &hold_until_released()));
-            // herdr's live agents; a name not listed is not sent to.
-            std::fs::write(dir.path().join("agents"), "dev-1 dev-2 qa-1 qa-2 qa-3").unwrap();
+            let rex = FakeRex::new(dir.path());
             let mut store = Store::open(&db).unwrap();
             let m = store.add_milestone("MVP", "goal", None).unwrap();
             store
@@ -875,16 +867,56 @@ mod tests {
             store
                 .open_thread(&BoardOf::Milestone(m), "cat-lead", Some(t), "#1", "go")
                 .unwrap();
-            // A round waits for the fake as long as a test waits for anything.
+            // A round, and a send, wait for the fakes as long as a test waits for anything.
             let deliver = Deliver {
                 budget: TEST_WAIT,
-                ..Deliver::new(&db, crate::terminal::herdr_module(herdr), Arc::default())
+                send_limit: TEST_WAIT,
+                ..Deliver::new(&db, Arc::new(rex.module()), Arc::default())
             };
-            let f = Fixture { deliver, dir, db };
+            let f = Fixture {
+                deliver,
+                dir,
+                db,
+                rex,
+            };
+            // Rex's live workers; a name not listed is not sent to.
+            f.agents(&["dev-1", "dev-2", "qa-1", "qa-2", "qa-3"]);
             // The lead's opening post goes to the assignee; tests start after it.
             assert_eq!(f.drain(), ["delivered 1 post(s) to dev-1"]);
             std::fs::remove_file(f.dir.path().join("prompts.log")).unwrap();
             f
+        }
+
+        /// The workers in Rex from now on, each idle in its own block.
+        fn agents(&self, names: &[&str]) {
+            let idle: Vec<(&str, &str, Option<&str>)> =
+                names.iter().map(|n| (*n, "idle", None)).collect();
+            self.asking(&idle);
+        }
+
+        /// The workers in Rex from now on, as (name, state, what its prompt asks): each a
+        /// Claude session in its own block, a blocked one at a permission prompt.
+        fn asking(&self, agents: &[(&str, &str, Option<&str>)]) {
+            let records: Vec<String> = (agents.iter().enumerate())
+                .map(|(i, (_, state, msg))| {
+                    let kind = (*state == "blocked").then_some("permission");
+                    FakeRex::claude_record(100 + i as i64, state, kind, *msg)
+                })
+                .collect();
+            let ids: Vec<String> = (0..agents.len()).map(|i| format!("block:{i}")).collect();
+            let blocks: Vec<(&str, &str, &str)> = (ids.iter().zip(&records))
+                .map(|(id, r)| (id.as_str(), "com.superlogical.terminal", r.as_str()))
+                .collect();
+            self.rex.server(&[("session:team", &blocks)]);
+            let listed: Vec<(&str, i64)> = (agents.iter().enumerate())
+                .map(|(i, (name, _, _))| (*name, 100 + i as i64))
+                .collect();
+            self.rex.claude(&listed);
+        }
+
+        /// A file the fakes read (`FakeRex`).
+        fn touch(&self, file: &str, contents: &str) {
+            self.rex.write(file, contents);
         }
 
         fn store(&self) -> Store {
@@ -899,7 +931,15 @@ mod tests {
             self.drain_at(1_000)
         }
 
+        /// A drain at `now`: its lines but the relay's traces (`drain_traced`).
         fn drain_at(&self, now: i64) -> Vec<String> {
+            let mut lines = self.drain_traced(now);
+            lines.retain(|l| !l.starts_with("relay to "));
+            lines
+        }
+
+        /// A drain at `now`: every line it logs.
+        fn drain_traced(&self, now: i64) -> Vec<String> {
             let lines = Mutex::new(Vec::new());
             let log = |l: &str| lines.lock().unwrap().push(l.to_string());
             self.deliver.drain(now, &log).unwrap();
@@ -914,8 +954,9 @@ mod tests {
                 .collect()
         }
 
+        /// The relay's SendMessage to `name` is refused, saying `said`.
         fn fail(&self, name: &str, said: &str) {
-            std::fs::write(self.dir.path().join(format!("fail-{name}")), said).unwrap();
+            self.touch(&format!("relay-refuse-{name}"), said);
         }
 
         /// The delivery failure items on the board: for the owner's awareness, never
@@ -968,8 +1009,61 @@ mod tests {
         assert_eq!(prompts.len(), 2, "{prompts:?}");
         let want = "control-tower: 1 post for you; answer on the board with tower post.\\n\\n\
                     [T1 #1] cat-lead: go on\\nnow, and @qa-1 test it";
-        assert_eq!(prompts[0], format!("qa-1|{want}\\n"));
-        assert_eq!(prompts[1], format!("dev-1|{want}\\n"));
+        assert_eq!(prompts[0], format!("qa-1|{want}"));
+        assert_eq!(prompts[1], format!("dev-1|{want}"));
+    }
+
+    #[test]
+    fn a_burst_is_one_relay_carrying_the_text_whole_and_its_trace_is_logged_first() {
+        let f = Fixture::new();
+        let relays = || {
+            (f.rex.calls().iter())
+                .filter(|c| c.starts_with("claude|-p"))
+                .count()
+        };
+        let before = relays();
+        f.post("dev-2", "@qa-1 first line\nsecond line");
+        f.post("cat-lead", "@QA-1 and \"quoted\" three");
+        let log = f.drain_traced(1_000);
+        assert_eq!(log.len(), 4, "{log:?}");
+        let text = "control-tower: 2 posts for you; answer on the board with tower post.\n\n\
+                    [T1 #1] dev-2: @qa-1 first line\nsecond line\n\n\
+                    [T1 #1] cat-lead: @QA-1 and \"quoted\" three";
+        // The trace: who, how the relay ended, its cost and turns, the send, the text.
+        assert!(log[0].starts_with("relay to qa-1: exit 0, "), "{log:?}");
+        assert!(log[0].contains(", $0.0059, 3 turns; SendMessage to \"qa-1\": sent"));
+        assert!(log[0].contains("the text verbatim; result: \"Sent it once.\""));
+        assert!(log[0].ends_with(&format!("; text: {text:?}")), "{log:?}");
+        // qa-1 gets both posts in one send; the assignee dev-1 hears the lead's post.
+        assert_eq!(log[1], "delivered 2 post(s) to qa-1");
+        assert!(log[2].starts_with("relay to dev-1: "), "{log:?}");
+        assert_eq!(log[3], "delivered 1 post(s) to dev-1");
+        assert_eq!(relays(), before + 2);
+        let prompts = f.prompts();
+        assert_eq!(prompts[0], format!("qa-1|{}", text.replace('\n', "\\n")));
+        assert_eq!(prompts.len(), 2, "{prompts:?}");
+    }
+
+    #[test]
+    fn a_relay_that_sends_to_someone_else_is_a_failure_naming_who_got_it() {
+        let f = Fixture::new();
+        f.touch("relay-to-qa-1", "qa-2");
+        f.post("dev-2", "@qa-1 please look");
+        let log = f.drain();
+        assert_eq!(
+            log,
+            [
+                "could not deliver 1 post(s) to qa-1: the relay sent it to qa-2, not to qa-1; \
+                 told the owner in T1"
+            ]
+        );
+        assert_eq!(
+            f.items(),
+            [
+                "@manager could not deliver to qa-1: the relay sent it to qa-2, not to qa-1. \
+                 Its posts stay on the board."
+            ]
+        );
     }
 
     #[test]
@@ -977,7 +1071,7 @@ mod tests {
         let f = Fixture::new();
         // dev-1 finished its step and was closed, but is still the assignee: the lead's next
         // post in the task's thread fails and is an awareness item.
-        std::fs::write(f.dir.path().join("agents"), "dev-2 qa-1").unwrap();
+        f.agents(&["dev-2", "qa-1"]);
         f.post("cat-lead", "thanks, closing you");
         let log = f.drain();
         assert_eq!(log.len(), 1, "{log:?}");
@@ -990,7 +1084,7 @@ mod tests {
         assert_eq!(
             before,
             [
-                "@manager could not deliver to dev-1: herdr has no agent named dev-1; if it was \
+                "@manager could not deliver to dev-1: Rex has no agent named dev-1; if it was \
                  closed: tower task unassign 1, or set the next worker. Its posts stay on the \
                  board."
             ]
@@ -1019,7 +1113,7 @@ mod tests {
         assert!(f.drain().is_empty());
         assert!(f.prompts().is_empty(), "{:?}", f.prompts());
         // The same once it is closed: nothing sent, nothing fails, no item.
-        std::fs::write(f.dir.path().join("agents"), "dev-2 qa-1").unwrap();
+        f.agents(&["dev-2", "qa-1"]);
         f.post("cat-lead", "recorded on the issue");
         assert!(f.drain().is_empty());
         assert!(f.items().is_empty(), "{:?}", f.items());
@@ -1028,7 +1122,7 @@ mod tests {
         let log = f.drain();
         assert_eq!(log.len(), 1, "{log:?}");
         assert!(
-            log[0].starts_with("could not deliver 1 post(s) to dev-1: herdr has no agent"),
+            log[0].starts_with("could not deliver 1 post(s) to dev-1: Rex has no agent"),
             "{log:?}"
         );
         assert_eq!(f.items().len(), 1, "{:?}", f.items());
@@ -1037,7 +1131,7 @@ mod tests {
         f.store()
             .set_task_stage(TaskId(1), Stage::InProgress)
             .unwrap();
-        std::fs::write(f.dir.path().join("agents"), "dev-1 dev-2 qa-1").unwrap();
+        f.agents(&["dev-1", "dev-2", "qa-1"]);
         f.post("cat-lead", "reopened: the fix broke CI");
         let log = f.drain();
         assert_eq!(log, ["delivered 1 post(s) to dev-1, reachable again"]);
@@ -1046,19 +1140,20 @@ mod tests {
     #[test]
     fn failed_workers_are_one_item_per_drain_naming_each_and_a_stall_is_logged_only() {
         let f = Fixture::new();
-        f.fail(
-            "qa-1",
-            r#"{"error":{"code":"agent_blocked","message":"blocked"}}"#,
-        );
-        // ghost-2 and ghost-3 worked on this board (they posted) and are gone from herdr's
-        // agent list: never prompted, and the owner is told.
+        // qa-1 is at a permission prompt: it is sent nothing.
+        let asks = Some("approve Bash: rm notes.txt");
+        f.asking(&[
+            ("dev-1", "idle", None),
+            ("qa-1", "blocked", asks),
+            ("qa-3", "working", None),
+        ]);
+        // ghost-2 and ghost-3 worked on this board (they posted) and are gone from Rex: never
+        // sent to, and the owner is told.
         f.post("ghost-2", "status: done here");
         f.post("ghost-3", "status: done here");
         f.drain();
-        f.fail(
-            "qa-3",
-            r#"{"error":{"code":"agent_prompt_stalled","message":"stalled"}}"#,
-        );
+        // The relay's send to qa-3 gets no answer: it may have arrived.
+        f.touch("relay-quiet-qa-3", "");
         f.post("dev-1", "@qa-1 @ghost-2 @ghost-3 @qa-3 please look");
         let log = f.drain();
         assert_eq!(log.len(), 4, "{log:?}");
@@ -1067,10 +1162,21 @@ mod tests {
             "{log:?}"
         );
         assert!(log[0].ends_with("; not resent"), "{log:?}");
+        // The relay ran for qa-3 alone.
+        let relayed = f
+            .rex
+            .calls()
+            .iter()
+            .filter(|c| c.starts_with("claude|-p"))
+            .count();
+        assert_eq!(relayed, 2, "the opening post's and qa-3's");
         let whys = [
-            ("qa-1", "herdr agent prompt exited 1"),
-            ("ghost-2", "herdr has no agent named ghost-2"),
-            ("ghost-3", "herdr has no agent named ghost-3"),
+            (
+                "qa-1",
+                "at a permission prompt (approve Bash: rm notes.txt)",
+            ),
+            ("ghost-2", "Rex has no agent named ghost-2"),
+            ("ghost-3", "Rex has no agent named ghost-3"),
         ];
         for (line, (who, why)) in log[1..].iter().zip(whys) {
             let want = format!("could not deliver 1 post(s) to {who}: {why}");
@@ -1084,14 +1190,12 @@ mod tests {
             lines[0],
             "@manager could not deliver to 3 recipients; their posts stay on the board:"
         );
-        assert!(
-            lines[1].starts_with(
-                "- qa-1: herdr agent prompt exited 1: {\"error\":{\"code\":\"agent_blocked\""
-            ),
-            "{lines:?}"
+        assert_eq!(
+            lines[1],
+            "- qa-1: at a permission prompt (approve Bash: rm notes.txt)"
         );
         assert!(
-            lines[2] == "- ghost-2: herdr has no agent named ghost-2",
+            lines[2] == "- ghost-2: Rex has no agent named ghost-2",
             "{lines:?}"
         );
         assert!(lines[3].starts_with("- ghost-3: "), "{lines:?}");
@@ -1120,7 +1224,7 @@ mod tests {
             .unwrap();
         // On this board: ghost-two on #2 (in progress) and, in another case, #3 (waiting);
         // ghost-3 on #4 (done) and #5 (in progress). On the other board: ghost-two on #6. qa-1,
-        // live in herdr, on #7, refuses the prompt. ghost-9 is nobody's assignee.
+        // live in Rex, on #7, has the relay's send refused. ghost-9 is nobody's assignee.
         for (on, name, stage) in [
             (m, "ghost-two", Stage::InProgress),
             (m, "Ghost-Two", Stage::Waiting),
@@ -1148,10 +1252,10 @@ mod tests {
         assert_eq!(
             lines[1..],
             [
-                "- qa-1: herdr agent prompt exited 1: blocked",
-                "- ghost-two: herdr has no agent named ghost-two; if it was closed: tower task \
+                "- qa-1: the relay could not send it: blocked",
+                "- ghost-two: Rex has no agent named ghost-two; if it was closed: tower task \
                  unassign 2 and tower task unassign 3, or set the next worker",
-                "- ghost-3: herdr has no agent named ghost-3; if it was closed: tower task \
+                "- ghost-3: Rex has no agent named ghost-3; if it was closed: tower task \
                  unassign 5, or set the next worker",
             ]
         );
@@ -1181,9 +1285,9 @@ mod tests {
         assert_eq!(
             log,
             [
-                "could not deliver 1 post(s) to name: herdr has no agent named name, a name no \
+                "could not deliver 1 post(s) to name: Rex has no agent named name, a name no \
                  worker on the board has had; no item for the owner",
-                "could not deliver 1 post(s) to media: herdr has no agent named media, a \
+                "could not deliver 1 post(s) to media: Rex has no agent named media, a \
                  name no worker on the board has had; no item for the owner",
                 "delivered 1 post(s) to qa-1",
                 "told dev-2 in T1 of the name(s) no worker has had",
@@ -1191,7 +1295,7 @@ mod tests {
         );
         assert!(f.items().is_empty(), "{:?}", f.items());
         let reply = "@dev-2 no worker is named `@name` or `@media`, so your post reached no \
-                     one by that name: herdr has no such agent and no worker on this board has \
+                     one by that name: Rex has no such agent and no worker on this board has \
                      had the name. If you meant a worker, check the name; if you were quoting, \
                      put it in backticks.";
         let board = f.store().load().unwrap();
@@ -1250,18 +1354,18 @@ mod tests {
     /// then how many more, so it always fits a board message.
     #[test]
     fn a_reply_quotes_its_names_and_caps_the_list() {
-        let one = unknown_text("dev-2", &["name".to_string()], "herdr");
+        let one = unknown_text("dev-2", &["name".to_string()], "Rex");
         assert!(
             one.starts_with("@dev-2 no worker is named `@name`, so"),
             "{one}"
         );
         let names: Vec<String> = (1..=12).map(|i| format!("n{i}")).collect();
-        let many = unknown_text("dev-2", &names, "herdr");
+        let many = unknown_text("dev-2", &names, "Rex");
         let quoted = many.matches("`@n").count();
         assert_eq!(quoted, UNKNOWN_NAMES_MAX, "{many}");
         assert!(many.contains("`@n9`, `@n10` or 2 more, so"), "{many}");
         assert!(!many.contains("`@n11`"), "{many}");
-        let spaced = unknown_text("Catalogue Lead", &["x".to_string()], "herdr");
+        let spaced = unknown_text("Catalogue Lead", &["x".to_string()], "Rex");
         assert!(
             spaced.starts_with("Catalogue Lead: no worker is named"),
             "{spaced}"
@@ -1277,12 +1381,12 @@ mod tests {
         f.drain();
         assert!(f.items().is_empty(), "{:?}", f.items());
         // dev-2 is closed before the next round carries the reply to it.
-        std::fs::write(f.dir.path().join("agents"), "dev-1 qa-1").unwrap();
+        f.agents(&["dev-1", "qa-1"]);
         let log = f.drain();
         assert_eq!(
             log,
             [
-                "could not deliver tower's reply to dev-2: herdr has no agent named dev-2; \
+                "could not deliver tower's reply to dev-2: Rex has no agent named dev-2; \
                  logged only"
             ]
         );
@@ -1320,7 +1424,7 @@ mod tests {
             "{log:?}"
         );
         // A worker the board knew that is gone still raises the owner's item.
-        std::fs::write(f.dir.path().join("agents"), "dev-2 qa-1").unwrap();
+        f.agents(&["dev-2", "qa-1"]);
         f.post("dev-2", "@dev-1 one more thing");
         f.drain();
         assert_eq!(f.items().len(), 1, "{:?}", f.items());
@@ -1339,34 +1443,39 @@ mod tests {
     }
 
     #[test]
-    fn a_hung_herdr_costs_one_budget_and_the_rest_goes_next_round_once() {
+    fn a_hung_relay_is_stopped_at_its_own_limit_unsure_and_the_rest_waits_a_round() {
         let mut f = Fixture::new();
-        // herdr hangs on the first prompt until released, which never comes in this round:
-        // the round stops it when its own 1 s budget ends, long before the hold (TEST_WAIT)
-        // or the herdr timeout (TEST_WAIT too) would. The fixture's first drain ran the fake
-        // already, so no first-run stall is in this round: half of TEST_WAIT is room for
-        // any load, and a send bounded by the herdr timeout instead of the budget fails it.
+        // The relay hangs on the first send until released, which never comes in this round.
+        // The round's 1 s budget only stops the next send starting: the hung one has its own
+        // 2 s limit and is stopped there, long before the hold (TEST_WAIT) would end. The
+        // fixture's first drain ran the fakes already, so no first-run stall is in this
+        // round: half of TEST_WAIT is room for any load.
         f.deliver.budget = Duration::from_secs(1);
-        std::fs::write(f.dir.path().join("hold"), "").unwrap();
+        f.deliver.send_limit = Duration::from_secs(2);
+        f.touch("hold", "");
         f.post("dev-1", "@qa-1 @qa-2 look");
         let began = Instant::now();
         let log = f.drain();
+        let took = began.elapsed();
         assert!(
-            began.elapsed() < TEST_WAIT / 2,
-            "the round outlived its budget: {:?}",
-            began.elapsed()
+            took >= Duration::from_secs(2),
+            "the budget cut the send short: {took:?}"
+        );
+        assert!(
+            took < TEST_WAIT / 2,
+            "the send outlived its limit: {took:?}"
         );
         assert!(
             !f.dir.path().join("ended").exists(),
-            "the round waited for the hung herdr"
+            "the round waited for the hung relay"
         );
         assert!(
-            log[0].starts_with("sent 1 post(s) to qa-1, not confirmed"),
+            log[0].starts_with("sent 1 post(s) to qa-1, not confirmed (the relay did not finish"),
             "{log:?}"
         );
         assert_eq!(log[1], "1 post(s) wait for the next round");
         assert_eq!(log.len(), 2, "{log:?}");
-        // herdr answers again: qa-2 gets it, and qa-1 not a second time, even with a new
+        // The relay answers again: qa-2 gets it, and qa-1 not a second time, even with a new
         // post in the same round.
         std::fs::remove_file(f.dir.path().join("hold")).unwrap();
         f.post("dev-1", "status: new");
@@ -1378,6 +1487,31 @@ mod tests {
             f.prompts()
         );
         assert!(f.drain().is_empty());
+    }
+
+    #[test]
+    fn a_send_started_late_in_the_budget_is_never_cut_short() {
+        let mut f = Fixture::new();
+        // Each relay takes 1.5 s and the round's budget is 2 s: qa-2's send starts with about
+        // 0.5 s of it left and runs its whole 1.5 s. Bounded by what was left of the budget,
+        // it would be stopped, unsure, and its post lost.
+        f.deliver.budget = Duration::from_secs(2);
+        f.touch("slow", "1.5");
+        f.post("dev-1", "@qa-1 @qa-2 look");
+        let mut log = f.drain();
+        // On a loaded machine qa-2's send may not start this round: then it goes next round.
+        if log
+            .last()
+            .is_some_and(|l| l == "1 post(s) wait for the next round")
+        {
+            log.pop();
+            log.extend(f.drain());
+        }
+        assert_eq!(
+            log,
+            ["delivered 1 post(s) to qa-1", "delivered 1 post(s) to qa-2"]
+        );
+        assert_eq!(f.prompts().len(), 2, "{:?}", f.prompts());
     }
 
     #[test]
@@ -1393,14 +1527,14 @@ mod tests {
     }
 
     #[test]
-    fn workers_wait_while_herdr_cannot_list_its_agents_said_once() {
+    fn workers_wait_while_rex_cannot_be_read_said_once() {
         let f = Fixture::new();
-        std::fs::write(f.dir.path().join("list-fails"), "").unwrap();
+        f.touch("fail-session.list", "down");
         f.post("dev-1", "@qa-1 look");
         let log = f.drain();
-        assert!(
-            log[0].starts_with("herdr agent list failed: down;"),
-            "{log:?}"
+        assert_eq!(
+            log[0],
+            "rex api call session.list exited 1: down; posts for workers wait until Rex answers"
         );
         assert_eq!(log[1], "1 post(s) wait for the next round");
         assert_eq!(
@@ -1408,15 +1542,15 @@ mod tests {
             ["1 post(s) wait for the next round"],
             "said twice"
         );
-        assert!(f.items().is_empty(), "herdr down is no failed send");
-        std::fs::remove_file(f.dir.path().join("list-fails")).unwrap();
+        assert!(f.items().is_empty(), "Rex down is no failed send");
+        std::fs::remove_file(f.dir.path().join("fail-session.list")).unwrap();
         assert_eq!(f.drain(), ["delivered 1 post(s) to qa-1"]);
     }
 
     #[test]
     fn an_episode_older_than_an_hour_is_told_again() {
         let f = Fixture::new();
-        // ghost-1 worked on this board and is gone from herdr (the owner is told).
+        // ghost-1 worked on this board and is gone from Rex (the owner is told).
         f.post("ghost-1", "status: done here");
         f.drain_at(500);
         f.post("dev-1", "@ghost-1 one");
@@ -1432,7 +1566,7 @@ mod tests {
     #[test]
     fn a_round_failing_on_two_boards_posts_each_item_on_its_own_board() {
         let f = Fixture::new();
-        // Both worked on the board and are gone from herdr (the owner is told).
+        // Both worked on the board and are gone from Rex (the owner is told).
         f.post("ghost-1", "status: done here");
         f.post("ghost-2", "status: done here");
         f.drain();
@@ -1495,7 +1629,7 @@ mod tests {
     #[test]
     fn the_watchs_delivery_loop_holds_the_gate_through_each_round() {
         let f = Fixture::new();
-        // The fake herdr marks that the send began, then holds it until released.
+        // The relay marks that the send began, then holds it until released.
         std::fs::write(f.dir.path().join("hold"), "").unwrap();
         f.post("dev-1", "@qa-1 look");
         let gate = f.deliver.gate();
@@ -1520,18 +1654,20 @@ mod tests {
             wait("the send", &|| f.dir.path().join("started").exists());
             assert!(gate.try_lock().is_err(), "a restart could exec mid-round");
             std::fs::write(f.dir.path().join("release"), "").unwrap();
-            wait("the round's lines", &|| lines.lock().unwrap().len() == 1);
+            wait("the round's lines", &|| lines.lock().unwrap().len() == 2);
             drop(_stop);
             running.join().unwrap();
         });
-        assert_eq!(lines.into_inner().unwrap(), ["delivered 1 post(s) to qa-1"]);
+        let lines = lines.into_inner().unwrap();
+        assert!(lines[0].starts_with("relay to qa-1: exit 0, "), "{lines:?}");
+        assert_eq!(lines[1], "delivered 1 post(s) to qa-1");
         assert!(gate.try_lock().is_ok());
     }
 
     #[test]
     fn a_drain_holds_the_gate_from_taking_posts_to_its_last_send() {
         let f = Fixture::new();
-        // The fake herdr marks that the send began, then holds it until released.
+        // The relay marks that the send began, then holds it until released.
         std::fs::write(f.dir.path().join("hold"), "").unwrap();
         f.post("dev-1", "@qa-1 look");
         let gate = f.deliver.gate();
@@ -1554,7 +1690,7 @@ mod tests {
     #[test]
     fn a_failure_on_a_resolved_thread_is_posted_in_a_new_thread_on_the_same_board() {
         let f = Fixture::new();
-        // ghost-1 worked on the board and is gone from herdr (the owner is told).
+        // ghost-1 worked on the board and is gone from Rex (the owner is told).
         f.post("ghost-1", "status: done here");
         f.drain();
         f.store()

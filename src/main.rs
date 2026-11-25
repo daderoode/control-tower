@@ -82,9 +82,9 @@ enum Command {
     /// name), nudge a worker that stopped or went silent, and post system flags in the
     /// task's thread. Logs one line per action to stderr. TOWER_REX names the rex
     /// executable (default rex in $REX_BIN_DIR, else on the PATH); TOWER_CLAUDE names
-    /// claude. Delivery of posts to workers still uses herdr until #111: TOWER_HERDR names
-    /// the herdr executable (default herdr). A brew-installed tower also links its herdr
-    /// plugin if herdr has no control-tower yet, trying before each look until herdr
+    /// claude, which also relays posts and nudges to workers (claude -p -n control-tower).
+    /// A brew-installed tower also links its herdr plugin (TOWER_HERDR names herdr, default
+    /// herdr) if herdr has no control-tower yet, trying before each look until herdr
     /// answers; it never relinks over another.
     Watch,
     /// Bring a board written by an older tower up to this tower's schema.

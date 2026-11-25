@@ -24,8 +24,20 @@ tag's date, and a new empty Unreleased goes above it.
   that cannot be read, in whole or in part,
   skips the look and says so; the watch never starts a Rex server. `TOWER_REX` names rex,
   else `rex` in `REX_BIN_DIR`, else on the PATH; when it cannot be found the log says once
-  what it tried and how to link it into Homebrew's bin. Until #111 a nudge is recorded as
-  refused by Rex, and delivery still goes through herdr (#110).
+  what it tried and how to link it into Homebrew's bin (#110).
+- **Posts and nudges reach workers in Rex, through a relay.** Each send starts a headless
+  Claude session named `control-tower` (`claude -p`, on Haiku, with only the SendMessage,
+  ListAgents and ToolSearch tools, no MCP servers and no saved session) that sends the text,
+  once, to the worker's Claude session by name, as a message from `@control-tower`; nothing
+  is typed into a worker's terminal. A worker at a prompt is sent nothing, and the send
+  fails naming the prompt. Delivered means SendMessage answered as sent; a send to any other
+  session fails naming who got it; a relay stopped at its 60 second limit or a send with no
+  answer is logged as unsure and never resent; a relay that sends nothing fails. Each send
+  logs one `relay to <name>:` line: exit, duration, cost, turns, the tool's answer, whether
+  the text went verbatim and what went if not, and the text. A round of delivery stops
+  starting sends after 10 seconds but never cuts one short, so no second recipient's post is
+  lost. Each send is a paid model call (about $0.003 to $0.006) and the text is copied by a
+  model, so it may not arrive verbatim (#111).
 - **"Lead not listening" asks no terminal.** The watch judges whether a lead's session is
   alive and working by `claude agents --json`, and whether it finished a turn without
   re-arming by the lead's hooks, which now count on the board each turn the lead's attached

@@ -16,9 +16,10 @@
 //! each argument its own word, never through a shell string. The handle is the session's id,
 //! and undo kills it (`rex kill`).
 //!
-//! `prompt` is not built until #111: it answers that it is not (`NOT_YET`). Delivery still
-//! reaches workers through herdr meanwhile, but the watch's nudges go through this module,
-//! so each is recorded as refused by Rex.
+//! A text reaches a worker (`prompt`) by a fresh look for it by name, as `agents` finds it
+//! (ignoring case): a worker Rex has no Claude session for, or one at a prompt (any of its
+//! sessions `blocked`), is sent nothing and the send fails saying why; else the relay sends
+//! the text to its Claude session (`super::relay`), within what is left of the time limit.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -30,7 +31,8 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::{
-    Agent, Handle, LeadStart, Sent, Status, Terminal, Unread, find_exe, not_found, terminal_timeout,
+    Agent, Handle, Kind, LeadStart, Prompted, Sent, Status, Terminal, Unread, find_exe, not_found,
+    relay, terminal_timeout,
 };
 use crate::ui::runner::{Outcome, Run, run_now};
 
@@ -260,9 +262,18 @@ fn join(found: Vec<(i64, Status, Option<String>)>, listed: &[Listed]) -> Vec<Age
         .collect()
 }
 
-/// Not built yet: what `prompt` answers until #111, so the watch's nudges are recorded as
-/// refused (delivery uses herdr meanwhile).
-const NOT_YET: &str = "the Rex module does not reach workers in this build";
+/// Why a worker at a prompt is sent nothing: "at a permission prompt (approve Bash: ...)",
+/// naming the kind and what it asks where Claude Code says.
+fn at_prompt(agent: &Agent) -> String {
+    let what = match agent.status {
+        Status::Blocked(Some(Kind::Permission)) => "a permission prompt",
+        Status::Blocked(Some(Kind::Question)) => "a question",
+        Status::Blocked(Some(Kind::Auth)) => "a credential prompt",
+        _ => "a prompt",
+    };
+    let asks = (agent.msg.as_deref()).map_or(String::new(), |m| format!(" ({m})"));
+    format!("at {what}{asks}")
+}
 
 impl Terminal for Rex {
     fn name(&self) -> &'static str {
@@ -325,8 +336,27 @@ impl Terminal for Rex {
         Ok(join(found, &listed))
     }
 
-    fn prompt(&self, _db: &Path, _name: &str, _text: &str, _timeout: Duration) -> Sent {
-        Sent::Failed(NOT_YET.into())
+    fn prompt(&self, db: &Path, name: &str, text: &str, timeout: Duration) -> Prompted {
+        let deadline = Instant::now() + timeout;
+        let agents = match self.agents(db, timeout.min(terminal_timeout())) {
+            Ok(agents) => agents,
+            Err(e) => return Sent::Failed(e.to_string()).into(),
+        };
+        let theirs: Vec<&Agent> = (agents.iter())
+            .filter(|a| a.name.eq_ignore_ascii_case(name))
+            .collect();
+        let Some(first) = theirs.first() else {
+            return Sent::Failed(format!("Rex has no agent named {name}")).into();
+        };
+        if let Some(blocked) = theirs.iter().find(|a| a.status.is_blocked()) {
+            return Sent::Failed(at_prompt(blocked)).into();
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            let why = format!("no time was left to send within {} s", timeout.as_secs());
+            return Sent::Failed(why).into();
+        }
+        relay::send(&self.claude, db, &first.name, text, left)
     }
 
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle> {
@@ -365,6 +395,16 @@ impl Terminal for Rex {
 /// `program_status` records (none when it is missing). `claude.json` is what `claude
 /// agents --json` prints. Each call's words go to `calls.log`, one call per line joined by
 /// `|`; a call whose method or session or block has a file `fail-<it>` exits 1 saying so.
+///
+/// The fake claude is the relay too (`claude -p`): it reads the instruction on stdin and
+/// sends the text between its markers to the name it gives, printing the stream a relay
+/// prints, and appends each send it makes as "name|text" (newlines as `\n`) to
+/// `prompts.log`. For a recipient `<to>`: `relay-refuse-<to>` has its SendMessage refused
+/// with that file's text; `relay-quiet-<to>` makes the send, then crashes before its
+/// answer; `relay-none-<to>` sends nothing and says that file's text; `relay-to-<to>`
+/// sends to the name in it instead; `relay-changed-<to>` sends its text instead. With
+/// `hold`, it touches `started` and holds until `release` (or `TEST_WAIT`) first, and
+/// touches `ended` after; with `slow`, it sleeps that file's seconds first.
 #[cfg(test)]
 pub(crate) mod fake {
     use std::path::{Path, PathBuf};
@@ -406,19 +446,44 @@ com.superlogical.terminal.program_status)
 esac
 "#;
 
-    /// The fake claude: `agents --json` prints `claude.json`.
+    /// The fake claude: `agents --json` prints `claude.json`; `-p` is the relay.
     const CLAUDE: &str = r#"#!/bin/sh
 d=$(dirname "$0")
 echo "claude|$*" >> "$d/calls.log"
-[ "$*" = "agents --json" ] || { echo "unexpected: $*" >&2; exit 2; }
-cat "$d/claude.json"
+if [ "$*" = "agents --json" ]; then cat "$d/claude.json"; exit 0; fi
+[ "$1" = "-p" ] || { echo "unexpected: $*" >&2; exit 2; }
+in=$(cat)
+to=$(printf '%s\n' "$in" | sed -n 's/.*"to" set to "\([^"]*\)".*/\1/p' | head -n 1)
+text=$(printf '%s\n' "$in" | sed '1,/^<control-tower-text>$/d' | sed '/^<\/control-tower-text>$/,$d')
+[ -e "$d/slow" ] && sleep "$(cat "$d/slow")"
+if [ -e "$d/hold" ]; then : > "$d/started"; HOLD; : > "$d/ended"; fi
+json() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}'; }
+echo '{"type":"system","subtype":"init","tools":["ListAgents","SendMessage","ToolSearch"]}'
+if [ -e "$d/relay-none-$to" ]; then
+  printf '{"type":"result","is_error":false,"num_turns":1,"total_cost_usd":0.001,"result":"%s"}\n' "$(json "$(cat "$d/relay-none-$to")")"
+  exit 0
+fi
+sent_to=$to; [ -e "$d/relay-to-$to" ] && sent_to=$(cat "$d/relay-to-$to")
+message=$text; [ -e "$d/relay-changed-$to" ] && message=$(cat "$d/relay-changed-$to")
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"SendMessage","input":{"to":"%s","message":"%s"}}]}}\n' "$(json "$sent_to")" "$(json "$message")"
+[ -e "$d/relay-quiet-$to" ] && { echo "relay crashed" >&2; exit 1; }
+if [ -e "$d/relay-refuse-$to" ]; then
+  ok=false; said=$(cat "$d/relay-refuse-$to")
+else
+  ok=true; said="in that session's inbox"
+  printf '%s|%s\n' "$sent_to" "$(printf '%s' "$message" | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}')" >> "$d/prompts.log"
+fi
+r=$(printf '{"success":%s,"message":"%s"}' "$ok" "$(json "$said")")
+printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"%s"}]}]}}\n' "$(json "$r")"
+echo '{"type":"result","is_error":false,"num_turns":3,"total_cost_usd":0.00593,"result":"Sent it once.","permission_denials":[]}'
 "#;
 
     impl FakeRex {
         /// The fakes in `dir`, with an empty Rex and an empty Claude list.
         pub fn new(dir: &Path) -> FakeRex {
             crate::test_exe::executable(&dir.join("rex"), REX);
-            crate::test_exe::executable(&dir.join("claude"), CLAUDE);
+            let claude = CLAUDE.replace("HOLD", &crate::watch::hold_until_released());
+            crate::test_exe::executable(&dir.join("claude"), &claude);
             let f = FakeRex {
                 dir: dir.to_path_buf(),
             };
@@ -620,6 +685,134 @@ mod tests {
         assert_eq!(
             calls[2],
             r#"--autostart=false|api|call|com.superlogical.terminal.program_status|{"args":{},"block_id":"block:1","session_id":"session:a"}"#
+        );
+    }
+
+    /// The relay's call as the fake claude logs it: every argument fixed, no text.
+    const RELAY_CALL: &str = "claude|-p -n control-tower --model haiku --tools \
+                              SendMessage,ListAgents,ToolSearch --strict-mcp-config \
+                              --no-session-persistence --output-format stream-json --verbose";
+
+    fn prompt(f: &FakeRex, name: &str, text: &str) -> Prompted {
+        let db = f.dir.join("board.db");
+        f.module().prompt(&db, name, text, crate::watch::TEST_WAIT)
+    }
+
+    fn relays(f: &FakeRex) -> usize {
+        f.calls()
+            .iter()
+            .filter(|c| c.starts_with("claude|-p"))
+            .count()
+    }
+
+    #[test]
+    fn a_text_reaches_a_worker_by_the_relay_whole_once_and_one_at_a_prompt_gets_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let idle = FakeRex::claude_record(41, "idle", None, None);
+        let asks = Some("approve Bash: touch notes.txt");
+        let blocked = FakeRex::claude_record(42, "blocked", Some("permission"), asks);
+        let twin_working = FakeRex::claude_record(43, "working", None, None);
+        let twin_asked = FakeRex::claude_record(44, "blocked", Some("question"), None);
+        f.server(&[(
+            "session:a",
+            &[
+                ("block:1", TERM, &idle),
+                ("block:2", TERM, &blocked),
+                ("block:3", TERM, &twin_working),
+                ("block:4", TERM, &twin_asked),
+            ],
+        )]);
+        f.claude(&[("dev-1", 41), ("qa-1", 42), ("dev-2", 43), ("Dev-2", 44)]);
+        let text = "control-tower: 1 post for you\n\n[T1 #1] lead: \"one\"\nand two";
+        // Named in any case, the worker is reached by its own name, once, the text whole and
+        // only on stdin.
+        let got = prompt(&f, "DEV-1", text);
+        assert_eq!(got.sent, Sent::Delivered, "{got:?}");
+        let trace = got.trace.unwrap();
+        assert!(
+            trace.starts_with("relay to dev-1: exit 0, ") && trace.contains(", $0.0059, 3 turns;"),
+            "{trace}"
+        );
+        assert!(trace.contains("the text verbatim"), "{trace}");
+        let sent = std::fs::read_to_string(dir.path().join("prompts.log")).unwrap();
+        assert_eq!(sent, format!("dev-1|{}\n", text.replace('\n', "\\n")));
+        let calls = f.calls();
+        assert_eq!(calls.last().unwrap(), RELAY_CALL);
+        assert_eq!(relays(&f), 1);
+        // At a prompt: nothing is sent, and why says what it asks. A twin at a prompt stops a
+        // send to the name too.
+        assert_eq!(
+            prompt(&f, "qa-1", text).sent,
+            Sent::Failed("at a permission prompt (approve Bash: touch notes.txt)".into())
+        );
+        assert_eq!(
+            prompt(&f, "dev-2", text).sent,
+            Sent::Failed("at a question".into())
+        );
+        // A name Rex has no Claude session for, and a Rex that cannot be read: nothing sent.
+        assert_eq!(
+            prompt(&f, "ghost", text).sent,
+            Sent::Failed("Rex has no agent named ghost".into())
+        );
+        f.write("fail-session.list", "Error: server not running");
+        assert_eq!(
+            prompt(&f, "dev-1", text).sent,
+            Sent::Failed("rex api call session.list exited 1: Error: server not running".into())
+        );
+        assert_eq!(relays(&f), 1);
+    }
+
+    #[test]
+    fn a_send_the_relay_makes_elsewhere_or_not_at_all_fails_and_one_cut_off_is_unsure() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let idle = FakeRex::claude_record(41, "idle", None, None);
+        f.server(&[("session:a", &[("block:1", TERM, &idle)])]);
+        f.claude(&[("dev-1", 41)]);
+        f.write("relay-to-dev-1", "qa-7");
+        assert_eq!(
+            prompt(&f, "dev-1", "x").sent,
+            Sent::Failed("the relay sent it to qa-7, not to dev-1".into())
+        );
+        std::fs::remove_file(dir.path().join("relay-to-dev-1")).unwrap();
+        f.write("relay-none-dev-1", "I could not find that session.");
+        assert_eq!(
+            prompt(&f, "dev-1", "x").sent,
+            Sent::Failed("the relay sent nothing; it said: I could not find that session.".into())
+        );
+        std::fs::remove_file(dir.path().join("relay-none-dev-1")).unwrap();
+        f.write("relay-refuse-dev-1", "No agent named 'dev-1' is reachable.");
+        assert_eq!(
+            prompt(&f, "dev-1", "x").sent,
+            Sent::Failed(
+                "the relay could not send it: No agent named 'dev-1' is reachable.".into()
+            )
+        );
+        std::fs::remove_file(dir.path().join("relay-refuse-dev-1")).unwrap();
+        f.write("relay-quiet-dev-1", "");
+        assert_eq!(
+            prompt(&f, "dev-1", "x").sent,
+            Sent::Unsure("the relay's send had no answer; it said: relay crashed".into())
+        );
+        std::fs::remove_file(dir.path().join("relay-quiet-dev-1")).unwrap();
+        // A relay past the limit is stopped: it may have sent, so Unsure.
+        f.write("hold", "");
+        let db = dir.path().join("board.db");
+        let got = f.module().prompt(&db, "dev-1", "x", Duration::from_secs(2));
+        assert!(
+            matches!(&got.sent, Sent::Unsure(why) if why.starts_with("the relay did not finish")),
+            "{got:?}"
+        );
+        assert!(!dir.path().join("ended").exists());
+        // Its absence fails the send.
+        std::fs::remove_file(dir.path().join("hold")).unwrap();
+        std::fs::remove_file(dir.path().join("claude")).unwrap();
+        let rex = Rex::new(dir.path().join("rex"), dir.path().join("claude"));
+        let got = rex.prompt(&db, "dev-1", "x", crate::watch::TEST_WAIT);
+        assert!(
+            matches!(&got.sent, Sent::Failed(why) if why.contains("cannot run")),
+            "{got:?}"
         );
     }
 
