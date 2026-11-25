@@ -363,7 +363,8 @@ fn assert_snapshot(name: &str, buf: &Buffer) {
         std::fs::write(&path, &text).unwrap();
     }
     // The gate runs in CI (SDLC.md), so a missing or changed file prints the
-    // rendering as it is, to be taken from CI's log once checked against the copy.
+    // rendering as it is, to be taken from CI's log once checked against the spec and, for
+    // a UI change, its signed design (SDLC.md).
     let take = "run with UPDATE_SNAPSHOTS=1 to write it, or take it from here";
     let want =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}; {take}:\n{text}"));
@@ -1077,7 +1078,8 @@ fn the_selected_tree_rows_and_card_are_highlighted() {
         (cell(card).symbol(), cell(card).bg),
         ("#", selected_bg(depth))
     );
-    // Not bold, as the copy; the selected background runs to the card's end.
+    // Not bold, as the signed design (UI v0.1.13); the selected background runs to the
+    // card's end.
     assert!(!cell(card).modifier.contains(Modifier::BOLD));
     let end = &buf[(
         r.area.x + (card.x + card.width - 1) as u16,
@@ -2794,10 +2796,10 @@ fn b_opens_the_full_board_and_esc_returns_to_where_the_owner_came_from() {
 #[test]
 fn a_point_after_a_space_a_mention_or_a_tag_is_drawn_as_the_copy_draws_it() {
     // A point (U+05B8) draws on the cell before it: a line that breaks at the space before
-    // one starts with it, as the copy's does; after a mention or a tag it stays on the
-    // letter it was written on. A Prepend character (U+0D4E, MALAYALAM LETTER DOT REPH)
-    // joins the letter after it instead, and draws with it wherever it is. Invented text,
-    // as the last message of the thread `b` opens.
+    // one starts with it, as the signed design's (UI v0.1.14) does; after a mention or a
+    // tag it stays on the letter it was written on. A Prepend character (U+0D4E, MALAYALAM
+    // LETTER DOT REPH) joins the letter after it instead, and draws with it wherever it is.
+    // Invented text, as the last message of the thread `b` opens.
     let (q, reph) = ('\u{05b8}', '\u{0d4e}');
     let breaks = |mark: &str| -> String {
         let words: Vec<String> = (1..=10)
@@ -4327,9 +4329,9 @@ fn the_task_detail_shows_the_doing_post_in_full_and_the_blocked_flag_on_its_own_
 fn a_doing_posts_indent_as_wide_as_its_value_hangs_on_a_blank_row() {
     // The doing post wraps as its bubble's text does: an indent as wide as the value, or
     // one the first word does not fit after, hangs on the doing row, drawn blank, and the
-    // words start the next row at the value's column, as the copy's bubble draws them. With
-    // them goes a run of ideographic spaces starting the first word. A narrower indent stays
-    // before the words on the doing row.
+    // words start the next row at the value's column, as the signed design's (UI v0.1.14)
+    // bubble draws them. With them goes a run of ideographic spaces starting the first
+    // word. A narrower indent stays before the words on the doing row.
     let mut board = blocked_fixture();
     // The detail `w` wide (its value 12 columns narrower) with `text` as #13's doing post:
     // its doing row and the one after it.
@@ -6803,8 +6805,8 @@ fn cards_are_one_line_and_always_show_the_assignee() {
 
 #[test]
 fn a_clamped_goal_ends_after_its_last_whole_piece() {
-    // As the copy's `.goal clamp2` ends it in Chrome (#50): after "shed-lead-senior-", the
-    // last piece that fits, not cut inside "reviewer".
+    // As the signed design's (UI v0.1.13) `.goal clamp2` ends it in Chrome (#50): after
+    // "shed-lead-senior-", the last piece that fits, not cut inside "reviewer".
     let mut board = reference_fixture();
     board.milestones[0].goal = "the long garden-shed-lead-senior-reviewer keeps it".into();
     let o = overview(&board.milestones[0], None, 24, Depth::Ansi256);
@@ -8701,7 +8703,8 @@ fn where_it_stands_folds_the_runs_of_spaces_in_tower_s_word() {
     let mut dash = select(Item::Task(TaskId(14)));
     dash.handle(&view, a, Input::Char('b'));
     let all = screen(&view, &dash, a);
-    // As the copy's nowrap line: each run is one space, on the header and in the list.
+    // As the signed design's (UI v0.1.13) nowrap line: each run is one space, on the header
+    // and in the list.
     let folded = "@manager could not deliver to dev-1: herdr has no agent named dev-1.";
     let head = find_row_containing(&all, "where it stands");
     assert!(
@@ -8759,7 +8762,7 @@ fn where_it_stands_draws_tower_s_word_in_the_text_colour_with_only_its_lead_in_d
                 let x = all[y][..at].width();
                 let cell = |x: usize| buf[(x as u16, y as u16)].clone();
                 let from = if lead_in {
-                    // As the copy: only "where it stands" is dim.
+                    // As the signed design (UI v0.1.13): only "where it stands" is dim.
                     assert_eq!(cell(x).symbol(), "w", "{place} {all:#?}");
                     assert_eq!(cell(x).fg, dim_colour(depth), "{place} {depth:?}");
                     x + "where it stands ".width()
@@ -8804,7 +8807,8 @@ fn where_it_stands_keeps_the_question_word_of_tower_s_question() {
     full.handle(&view, a, Input::Char('b'));
     for (dash, place) in [(&card, "card"), (&full, "full board")] {
         let all = screen(&view, dash, a);
-        // As the copy: no "needs you" tag on where it stands says it, so the word stays.
+        // As the signed design (UI v0.1.13): no "needs you" tag on where it stands says it,
+        // so the word stays.
         find_row_containing(&all, &format!("where it stands {word}"));
         if place == "full board" {
             // The thread list's row too, left of its bar, with no lead-in (the Needs you
@@ -9076,7 +9080,7 @@ fn the_alert_line_keeps_the_repo_and_age_and_cuts_the_thread_first() {
     let view: View = Ok(board);
     let line = alert_line(view.as_ref().unwrap(), 120, Some(NOW), Depth::Ansi256).to_string();
     assert!(line.contains("· catalogue · 15m"), "{line:?}");
-    // Its author is not bold, as the copy.
+    // Its author is not bold, as the signed design (UI v0.1.13).
     let buf = render(&view, 160, 20);
     let all = rows(&buf);
     let x = all[0].find("cat-lead").unwrap();
@@ -9710,10 +9714,10 @@ fn a_needs_you_strip_row_folds_its_questions_runs_of_spaces() {
         let strip = (all.iter())
             .position(|r| r.contains("⚠ Needs you · 1"))
             .unwrap_or_else(|| panic!("{all:#?}"));
-        // As the copy's nowrap row: each run is one space.
+        // As the signed design's (UI v0.1.13) nowrap row: each run is one space.
         assert!(all[strip + 1].contains(folded), "{all:#?}");
     }
-    // The bubble still keeps them, as the copy's pre-wrap body does.
+    // The bubble still keeps them, as the signed design's (UI v0.1.13) pre-wrap body does.
     let all = board.join("\n");
     assert!(
         all.contains("▌ question:  the   covers are late again.    @manager"),
@@ -9746,7 +9750,7 @@ fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spac
     dash.handle(&view, a, Input::Click { x, y: y as u16 });
     assert_eq!(dash.replying(), Some(402));
     let all = screen(&view, &dash, a);
-    // As the copy's nowrap lines: each run is one space.
+    // As the signed design's (UI v0.1.13) nowrap lines: each run is one space.
     let reply = find_row_containing(&all, "replying to cat-lead");
     assert!(
         all[reply].contains(&format!(" replying to {folded}")),
@@ -9766,13 +9770,13 @@ fn the_reply_line_where_it_stands_and_an_inbox_row_fold_a_questions_runs_of_spac
             .contains("   cat-lead: question: the covers are")),
         "{all:#?}"
     );
-    // The bubble still keeps them, as the copy's pre-wrap body does.
+    // The bubble still keeps them, as the signed design's (UI v0.1.13) pre-wrap body does.
     let all = all.join("\n");
     assert!(
         all.contains("▌ question:  the   covers are late again.    @manager"),
         "{all}"
     );
-    // Its inbox row, as the copy's normal row: each run is one space.
+    // Its inbox row, as the signed design's (UI v0.1.13) normal row: each run is one space.
     let all = screen(&view, &inbox_dash(&view, a), a);
     let row = find_row_containing(&all, "question:");
     assert!(
@@ -9877,10 +9881,10 @@ fn where_it_stands_tones_a_leading_tag_as_its_bubble_does_on_the_header_and_the_
 #[test]
 fn an_indented_first_line_is_classed_and_toned_by_its_raw_text_everywhere() {
     // T4 gets a newest message from cat-lead whose first line is indented, as a post now
-    // keeps it (#16), starting with each leading tag in turn after the indent. The copy
-    // reads the raw text, so none starts with its tag: no tag is toned or shown, and each
-    // is classed by the build's rule on the raw text (it mentions the owner, so it is for
-    // your awareness, never a question).
+    // keeps it (#16), starting with each leading tag in turn after the indent. The signed
+    // design (UI v0.1.14) reads the raw text, so none starts with its tag: no tag is toned
+    // or shown, and each is classed by the build's rule on the raw text (it mentions the
+    // owner, so it is for your awareness, never a question).
     let tags = [
         (
             "blocked:",
@@ -10076,10 +10080,10 @@ fn an_inbox_row_shows_its_message_across_its_lines_folded_and_clamped_to_two() {
     *t = Thread::whole(t.id, t.title.clone(), t.task, None, messages);
     with_alerts(&mut board, &[]);
     let view: View = Ok(board);
-    // As the copy's row (`.txt clamp2`, `white-space: normal`): its lines join with a
-    // space, each run of spaces is one, and it wraps at its words, the second line under
-    // the first's text, on two lines at most: the second ends in "…" right after its last
-    // word when the message goes on.
+    // As the signed design's (UI v0.1.13) row (`.txt clamp2`, `white-space: normal`): its
+    // lines join with a space, each run of spaces is one, and it wraps at its words, the
+    // second line under the first's text, on two lines at most: the second ends in "…"
+    // right after its last word when the message goes on.
     for (w, first, second) in [
         (
             160,
@@ -10128,9 +10132,9 @@ fn an_inbox_row_shows_its_message_across_its_lines_folded_and_clamped_to_two() {
 
 #[test]
 fn an_inbox_rows_clamp_ellipsis_is_plain_text_when_it_cuts_a_mention() {
-    // At 40 columns 502's second line is full and ends inside "@manager": as the copy's
-    // clamp draws it, the mention's piece is red and bold and the "…" after it is the
-    // row's plain text.
+    // At 40 columns 502's second line is full and ends inside "@manager": as the signed
+    // design's (UI v0.1.13) clamp draws it, the mention's piece is red and bold and the "…"
+    // after it is the row's plain text.
     let view: View = Ok(alerts_fixture());
     let a = area(40, 24);
     let buf = render_dash(&view, &inbox_dash(&view, a), 40, 24, Depth::TrueColor);

@@ -214,9 +214,9 @@ pub fn check_message(what: &str, value: &str) -> Result<String> {
         .replace("\r\n", "\n")
         .replace('\r', "\n")
         .replace('\t', "    ");
-    // The copy's `replace(/^\s*\n/, "")`: the leading whitespace up to its last line break,
-    // or up to its last hidden character (`hidden` takes in a line break), so what is kept
-    // starts with plain spaces or the text.
+    // The signed design's (UI v0.1.14) `replace(/^\s*\n/, "")`: the leading whitespace up
+    // to its last line break, or up to its last hidden character (`hidden` takes in a line
+    // break), so what is kept starts with plain spaces or the text.
     let lead = normal.len() - normal.trim_start().len();
     let start = (normal[..lead].char_indices())
         .rfind(|(_, c)| hidden(c))
@@ -852,8 +852,9 @@ fn tower_only(t: &Thread) -> bool {
 
 /// `line` without a leading "Status:" or "Status <word>:" and the spaces after it.
 fn without_status(line: &str) -> &str {
-    // As the copy reads it: "status", then at most one more word, then ":" and spaces, in
-    // any case ("Status:", "status update:"; not "Statuses:" or "Status of the build:").
+    // As the signed design (UI v0.1.13) reads it: "status", then at most one more word,
+    // then ":" and spaces, in any case ("Status:", "status update:"; not "Statuses:" or
+    // "Status of the build:").
     let Some(head) = line.get(..6).filter(|h| h.eq_ignore_ascii_case("status")) else {
         return line;
     };

@@ -10,8 +10,8 @@
 //! `plan` says what each line is without styling it, so the overview's height (for
 //! scrolling) and the lines drawn come from the same rows; `lines` styles them. Both take
 //! the summary's one clock (`Limits::now`): the plan takes an ack's age at its real width
-//! as of it, so the height can grow by a line for an ack as its age widens, as the copy
-//! reflows.
+//! as of it, so the height can grow by a line for an ack as its age widens, as the signed
+//! design (UI v0.1.13) reflows.
 
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
@@ -506,8 +506,9 @@ pub(crate) fn highlight(
 }
 
 /// Whether a message whose raw text is `text` may tone a leading tag (`highlight`'s
-/// `start`): only when it starts with no whitespace, as the copy's highlighting reads the
-/// raw text. So an indented first line stays plain however its spaces are folded or wrapped.
+/// `start`): only when it starts with no whitespace, as the signed design's (UI v0.1.14)
+/// highlighting reads the raw text. So an indented first line stays plain however its
+/// spaces are folded or wrapped.
 pub(crate) fn may_tone_tag(text: &str) -> bool {
     !text.starts_with(char::is_whitespace)
 }
@@ -581,7 +582,8 @@ pub fn role_colour(author: &str, lead: Option<&Lead>, depth: Depth) -> Color {
 }
 
 /// `text` in pieces at most `w` columns wide, a piece per line of it (a blank line stays
-/// blank), each wrapped as the copy's delivery-failure details are (`Wrap::Preserved`).
+/// blank), each wrapped as the signed design's (UI v0.1.13) delivery-failure details are
+/// (`Wrap::Preserved`).
 pub(crate) fn wrap(text: &str, w: usize) -> Vec<String> {
     text.split('\n')
         .flat_map(|line| wrap_line_by(line, w, Wrap::Preserved))
@@ -604,9 +606,10 @@ pub(crate) fn wrap_at_most(text: &str, w: usize, max: usize) -> Vec<String> {
 /// What of `text` comes after `kept`, the first lines its folded wrap gives, `next` the
 /// line after them: the text as written from where they end, so a word broken across lines
 /// stays whole, past what wrapping drops there (`dropped`), unless `next` starts with a run
-/// of ideographic spaces the copy carries (`carried`): then from the first ideographic
-/// space there that the lines kept do not show (a line of only such spaces shows its own),
-/// so it starts as `next` does, with every run of the lines after it.
+/// of ideographic spaces the signed design (UI v0.1.13) carries (`carried`): then from the
+/// first ideographic space there that the lines kept do not show (a line of only such
+/// spaces shows its own), so it starts as `next` does, with every run of the lines after
+/// it.
 pub(crate) fn rest_after<'a>(text: &'a str, kept: &[String], next: &str) -> &'a str {
     let carries = (next.chars())
         .take_while(|c| dropped(*c))
@@ -641,9 +644,9 @@ pub(crate) fn rest_after<'a>(text: &'a str, kept: &[String], next: &str) -> &'a 
     &text[at + start..]
 }
 
-/// `text` on at most `max` lines `w` wide, as the copy's `.clamp2` draws it: wrapped as
-/// `wrap_line` wraps it and, past `max` lines, the last ends in "…" after its last whole
-/// piece (`clamp_end`).
+/// `text` on at most `max` lines `w` wide, as the signed design's (UI v0.1.13) `.clamp2`
+/// draws it: wrapped as `wrap_line` wraps it and, past `max` lines, the last ends in "…"
+/// after its last whole piece (`clamp_end`).
 pub(crate) fn clamp(text: &str, w: usize, max: usize) -> Vec<String> {
     let max = max.max(1);
     let mut lines = wrap_line(text, w);
@@ -657,8 +660,9 @@ pub(crate) fn clamp(text: &str, w: usize, max: usize) -> Vec<String> {
 }
 
 /// Where a clamped text's last line, `line` (a line `w` wide), is cut to leave its "…" a
-/// column, as the copy's line clamp ends it: the whole line when it leaves one, so the "…"
-/// comes right after its last piece, or else short of its last characters. A byte index.
+/// column, as the signed design's (UI v0.1.13) line clamp ends it: the whole line when it
+/// leaves one, so the "…" comes right after its last piece, or else short of its last
+/// characters. A byte index.
 pub(crate) fn clamp_end(line: &str, w: usize) -> usize {
     let mut end = 0;
     let mut used = 0;
@@ -672,20 +676,21 @@ pub(crate) fn clamp_end(line: &str, w: usize) -> usize {
     end
 }
 
-/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
-/// `.clamp2` text (titles, goals, thread names, inbox rows) breaks it (`Wrap::Plain`).
+/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the signed
+/// design's (UI v0.1.13) `.clamp2` text (titles, goals, thread names, inbox rows) breaks it
+/// (`Wrap::Plain`).
 pub(crate) fn wrap_line(text: &str, w: usize) -> Vec<String> {
     wrap_line_by(&fold_spaces(text), w, Wrap::Plain)
 }
 
-/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the copy's
-/// events and acks break it (`Wrap::Event`).
+/// `text` on lines at most `w` wide, its spaces folded (`fold_spaces`), as the signed
+/// design's (UI v0.1.13) events and acks break it (`Wrap::Event`).
 pub(crate) fn wrap_event_line(text: &str, w: usize) -> Vec<String> {
     wrap_line_by(&fold_spaces(text), w, Wrap::Event)
 }
 
-/// `text` with its spaces folded as the copy's normal and `nowrap` text folds them: its
-/// leading and trailing ones dropped and each run between words one.
+/// `text` with its spaces folded as the signed design's (UI v0.1.13) normal and `nowrap`
+/// text folds them: its leading and trailing ones dropped and each run between words one.
 pub(crate) fn fold_spaces(text: &str) -> String {
     let words: Vec<&str> = text.split(' ').filter(|s| !s.is_empty()).collect();
     words.join(" ")
@@ -701,10 +706,10 @@ pub(crate) fn dropped(c: char) -> bool {
 pub(crate) const IDEOGRAPHIC_SPACE: char = '\u{3000}';
 
 /// `piece` as the part that must fit on a line and the run of ideographic spaces ending it,
-/// which the copy hangs past the line's end, as `pre-wrap` hangs a run of spaces, so the
-/// text before it is not broken for it. Mid-line, the run keeps its width. A piece that is
-/// only such a run, which starts a word, hangs nothing: the copy's folded text carries it to
-/// the next line with what follows.
+/// which the signed design (UI v0.1.13) hangs past the line's end, as `pre-wrap` hangs a
+/// run of spaces, so the text before it is not broken for it. Mid-line, the run keeps its
+/// width. A piece that is only such a run, which starts a word, hangs nothing: the design's
+/// folded text carries it to the next line with what follows.
 fn hang(piece: &str) -> (&str, &str) {
     match piece.trim_end_matches(IDEOGRAPHIC_SPACE) {
         "" => (piece, ""),
@@ -726,13 +731,13 @@ fn put_hung(line: &mut String, out: &mut Vec<String>, hung: &str, w: usize) {
     }
 }
 
-/// The width of what the copy's folded text keeps on one line with a run of ideographic
-/// spaces starting `word`, a word after a space, `next` the words after it: the run and the
-/// first piece of the rest of the word (`own_breaks`). For a word that is only a run, that
-/// is the next word's, after a space, the runs of the words that are only runs counted on
-/// to the first with more. Chrome breaks after such a run at a line's start only, so after
-/// other text the run goes to the next line with that piece. 0 for a word not starting
-/// with a run.
+/// The width of what the signed design's (UI v0.1.13) folded text keeps on one line with a
+/// run of ideographic spaces starting `word`, a word after a space, `next` the words after
+/// it: the run and the first piece of the rest of the word (`own_breaks`). For a word that
+/// is only a run, that is the next word's, after a space, the runs of the words that are
+/// only runs counted on to the first with more. Chrome breaks after such a run at a line's
+/// start only, so after other text the run goes to the next line with that piece. 0 for a
+/// word not starting with a run.
 fn carried<'a>(word: &'a str, next: impl Iterator<Item = &'a str>, how: Wrap) -> usize {
     if !word.starts_with(IDEOGRAPHIC_SPACE) {
         return 0;
@@ -751,12 +756,12 @@ fn carried<'a>(word: &'a str, next: impl Iterator<Item = &'a str>, how: Wrap) ->
 }
 
 /// Whether a line `w` wide of folded text that starts with a word that is one ideographic
-/// space, `next` the words after it, takes that space as text, as Chrome draws the copy,
-/// so the runs after it carry from it (`carried`), each to the next line with what follows
-/// it, as after other text; otherwise they hang with it, as after a word ending with a run.
-/// Chrome takes it as text where text follows the chain of runs it starts, and the line is
-/// wider than the chain (its runs, and the one starting the word with the text) or than
-/// what the next run carries.
+/// space, `next` the words after it, takes that space as text, as Chrome draws the signed
+/// design (UI v0.1.13), so the runs after it carry from it (`carried`), each to the next
+/// line with what follows it, as after other text; otherwise they hang with it, as after a
+/// word ending with a run. Chrome takes it as text where text follows the chain of runs it
+/// starts, and the line is wider than the chain (its runs, and the one starting the word
+/// with the text) or than what the next run carries.
 fn chain_starts<'a>(next: impl Iterator<Item = &'a str> + Clone, w: usize, how: Wrap) -> bool {
     let mut words = next.filter(|n| !n.is_empty());
     let after = words.clone();
@@ -776,20 +781,21 @@ fn chain_starts<'a>(next: impl Iterator<Item = &'a str> + Clone, w: usize, how: 
     false
 }
 
-/// `text` on lines at most `w` wide as the copy's message body breaks it (`Wrap::Body`).
+/// `text` on lines at most `w` wide as the signed design's (UI v0.1.13) message body breaks
+/// it (`Wrap::Body`).
 pub(crate) fn wrap_line_paths(text: &str, w: usize) -> Vec<String> {
     wrap_line_by(text, w, Wrap::Body)
 }
 
-/// How `wrap_line_by` breaks a line, after the copy's element for it.
+/// How `wrap_line_by` breaks a line, after the signed design's (UI v0.1.13) element for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wrap {
-    /// Text the copy breaks with `overflow-wrap: anywhere` and marks no paths in, so a path
-    /// is a word like any other, its spaces folded (`fold_spaces`): titles, goals, thread
-    /// names and inbox rows (`.clamp2`). `overflow-wrap: anywhere` breaks at the space
-    /// before a word with no break of its own, such as a long hash, too wide for a line, so
-    /// it starts on a line of its own; a word breaks inside where Chrome does
-    /// (`break_units`), such as after a `-` or between two ideographs.
+    /// Text the signed design (UI v0.1.13) breaks with `overflow-wrap: anywhere` and marks
+    /// no paths in, so a path is a word like any other, its spaces folded (`fold_spaces`):
+    /// titles, goals, thread names and inbox rows (`.clamp2`). `overflow-wrap: anywhere`
+    /// breaks at the space before a word with no break of its own, such as a long hash, too
+    /// wide for a line, so it starts on a line of its own; a word breaks inside where
+    /// Chrome does (`break_units`), such as after a `-` or between two ideographs.
     Plain,
     /// A delivery failure's opened details (`.evtdetail`): as `Plain`, but `white-space:
     /// pre-wrap` keeps a line's leading spaces on its first line and each run between words
@@ -797,25 +803,27 @@ enum Wrap {
     /// spaces before it (`pre_wrap`).
     Preserved,
     /// Events, a delivery failure's line and acks (`.evt`, `.ack`), their spaces folded: as
-    /// `Plain`, but the copy leaves `overflow-wrap` normal there, so a piece of a word too
-    /// wide for any line (`own_breaks`) overflows its line in Chrome, and what follows it
-    /// starts the next. Here it breaks where its lines end, and its last line ends with it.
+    /// `Plain`, but the signed design (UI v0.1.13) leaves `overflow-wrap` normal there, so
+    /// a piece of a word too wide for any line (`own_breaks`) overflows its line in Chrome,
+    /// and what follows it starts the next. Here it breaks where its lines end, and its
+    /// last line ends with it.
     Event,
-    /// A message body (`.seg .body`): as `Preserved`, and a path the copy marks (`paths`),
-    /// alone or joined to other text, also breaks after each `/`, as the copy's `<wbr>`
-    /// breaks one. Inside it the copy leaves `overflow-wrap` normal, so Chrome breaks it
-    /// where it breaks any word (after a `-`), and a piece too wide for any line overflows;
-    /// here such a piece breaks where its lines end, as a terminal cannot overflow.
+    /// A message body (`.seg .body`): as `Preserved`, and a path the signed design
+    /// (UI v0.1.13) marks (`paths`), alone or joined to other text, also breaks after each
+    /// `/`, as the design's `<wbr>` breaks one. Inside it the design leaves `overflow-wrap`
+    /// normal, so Chrome breaks it where it breaks any word (after a `-`), and a piece too
+    /// wide for any line overflows; here such a piece breaks where its lines end, as a
+    /// terminal cannot overflow.
     Body,
 }
 
 impl Wrap {
-    /// Whether the copy's element keeps spaces as written (`white-space: pre-wrap`). There a
-    /// run of ideographic spaces starting a word goes with the spaces before it, and Chrome
-    /// breaks after the run whatever follows it, even a mark a line cannot start with such
-    /// as `」` or `!`: a line that breaks there hangs the whole run, and the next line starts
-    /// with what follows it. In folded text the line breaks after the spaces, so the run
-    /// starts the next line with its word.
+    /// Whether the signed design's (UI v0.1.13) element keeps spaces as written
+    /// (`white-space: pre-wrap`). There a run of ideographic spaces starting a word goes
+    /// with the spaces before it, and Chrome breaks after the run whatever follows it, even
+    /// a mark a line cannot start with such as `」` or `!`: a line that breaks there hangs
+    /// the whole run, and the next line starts with what follows it. In folded text the
+    /// line breaks after the spaces, so the run starts the next line with its word.
     fn pre_wrap(self) -> bool {
         matches!(self, Wrap::Preserved | Wrap::Body)
     }
@@ -832,10 +840,10 @@ fn own_breaks(word: &str, how: Wrap) -> Option<Vec<&str>> {
     (pieces.len() > 1).then_some(pieces)
 }
 
-/// `word` in the pieces Chrome breaks it between, as the copy draws it (`breaks_between`),
-/// and after each `/` of one of `paths`, byte ranges of `word`, where the copy puts a
-/// `<wbr>`, the last `/` of a path breaking from what follows it too. A path is ASCII, so
-/// inside one `breaks_between` breaks only after a `-`.
+/// `word` in the pieces Chrome breaks it between, as the signed design (UI v0.1.13) draws
+/// it (`breaks_between`), and after each `/` of one of `paths`, byte ranges of `word`,
+/// where the design puts a `<wbr>`, the last `/` of a path breaking from what follows it
+/// too. A path is ASCII, so inside one `breaks_between` breaks only after a `-`.
 fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     static SEGMENTER: LineSegmenterBorrowed<'static> = {
         let mut options = LineBreakOptions::default();
@@ -897,13 +905,14 @@ fn break_units<'a>(word: &'a str, paths: &[Range<usize>]) -> Vec<&'a str> {
     out
 }
 
-/// Whether Chrome breaks a line between `c` and `next` inside a word, as the copy draws it,
-/// `before` and `after` being the characters around them, `units` the unit of LB9 that ends
-/// with `c` and the one before it (`break_units`; `(before, c)` when neither is a mark), and
-/// `icu` whether `icu_segmenter` breaks there. Chrome (Blink) decides a break between two
-/// ASCII characters from a table of its own and hands any other to ICU, the Unicode
-/// line-breaking rules (UAX #14), here `icu_segmenter` at CSS `line-break: auto`'s
-/// strictness (`Normal`, so a small kana or a `ー` may start a line). So:
+/// Whether Chrome breaks a line between `c` and `next` inside a word, as the signed design
+/// (UI v0.1.13) draws it, `before` and `after` being the characters around them, `units`
+/// the unit of LB9 that ends with `c` and the one before it (`break_units`; `(before, c)`
+/// when neither is a mark), and `icu` whether `icu_segmenter` breaks there. Chrome (Blink)
+/// decides a break between two ASCII characters from a table of its own and hands any other
+/// to ICU, the Unicode line-breaking rules (UAX #14), here `icu_segmenter` at CSS
+/// `line-break: auto`'s strictness (`Normal`, so a small kana or a `ー` may start a line).
+/// So:
 /// - between two ASCII characters, as Blink's table does, a break only after a `-` or a
 ///   `?`, or before an opening bracket after a punctuation mark: after a `-` unless before
 ///   a character a line cannot start with (`. , ; : ! ? ) ] } / $`) or before a digit after
@@ -1021,11 +1030,12 @@ fn hyphen(c: char) -> bool {
     )
 }
 
-/// The byte ranges of the paths in `word` as the copy marks them in a message: the matches
-/// of its `PATH_RE`, `(?:~|\b[\w.-]+)?\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?` (`\w` and `\b` are
-/// ASCII), found from the left, each search going on after the last match; a match shorter
-/// than 16 characters is not marked. So a path joined to other text, as CJK text often is,
-/// is found inside it. A URL is laid out before this (`chat::wrap_message_line`).
+/// The byte ranges of the paths in `word` as the signed design (UI v0.1.13) marks them in a
+/// message: the matches of its `PATH_RE`, `(?:~|\b[\w.-]+)?\/[\w.@+-]+(?:\/[\w.@+-]+)+\/?`
+/// (`\w` and `\b` are ASCII), found from the left, each search going on after the last
+/// match; a match shorter than 16 characters is not marked. So a path joined to other text,
+/// as CJK text often is, is found inside it. A URL is laid out before this
+/// (`chat::wrap_message_line`).
 fn paths(word: &str) -> Vec<Range<usize>> {
     let b = word.as_bytes();
     let w = |i: usize| {
@@ -1102,13 +1112,13 @@ pub(crate) fn units<'a>(word: &'a str, after: &[char]) -> Vec<&'a str> {
 /// between its pieces, or inside a piece too wide for a line of its own, after which, in
 /// `Wrap::Event` text, its line ends.
 /// The text's leading spaces, when narrower than a line, start its first line, as the
-/// copy's `pre-wrap` body keeps them: a first word that does not fit after them goes to the
-/// next line as any other word does, leaving them alone on the first. As wide as a line or
-/// wider, they hang on a blank line of their own, as `pre-wrap` hangs them, and the words
-/// start the next line at the text's column. Either way a run of ideographic spaces starting
-/// the first word goes with them, and hangs with them when the word's first piece does not
-/// fit after it; a run with no word after it is drawn after a narrower indent where it fits
-/// there, and hangs with a wider one. Each run of spaces
+/// signed design's (UI v0.1.13) `pre-wrap` body keeps them: a first word that does not fit
+/// after them goes to the next line as any other word does, leaving them alone on the
+/// first. As wide as a line or wider, they hang on a blank line of their own, as `pre-wrap`
+/// hangs them, and the words start the next line at the text's column. Either way a run of
+/// ideographic spaces starting the first word goes with them, and hangs with them when the
+/// word's first piece does not fit after it; a run with no word after it is drawn after a
+/// narrower indent where it fits there, and hangs with a wider one. Each run of spaces
 /// between words stays as written, and counts toward the line's width; a line that breaks
 /// at a run drops it, as `pre-wrap` hangs it, so the next line starts with the word. A run of
 /// ideographic spaces ending a word or a piece of one hangs the same way (`hang`); in
@@ -1170,8 +1180,8 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
             word
         };
         // In folded text, any other run of ideographic spaces starting a word does not end a
-        // line after other text: the line breaks before it unless what the copy carries with
-        // it (`carried`) fits there too.
+        // line after other text: the line breaks before it unless what the signed design
+        // (UI v0.1.13) carries with it (`carried`) fits there too.
         let after_text = if !how.pre_wrap()
             && after_text
             && line.width() + run.width() + carried(word, words.clone(), how) > w
@@ -1208,8 +1218,8 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         }
         // A word with breaks of its own starts where the line is, rather than leaving it
         // short, when its first piece fits there (so an indent the piece does not fit after
-        // keeps its line, as the copy's does); any other goes on the next, the space before
-        // it hanging at the end of this one.
+        // keeps its line, as the signed design's (UI v0.1.13) does); any other goes on the
+        // next, the space before it hanging at the end of this one.
         let own = own_breaks(word, how);
         let here = own.is_some();
         let pieces = own.unwrap_or_else(|| vec![word]);
@@ -1252,9 +1262,9 @@ fn wrap_line_by(text: &str, w: usize, how: Wrap) -> Vec<String> {
         }
     }
     // A run of ideographic spaces ending the text after a space, or after an indent the line
-    // still holds, is drawn where it fits on the line, as the copy's is, and otherwise hangs
-    // past its end; the spaces after it are the text's trailing ones. Only `pre_wrap` text
-    // joins one to the run.
+    // still holds, is drawn where it fits on the line, as the signed design's (UI v0.1.14)
+    // is, and otherwise hangs past its end; the spaces after it are the text's trailing
+    // ones. Only `pre_wrap` text joins one to the run.
     let tail = run.trim_end_matches(' ');
     if tail.contains(IDEOGRAPHIC_SPACE) && !line.is_empty() && line.width() + tail.width() <= w {
         line.push_str(tail);
@@ -1948,10 +1958,10 @@ mod tests {
 
     #[test]
     fn a_path_breaks_after_a_hyphen_as_the_copys_does() {
-        // As headless Chrome draws the copy's message body at width 1, which shows each
-        // break it has: after each `/`, and after a `-` where it breaks any word, not before
-        // a `.` or a `/`, nor before a digit after a minus sign (a `-` with no letter or
-        // digit before it).
+        // As headless Chrome draws the signed design's (UI v0.1.13) message body at width
+        // 1, which shows each break it has: after each `/`, and after a `-` where it breaks
+        // any word, not before a `.` or a `/`, nor before a digit after a minus sign (a `-`
+        // with no letter or digit before it).
         let path = "/srv/tower/x-1yz/-1xyz/x_-9999/x.-9999/g-+h/x-_y/a---b/c-.d/e-@f";
         assert_eq!(
             own_breaks(path, Wrap::Body).unwrap(),
@@ -1960,7 +1970,8 @@ mod tests {
                 "x-", "_y/", "a-", "-", "-", "b/", "c-.d/", "e-", "@f"
             ]
         );
-        // In a bubble, as Chrome draws the copy's body at those widths.
+        // In a bubble, as Chrome draws the signed design's (UI v0.1.13) body at those
+        // widths.
         assert_eq!(
             wrap_line_paths("ab notes/plan-/drafts-/q4-final.md", 8),
             ["ab", "notes/", "plan-/", "drafts-/", "q4-", "final.md"]
@@ -2090,9 +2101,10 @@ mod tests {
 
     #[test]
     fn the_height_matches_the_drawn_lines_at_its_clock_as_an_acks_age_grows() {
-        // A preview lays an ack's age out at its width as drawn, as the copy's inline
-        // `· age`: at 9m the ack fills its line 43 wide (a bubble of 45, in a pane of 60);
-        // at 10m only its `·` fits there, and Chrome starts the next line with the age.
+        // A preview lays an ack's age out at its width as drawn, as the signed design's
+        // (UI v0.1.13) inline `· age`: at 9m the ack fills its line 43 wide (a bubble of
+        // 45, in a pane of 60); at 10m only its `·` fits there, and Chrome starts the next
+        // line with the age.
         let m = milestone(vec![thread(
             1,
             ThreadStatus::Open,
@@ -2169,9 +2181,10 @@ mod tests {
 
     #[test]
     fn folded_text_breaks_as_the_copys_clamp_and_event_box_do() {
-        // As headless Chrome draws the copy's `.clamp2` (titles, goals, thread names and inbox
-        // rows, with `overflow-wrap: anywhere`): a word breaks after a `-`, and a word too
-        // wide for a line starts on a line of its own and breaks where the line ends.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.clamp2` (titles,
+        // goals, thread names and inbox rows, with `overflow-wrap: anywhere`): a word
+        // breaks after a `-`, and a word too wide for a line starts on a line of its own
+        // and breaks where the line ends.
         let title = "Bookmarks page for the reading-list and the shelf-grid layout";
         assert_eq!(
             wrap_line(title, 27),
@@ -2189,9 +2202,10 @@ mod tests {
             wrap_line("ab abcdefghij-k cd", 8),
             ["ab", "abcdefgh", "ij-k cd"]
         );
-        // The copy's `.evt` and `.ack` leave `overflow-wrap` normal, so Chrome lets a piece too
-        // wide for a line overflow it and starts what follows on the next line: here the
-        // piece breaks where its lines end, and its last line ends with it.
+        // The signed design's (UI v0.1.13) `.evt` and `.ack` leave `overflow-wrap` normal,
+        // so Chrome lets a piece too wide for a line overflow it and starts what follows on
+        // the next line: here the piece breaks where its lines end, and its last line ends
+        // with it.
         assert_eq!(
             wrap_event_line("ab abcdefghij cd", 8),
             ["ab", "abcdefgh", "ij", "cd"]
@@ -2205,8 +2219,9 @@ mod tests {
 
     #[test]
     fn folded_text_breaks_after_a_question_mark_where_the_copy_does() {
-        // As headless Chrome draws the copy's `.evt` and `.clamp2`: the `?` rule a message's
-        // word breaks by (`breaks_between`) holds for events, acks and titles too.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.evt` and `.clamp2`:
+        // the `?` rule a message's word breaks by (`breaks_between`) holds for events, acks
+        // and titles too.
         assert_eq!(
             wrap_event_line("sent what?why to qa", 10),
             ["sent what?", "why to qa"]
@@ -2219,8 +2234,9 @@ mod tests {
 
     #[test]
     fn folded_text_breaks_before_an_opening_bracket_after_punctuation_where_the_copy_does() {
-        // As headless Chrome draws the copy's `.evt` and `.clamp2`: the bracket rule a
-        // message's word breaks by (`breaks_between`) holds for events, acks and titles too.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.evt` and `.clamp2`:
+        // the bracket rule a message's word breaks by (`breaks_between`) holds for events,
+        // acks and titles too.
         let title = "sent abc.[defg] to qa";
         assert_eq!(wrap_event_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
         assert_eq!(wrap_line(title, 10), ["sent abc.", "[defg] to", "qa"]);
@@ -2229,8 +2245,9 @@ mod tests {
     /// A way text is wrapped: text and a width to its lines.
     type Wrapper = fn(&str, usize) -> Vec<String>;
 
-    /// Each way text is wrapped, after the copy's element for it: a message body, a delivery
-    /// failure's details, folded `.clamp2` text, and events and acks.
+    /// Each way text is wrapped, after the signed design's (UI v0.1.13) element for it: a
+    /// message body, a delivery failure's details, folded `.clamp2` text, and events and
+    /// acks.
     const WRAPS: [(&str, Wrapper); 4] = [
         ("body", wrap_line_paths),
         ("details", wrap),
@@ -2257,14 +2274,15 @@ mod tests {
 
     #[test]
     fn a_word_starting_with_a_hyphen_keeps_it_with_the_letter_after_it_as_the_copy_does() {
-        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
-        // (where the word overflows): no break after a hyphen starting a word, or after a
-        // no-break space, before a letter, so such a word too wide for a line breaks where it
-        // ends. A letter that is not ASCII, as Blink's ASCII table breaks `-d`. A point
-        // (U+05BC, spaced to one column with what carries it) on the hyphen or on the no-break
-        // space before it changes nothing (LB9), so the word moves whole to the next line; but
-        // a point starting a word is a character of its own before the hyphen (LB10), so the
-        // word breaks after the hyphen.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.seg .body`,
+        // `.evtdetail`, `.clamp2` and `.evt` (where the word overflows): no break after a
+        // hyphen starting a word, or after a no-break space, before a letter, so such a
+        // word too wide for a line breaks where it ends. A letter that is not ASCII, as
+        // Blink's ASCII table breaks `-d`. A point (U+05BC, spaced to one column with what
+        // carries it) on the hyphen or on the no-break space before it changes nothing
+        // (LB9), so the word moves whole to the next line; but a point starting a word is a
+        // character of its own before the hyphen (LB10), so the word breaks after the
+        // hyphen.
         for x in HYPHENS {
             let rows: [(String, usize, Vec<String>); 5] = [
                 (
@@ -2323,9 +2341,9 @@ mod tests {
 
     #[test]
     fn a_word_breaks_after_a_hyphen_inside_it_as_the_copy_does() {
-        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`:
-        // after a hyphen inside a word, before a letter or a digit, after the last of a run,
-        // and not before a `.`.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.seg .body`,
+        // `.evtdetail`, `.clamp2` and `.evt`: after a hyphen inside a word, before a letter
+        // or a digit, after the last of a run, and not before a `.`.
         for x in HYPHENS {
             let rows: [(String, usize, Vec<String>); 4] = [
                 (
@@ -2359,13 +2377,13 @@ mod tests {
 
     #[test]
     fn a_word_breaks_after_a_hyphen_between_two_hebrew_letters_as_the_copy_does() {
-        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
-        // (Hebrew, its points and the hyphens spaced to one column): after a hyphen between two
-        // Hebrew letters, a point (U+05BC) on the first or on the hyphen or none, and after
-        // each of two (LB21a's exception); not after one between a Hebrew letter and a letter
-        // or digit that is not Hebrew (LB21a), so such a word moves whole to the next line.
-        // Each line is narrower than its width, as Chrome lays a `7ch` box out a little under
-        // 7 columns.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.seg .body`,
+        // `.evtdetail`, `.clamp2` and `.evt` (Hebrew, its points and the hyphens spaced to
+        // one column): after a hyphen between two Hebrew letters, a point (U+05BC) on the
+        // first or on the hyphen or none, and after each of two (LB21a's exception); not
+        // after one between a Hebrew letter and a letter or digit that is not Hebrew
+        // (LB21a), so such a word moves whole to the next line. Each line is narrower than
+        // its width, as Chrome lays a `7ch` box out a little under 7 columns.
         let (he, he2) = ("\u{5d0}\u{5d1}\u{5d2}", "\u{5d3}\u{5d4}\u{5d5}");
         for x in HYPHENS {
             let rows: [(String, usize, Vec<String>); 7] = [
@@ -2422,10 +2440,11 @@ mod tests {
 
     #[test]
     fn a_word_breaks_around_a_garay_hyphen_as_the_copy_does() {
-        // As headless Chrome draws the copy's `.seg .body`, `.evtdetail`, `.clamp2` and `.evt`
-        // (U+10D6E spaced to one column): around U+10D6E as around the other hyphens of its
-        // class (HH), which `icu_segmenter` 2.4 takes it out of: a break after it before an
-        // opening bracket or a no-break space, and none between an ideograph and it.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.seg .body`,
+        // `.evtdetail`, `.clamp2` and `.evt` (U+10D6E spaced to one column): around U+10D6E
+        // as around the other hyphens of its class (HH), which `icu_segmenter` 2.4 takes it
+        // out of: a break after it before an opening bracket or a no-break space, and none
+        // between an ideograph and it.
         let x = '\u{10d6e}';
         let rows: [(String, usize, Vec<String>); 3] = [
             (
@@ -2453,9 +2472,10 @@ mod tests {
 
     #[test]
     fn an_ideographic_space_at_a_line_end_hangs_as_the_copys_does() {
-        // As headless Chrome draws the copy's message body, delivery-failure details,
-        // `.clamp2` and `.evt`: a run of U+3000 ending a line hangs past it, so the word before
-        // it is not broken for it and the run does not start the next line.
+        // As headless Chrome draws the signed design's (UI v0.1.13) message body,
+        // delivery-failure details, `.clamp2` and `.evt`: a run of U+3000 ending a line
+        // hangs past it, so the word before it is not broken for it and the run does not
+        // start the next line.
         let all = |text: &str, w: usize| {
             let lines = wrap_line_paths(text, w);
             assert_eq!(wrap(text, w), lines, "details at {w}");
@@ -2509,10 +2529,10 @@ mod tests {
 
     #[test]
     fn an_ideographic_run_after_a_space_hangs_in_pre_wrap_text_only() {
-        // As headless Chrome draws the copy: in a message body and a delivery failure's
-        // details (`pre-wrap`) a run of U+3000 starting a word after a space goes with the
-        // spaces before it, so a line that breaks there hangs the whole run and the next
-        // starts with the word after it.
+        // As headless Chrome draws the signed design (UI v0.1.13): in a message body and a
+        // delivery failure's details (`pre-wrap`) a run of U+3000 starting a word after a
+        // space goes with the spaces before it, so a line that breaks there hangs the whole
+        // run and the next starts with the word after it.
         let pre = |text: &str, w: usize| {
             let lines = wrap_line_paths(text, w);
             assert_eq!(wrap(text, w), lines, "details at {w}");
@@ -2573,10 +2593,10 @@ mod tests {
 
     #[test]
     fn an_ideographic_run_after_a_space_goes_to_the_next_line_with_what_follows_in_folded_text() {
-        // As headless Chrome draws the copy's `.clamp2` and `.evt`: a run of U+3000 starting
-        // a word after a space does not end a line after other text, but starts the next
-        // with the first piece of its word, or for a word that is only a run, with the next
-        // word. The expected lines are Chrome's.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.clamp2` and `.evt`: a
+        // run of U+3000 starting a word after a space does not end a line after other text,
+        // but starts the next with the first piece of its word, or for a word that is only
+        // a run, with the next word. The expected lines are Chrome's.
         let folded = |text: &str, w: usize| {
             let lines = wrap_line(text, w);
             assert_eq!(wrap_event_line(text, w), lines, "event at {w}");
@@ -2642,13 +2662,13 @@ mod tests {
 
     #[test]
     fn a_chain_of_ideographic_runs_breaks_as_chrome_breaks_it_in_folded_text() {
-        // As headless Chrome draws the copy's `.clamp2` and `.evt`: a chain of words that are
-        // only U+3000s goes to the next line whole after other text (`carried`). Starting a
-        // line, a first word of one U+3000 is text where text follows the chain and the line
-        // is wider than the chain or than what the next run carries: each run after it then
-        // goes to the next line with what follows it. Otherwise the runs hang with it, as
-        // after a word ending with one. The expected lines are Chrome's, a line of U+3000s
-        // only being one of them.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.clamp2` and `.evt`: a
+        // chain of words that are only U+3000s goes to the next line whole after other text
+        // (`carried`). Starting a line, a first word of one U+3000 is text where text
+        // follows the chain and the line is wider than the chain or than what the next run
+        // carries: each run after it then goes to the next line with what follows it.
+        // Otherwise the runs hang with it, as after a word ending with one. The expected
+        // lines are Chrome's, a line of U+3000s only being one of them.
         let folded = |text: &str, w: usize| {
             let lines = wrap_line(text, w);
             assert_eq!(wrap_event_line(text, w), lines, "event at {w}");
@@ -2761,8 +2781,9 @@ mod tests {
 
     #[test]
     fn a_delivery_failures_details_break_cjk_text_where_the_copy_does() {
-        // Between two ideographs, as Chrome breaks the copy's `.evtdetail`, so a run too wide
-        // for any line fills the line it starts on; not before a closing mark.
+        // Between two ideographs, as Chrome breaks the signed design's (UI v0.1.13)
+        // `.evtdetail`, so a run too wide for any line fills the line it starts on; not
+        // before a closing mark.
         assert_eq!(wrap("ab  中文字", 6), ["ab  中", "文字"]);
         let run = "中".repeat(30);
         assert_eq!(
@@ -2779,8 +2800,8 @@ mod tests {
 
     #[test]
     fn a_delivery_failures_details_break_after_a_question_mark_where_the_copy_does() {
-        // As Chrome breaks the copy's `.evtdetail`: after a `?`, after the last of a run, and
-        // not before a character a line cannot start with.
+        // As Chrome breaks the signed design's (UI v0.1.13) `.evtdetail`: after a `?`,
+        // after the last of a run, and not before a character a line cannot start with.
         assert_eq!(wrap("ab abc?defg", 8), ["ab abc?", "defg"]);
         assert_eq!(wrap("ab abc??defg", 8), ["ab abc??", "defg"]);
         assert_eq!(wrap("ab abc?!defg", 8), ["ab", "abc?!def", "g"]);
@@ -2788,8 +2809,8 @@ mod tests {
 
     #[test]
     fn a_delivery_failures_details_break_before_an_opening_bracket_after_punctuation() {
-        // As Chrome breaks the copy's `.evtdetail`: before the bracket after a `,` or a `~`,
-        // and not after a `$`.
+        // As Chrome breaks the signed design's (UI v0.1.13) `.evtdetail`: before the
+        // bracket after a `,` or a `~`, and not after a `$`.
         assert_eq!(wrap("ab abc,[defg]", 8), ["ab abc,", "[defg]"]);
         assert_eq!(wrap("ab abc~{defg}", 8), ["ab abc~", "{defg}"]);
         assert_eq!(wrap("ab abc$[defg]", 8), ["ab", "abc$[def", "g]"]);
@@ -2797,10 +2818,11 @@ mod tests {
 
     #[test]
     fn the_bracket_row_breaks_after_exactly_the_marks_chrome_does() {
-        // As headless Chrome breaks the copy's `.seg .body`, `.evtdetail` and `.clamp2`,
-        // whatever comes before the mark (a letter, a digit or nothing) and after the
-        // bracket (a letter, a digit or a closing mark): before each opening bracket after
-        // each of these 19 marks, and never after the other 11 marks that are not `-` or `?`.
+        // As headless Chrome breaks the signed design's (UI v0.1.13) `.seg .body`,
+        // `.evtdetail` and `.clamp2`, whatever comes before the mark (a letter, a digit or
+        // nothing) and after the bracket (a letter, a digit or a closing mark): before each
+        // opening bracket after each of these 19 marks, and never after the other 11 marks
+        // that are not `-` or `?`.
         for bracket in "([{<".chars() {
             for before in [Some('a'), Some('1'), None] {
                 for after in ['d', '5', ')'] {
@@ -2821,7 +2843,8 @@ mod tests {
 
     #[test]
     fn paths_are_what_the_copys_path_pattern_finds_in_a_word() {
-        // Each as the copy's PATH_RE finds it with `matchAll`, keeping matches of 16 or more.
+        // Each as the signed design's (UI v0.1.13) PATH_RE finds it with `matchAll`,
+        // keeping matches of 16 or more.
         let found = |word: &str| -> Vec<String> {
             (paths(word).into_iter())
                 .map(|r| word[r].to_string())
@@ -2882,7 +2905,8 @@ mod tests {
         for word in [a.clone(), dots.clone(), format!("{dots}{a}")] {
             assert!(paths(&word).is_empty(), "{}", word.len());
         }
-        // A path after such a run is found where the copy's pattern starts it: (start, end).
+        // A path after such a run is found where the signed design's (UI v0.1.13) pattern
+        // starts it: (start, end).
         let found = |word: &str| -> Vec<(usize, usize)> {
             (paths(word).into_iter())
                 .map(|r| (r.start, r.end))
@@ -2911,8 +2935,8 @@ mod tests {
             wrap_at_most("one two three four", 7, 2),
             vec!["one two", "three four"]
         );
-        // A word too wide for a line starts on a line of its own, as the copy's `.clamp2`
-        // starts it, and the rest keeps its spacing as written.
+        // A word too wide for a line starts on a line of its own, as the signed design's
+        // (UI v0.1.13) `.clamp2` starts it, and the rest keeps its spacing as written.
         assert_eq!(
             wrap_at_most("ab bookshelf  now", 4, 2),
             vec!["ab", "bookshelf  now"]
@@ -2925,9 +2949,9 @@ mod tests {
 
     #[test]
     fn clamp_ends_its_last_line_after_its_last_whole_piece() {
-        // As headless Chrome draws the copy's `.clamp2` (#50): the last line kept ends in
-        // "…" right after its last piece, here a `-`, where carrying the rest onto it and
-        // cutting that drew "shed-lead-senior-r…".
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.clamp2` (#50): the
+        // last line kept ends in "…" right after its last piece, here a `-`, where carrying
+        // the rest onto it and cutting that drew "shed-lead-senior-r…".
         let text = "the long garden-shed-lead-senior-reviewer";
         assert_eq!(
             clamp(text, 18, 2),
@@ -2942,7 +2966,7 @@ mod tests {
             clamp("its cover, newest first, with a link", 31, 1),
             ["its cover, newest first, with …"]
         );
-        // Its spaces fold as the copy's do.
+        // Its spaces fold as the signed design's (UI v0.1.13) do.
         assert_eq!(clamp("Search by author  now", 19, 1), ["Search by author…"]);
         // Text that fits its lines is drawn as wrapped, with no "…".
         assert_eq!(

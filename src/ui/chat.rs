@@ -17,14 +17,15 @@
 //! - Separators where how long ago the messages were changes: "now", "within the hour",
 //!   "3h ago", "yesterday".
 //!
-//! The terminal has one font size, so the copy's smaller type is dim colour here.
+//! The terminal has one font size, so the signed designs' smaller type is dim colour here
+//! (`docs/spec.md`, section 7).
 //!
 //! `plan` says what each line is without styling it, so a layout (heights, where each
 //! message starts, what a click toggles) and the lines drawn come from the same rows. The
 //! time a plan is made for (`Shape::now`) decides its separators, which a preview has none
 //! of, and an ack's age, which a plan takes at its real width as drawn: so a chat's height,
 //! a preview's too, can grow by a line for an ack as its age widens (9m to 10m), as the
-//! copy reflows.
+//! design reflows.
 //!
 //! A bubble fits its text as if no width limited it, and its name line, from `BUBBLE_MIN`
 //! columns up to `widest`: 85% of the chat's width, with at most `TEXT_MAX` columns of text.
@@ -53,7 +54,8 @@ pub const TEXT_MAX: usize = 100;
 pub const BUBBLE_SHARE: usize = 85;
 /// The narrowest a bubble gets, so a one-word message still reads as a bubble.
 pub const BUBBLE_MIN: usize = 24;
-/// Tower's lines wrap at this many columns, as the copy's centred events do.
+/// Tower's lines wrap at this many columns, as the signed design's (UI v0.1.13) centred
+/// events do.
 pub const EVENT_MAX: usize = 80;
 /// The widest an age gets: "999d".
 const AGE_COLUMNS: usize = 4;
@@ -294,8 +296,9 @@ pub enum Row {
     },
     /// A line of "delivery failed to X · details" or "dev-1 left Rex while on #1 ·
     /// details", its link "hide details" while its full text shows under it, wrapped as the
-    /// copy's centred event box wraps it (`failure_pieces`): `said`, the piece of what it
-    /// says on this line, and `link`, the piece of its link; `first` on its first line.
+    /// signed design's (UI v0.1.13) centred event box wraps it (`failure_pieces`): `said`,
+    /// the piece of what it says on this line, and `link`, the piece of its link; `first`
+    /// on its first line.
     Failure {
         msg: usize,
         said: String,
@@ -303,7 +306,8 @@ pub enum Row {
         first: bool,
     },
     /// A line of an open `Failure`'s full text, from column `left`: the left edge of the
-    /// copy's centred event box, which fits the failure's line and its text (`detail_box`).
+    /// signed design's (UI v0.1.13) centred event box, which fits the failure's line and
+    /// its text (`detail_box`).
     Detail {
         piece: String,
         left: usize,
@@ -373,8 +377,9 @@ fn inner(bw: usize) -> usize {
     bw.saturating_sub(3).max(1)
 }
 
-/// The URLs in `line`, as byte ranges, as the copy finds them: `http://` or
-/// `https://` and what follows up to a space or one of `<>"')]`, less trailing `.,;:!?`.
+/// The URLs in `line`, as byte ranges, as the signed design (UI v0.1.13) finds them:
+/// `http://` or `https://` and what follows up to a space or one of `<>"')]`, less trailing
+/// `.,;:!?`.
 pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut from = 0;
@@ -392,7 +397,8 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
         while end > i + scheme.len() && line[..end].ends_with(|c: char| ".,;:!?".contains(c)) {
             end -= 1;
         }
-        // At least two characters after the scheme, as the copy's pattern has.
+        // At least two characters after the scheme, as the signed design's (UI v0.1.13)
+        // pattern has.
         if line[i + scheme.len()..end].chars().nth(1).is_some() {
             out.push(i..end);
         }
@@ -404,13 +410,14 @@ pub(crate) fn urls(line: &str) -> Vec<Range<usize>> {
 /// One line of a message's text, wrapped to `w` for a bubble: each URL starts on a line of
 /// its own, whole, and one wider than `w` breaks only after `/`, `?`, `&` or `-`
 /// (`pack_url`), each of its pieces with the URL; the text after a URL starts a line of its
-/// own too; a path in the text breaks after a `/` and where Chrome breaks the copy's, such
-/// as after a `-`, and other text where Chrome breaks it, such as between two CJK characters; a word with no break of
-/// its own too wide for a line starts on a line of its own (`wrap_line_paths`). The line's
-/// leading spaces stay on its first line of text and its runs of spaces between words stay
-/// as written; a URL's line starts at the text's column, as the copy's block URL does.
-/// Spaces are all that is added, and what `dropped` names all that is dropped, so `marked`
-/// can find the owner's mentions in the pieces.
+/// own too; a path in the text breaks after a `/` and where Chrome breaks the signed
+/// design's (UI v0.1.13), such as after a `-`, and other text where Chrome breaks it, such
+/// as between two CJK characters; a word with no break of its own too wide for a line
+/// starts on a line of its own (`wrap_line_paths`). The line's leading spaces stay on its
+/// first line of text and its runs of spaces between words stay as written; a URL's line
+/// starts at the text's column, as the design's block URL does. Spaces are all that is
+/// added, and what `dropped` names all that is dropped, so `marked` can find the owner's
+/// mentions in the pieces.
 pub(crate) fn wrap_message_line(raw: &str, w: usize) -> Vec<(String, Option<String>)> {
     let found = urls(raw);
     if found.is_empty() {
@@ -470,10 +477,10 @@ fn pack_url(url: &str, w: usize) -> Vec<String> {
     out
 }
 
-/// The width a message's `text` asks of its bubble, as the copy's `.msg` fits its content:
-/// its widest line laid out with no width limit, a URL still a block of its own, a line a
-/// clip hides included. Past the widest a bubble gets, the text wraps and the bubble takes
-/// that widest whatever its widest wrapped line.
+/// The width a message's `text` asks of its bubble, as the signed design's (UI v0.1.13)
+/// `.msg` fits its content: its widest line laid out with no width limit, a URL still a
+/// block of its own, a line a clip hides included. Past the widest a bubble gets, the text
+/// wraps and the bubble takes that widest whatever its widest wrapped line.
 fn max_content(text: &str) -> usize {
     (message_pieces(text, text.width() + 1).iter())
         .map(|p| p.text.width())
@@ -687,8 +694,9 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                     }
                     texts.push((msg, ps, long, open));
                 }
-                // Its acks widen it too, as the copy's message fits all it holds: two in,
-                // the ack, " · " and the age, at most the widest bubble.
+                // Its acks widen it too, as the signed design's (UI v0.1.13) message fits
+                // all it holds: two in, the ack, " · " and the age, at most the widest
+                // bubble.
                 for &msg in &acks {
                     let m = &msgs[msg];
                     let text = ack_text(m);
@@ -717,11 +725,12 @@ pub fn plan(msgs: &[Message], missing: usize, w: usize, shape: Shape) -> Vec<Row
                 }
                 for msg in acks {
                     let m = &msgs[msg];
-                    // The ack, " · " and its age as one run of words, as the copy lays its
-                    // `· age` out inline: each line filled to the ack's width, two in from
-                    // the bubble's edge, the age after the last word where it fits, else
-                    // `·` ends that line and the age starts the next, or after a piece too
-                    // wide for a line `· age` starts the next. The age as drawn at `now`.
+                    // The ack, " · " and its age as one run of words, as the signed design
+                    // (UI v0.1.13) lays its `· age` out inline: each line filled to the
+                    // ack's width, two in from the bubble's edge, the age after the last
+                    // word where it fits, else `·` ends that line and the age starts the
+                    // next, or after a piece too wide for a line `· age` starts the next.
+                    // The age as drawn at `now`.
                     let shown = age(m.at, shape.now);
                     let aw = bw.saturating_sub(2).max(shown.width());
                     let mut ps = wrap_event_line(&format!("{} · {shown}", ack_text(m)), aw);
@@ -804,7 +813,7 @@ fn meta_columns(m: &Message) -> usize {
 }
 
 /// A message's tags in their colours, a space apart, and its age, each part after a dim
-/// " · ", as the copy's name line shows them.
+/// " · ", as the signed design's (UI v0.1.13) name line shows them.
 fn meta(m: &Message, now: i64, depth: Depth) -> Vec<Span<'static>> {
     let mut out = Vec::new();
     for (k, word) in tag_words(m).into_iter().enumerate() {
@@ -918,11 +927,11 @@ fn failure_line(m: &Message, lead: Option<&Lead>, open: bool) -> (String, &'stat
     (format!("{said} · "), link)
 }
 
-/// A failure's line (`failure_line`) in pieces at most `w` wide, as the copy's centred event
-/// box wraps it: each a piece of what it `said` and a piece of its `link`, either empty. Its
-/// words break as an event's do (`wrap_event_line`); the link, an `inline-block` there, ends the
-/// last of them when it fits and otherwise starts a line of its own, breaking inside only
-/// when wider than a line.
+/// A failure's line (`failure_line`) in pieces at most `w` wide, as the signed design's
+/// (UI v0.1.13) centred event box wraps it: each a piece of what it `said` and a piece of
+/// its `link`, either empty. Its words break as an event's do (`wrap_event_line`); the
+/// link, an `inline-block` there, ends the last of them when it fits and otherwise starts a
+/// line of its own, breaking inside only when wider than a line.
 fn failure_pieces(said: &str, link: &str, w: usize) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = (wrap_event_line(said, w).into_iter())
         .map(|p| (p, String::new()))
@@ -938,10 +947,11 @@ fn failure_pieces(said: &str, link: &str, w: usize) -> Vec<(String, String)> {
     out
 }
 
-/// The width of the copy's event box (`.evt`) around a failure's line `line_w` wide and
-/// its open `text`: it fits the widest of them, each line of the text with all its spaces,
-/// as the copy's `pre-wrap` details size the box (trailing ones too, though a drawn line
-/// drops them), at most `ew`, the events' width, past which the text wraps.
+/// The width of the signed design's (UI v0.1.13) event box (`.evt`) around a failure's line
+/// `line_w` wide and its open `text`: it fits the widest of them, each line of the text
+/// with all its spaces, as the design's `pre-wrap` details size the box (trailing ones too,
+/// though a drawn line drops them), at most `ew`, the events' width, past which the text
+/// wraps.
 fn detail_box(text: &str, line_w: usize, ew: usize) -> usize {
     (text.split('\n'))
         .map(UnicodeWidthStr::width)
@@ -984,9 +994,9 @@ pub struct Ctx<'a> {
 }
 
 /// `spans`, a line of text, without the run of spaces and ideographic spaces (U+3000) ending
-/// it (`dropped`): the copy hangs such a run past a line's end, an ideographic space whether
-/// it fits or not, so it is blank and never counts toward where a centred or right-aligned
-/// line sits.
+/// it (`dropped`): the signed design (UI v0.1.13) hangs such a run past a line's end, an
+/// ideographic space whether it fits or not, so it is blank and never counts toward where a
+/// centred or right-aligned line sits.
 fn unhung(mut spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
     while let Some(last) = spans.last_mut() {
         let kept = last.content.trim_end_matches(dropped);
@@ -1172,7 +1182,8 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             let m = &msgs[*msg];
             let colour = Style::new().fg(people.colour(&m.author, depth));
             let lead_in = format!("↳ {}", m.author);
-            // Each line starts where the first does, as the copy's do.
+            // Each line starts where the first does, as the signed design's (UI v0.1.13)
+            // do.
             let mut s = match piece.strip_prefix(&lead_in).filter(|_| *first) {
                 Some(rest) => vec![
                     Span::styled(lead_in.clone(), colour),
@@ -1685,8 +1696,8 @@ mod tests {
         assert!(fit < 58, "{fit}");
     }
 
-    /// The copy's `.msg` fits its content: a message that wraps takes the widest a bubble
-    /// gets, on either side, and one that fits keeps its width.
+    /// The signed design's (UI v0.1.13) `.msg` fits its content: a message that wraps takes
+    /// the widest a bubble gets, on either side, and one that fits keeps its width.
     #[test]
     fn a_wrapped_message_takes_the_widest_bubble_and_one_that_fits_keeps_its_width() {
         let none = BTreeSet::new();
@@ -1719,11 +1730,13 @@ mod tests {
         // A URL is a block of its own: the text before it and the URL each fit.
         let url = "https://x.example/aaaa/bbbb/cccc/dddd/ee";
         assert_eq!(bw("dev-1", &format!("some words here {url}")), 43);
-        // A line the clip hides counts, as the copy's clipped body still measures it.
+        // A line the clip hides counts, as the signed design's (UI v0.1.13) clipped body
+        // still measures it.
         let clipped = format!("aa\nbb\ncc\ndd\nee\n{}", "d".repeat(30));
         assert_eq!(bw("dev-1", &clipped), 33);
-        // A run of U+3000 after an indent, with no word after it, counts as the copy's
-        // does (32ch of text): the bubble is as wide as for an indent and a word.
+        // A run of U+3000 after an indent, with no word after it, counts as the signed
+        // design's (UI v0.1.14) does (32ch of text): the bubble is as wide as for an indent
+        // and a word.
         let sp = " ".repeat(30);
         assert_eq!(bw("dev-1", &format!("hi\n{sp}\u{3000}\nyo")), 35);
         assert_eq!(bw("dev-1", &format!("hi\n{sp}ab\nyo")), 35);
@@ -1835,7 +1848,8 @@ mod tests {
             [pair("    one two", None), pair("three", None)]
         );
         // An indented word that fits a line of its own but not after the indent goes to the
-        // next line whole, leaving the indent alone on the first, as the copy does.
+        // next line whole, leaving the indent alone on the first, as the signed design
+        // (UI v0.1.13) does.
         let hash = "0123456789abcdef0123456789abcdef01234567";
         assert_eq!(
             wrap_message_line(&format!("    {hash} sha"), 40),
@@ -1860,9 +1874,9 @@ mod tests {
 
     #[test]
     fn an_indent_as_wide_as_the_text_hangs_on_a_blank_row_before_the_words() {
-        // The rows Chrome draws the copy's bubble with (`.seg .body`, `pre-wrap`): the
-        // indent hangs on a blank row and the words start the next at the text's column,
-        // breaking there as they would from any line's start.
+        // The rows Chrome draws the signed design's (UI v0.1.14) bubble with (`.seg .body`,
+        // `pre-wrap`): the indent hangs on a blank row and the words start the next at the
+        // text's column, breaking there as they would from any line's start.
         let texts = |text: &str, w: usize| -> Vec<String> {
             (message_pieces(text, w).into_iter())
                 .map(|p| p.text)
@@ -1971,7 +1985,8 @@ mod tests {
     #[test]
     fn a_lines_inner_runs_of_spaces_stay_and_a_break_drops_them() {
         let pair = |t: &str| (t.to_string(), None);
-        // A line aligned in columns keeps its runs of spaces, as the copy's pre-wrap body does.
+        // A line aligned in columns keeps its runs of spaces, as the signed design's
+        // (UI v0.1.13) pre-wrap body does.
         assert_eq!(
             wrap_message_line("phone    2 rows", 40),
             [pair("phone    2 rows")]
@@ -2021,8 +2036,8 @@ mod tests {
     #[test]
     fn a_word_too_wide_for_any_line_starts_on_a_line_of_its_own() {
         let pair = |t: &str| (t.to_string(), None);
-        // After one space, as the copy's `overflow-wrap: anywhere` body breaks there first;
-        // the word then breaks where each line ends.
+        // After one space, as the signed design's (UI v0.1.13) `overflow-wrap: anywhere`
+        // body breaks there first; the word then breaks where each line ends.
         assert_eq!(
             wrap_message_line("ab abcdefghij", 8),
             [pair("ab"), pair("abcdefgh"), pair("ij")]
@@ -2047,8 +2062,8 @@ mod tests {
             wrap_message_line("abcdefghij", 8),
             [pair("abcdefgh"), pair("ij")]
         );
-        // A path still starts where the line is and breaks after a `/`, as the copy's path
-        // does.
+        // A path still starts where the line is and breaks after a `/`, as the signed
+        // design's (UI v0.1.13) path does.
         assert_eq!(
             wrap_message_line("ab assets/icons/bookmarks/outline", 12),
             [
@@ -2071,7 +2086,8 @@ mod tests {
                 .collect()
         };
         // A word with a `-` starts where the line is and breaks after it, as Chrome breaks
-        // the copy's body; a piece that then does not fit goes to the next line.
+        // the signed design's (UI v0.1.13) body; a piece that then does not fit goes to the
+        // next line.
         assert_eq!(wrapped("ab abc-def", 8), ["ab abc-", "def"]);
         assert_eq!(wrapped("ab abc-def", 6), ["ab", "abc-", "def"]);
         assert_eq!(
@@ -2139,7 +2155,8 @@ mod tests {
         assert_eq!(wrapped("ab -éabcdefg", 8), ["ab", "-éabcdef", "g"]);
         assert_eq!(wrapped("ab -½00000", 9), ["ab", "-½00000"]);
         // A word with breaks starts after a line's indent only when its first piece fits
-        // there; else the indent keeps its line, as the copy's does, and so does a path's.
+        // there; else the indent keeps its line, as the signed design's (UI v0.1.13) does,
+        // and so does a path's.
         assert_eq!(wrapped("    ab-cdefgh", 8), ["    ab-", "cdefgh"]);
         let indent = " ".repeat(38);
         assert_eq!(
@@ -2181,7 +2198,8 @@ mod tests {
                 .collect()
         };
         // A word with a `?` starts where the line is and breaks after it, as Chrome breaks
-        // the copy's body; a piece that then does not fit goes to the next line.
+        // the signed design's (UI v0.1.13) body; a piece that then does not fit goes to the
+        // next line.
         assert_eq!(wrapped("ab abc?defg", 8), ["ab abc?", "defg"]);
         assert_eq!(wrapped("ab abc?defg", 6), ["ab", "abc?", "defg"]);
         assert_eq!(wrapped("ab what?why", 8), ["ab what?", "why"]);
@@ -2292,8 +2310,9 @@ mod tests {
                 })
                 .collect()
         };
-        // Before a `(`, `[`, `{` or `<` after a punctuation mark, as Chrome breaks the copy's
-        // body; a piece that then does not fit goes to the next line.
+        // Before a `(`, `[`, `{` or `<` after a punctuation mark, as Chrome breaks the
+        // signed design's (UI v0.1.13) body; a piece that then does not fit goes to the
+        // next line.
         assert_eq!(wrapped("ab abc!(defg)", 8), ["ab abc!", "(defg)"]);
         assert_eq!(wrapped("ab abc.(defg)", 8), ["ab abc.", "(defg)"]);
         assert_eq!(wrapped("ab abc,[defg]", 8), ["ab abc,", "[defg]"]);
@@ -2323,8 +2342,8 @@ mod tests {
                 })
                 .collect()
         };
-        // Between two ideographs, after a run of spaces or one, as Chrome breaks the copy's
-        // body.
+        // Between two ideographs, after a run of spaces or one, as Chrome breaks the signed
+        // design's (UI v0.1.13) body.
         assert_eq!(wrapped("ab  中文字", 6), ["ab  中", "文字"]);
         assert_eq!(wrapped("ab 中文字", 6), ["ab 中", "文字"]);
         // A run too wide for any line fills the line it starts on.
@@ -2402,8 +2421,9 @@ mod tests {
                 })
                 .collect()
         };
-        // The copy marks only the path inside the word, so the text before and after it
-        // breaks between its characters, and never before a closing mark.
+        // The signed design (UI v0.1.13) marks only the path inside the word, so the text
+        // before and after it breaks between its characters, and never before a closing
+        // mark.
         assert_eq!(
             wrapped(
                 "ログは/var/log/tower/output.logに書いてあるので原因を調べます。明日また報告します。",
@@ -2427,7 +2447,8 @@ mod tests {
                 "果。"
             ]
         );
-        // A path under 16 characters is no path to the copy: it does not break after a `/`.
+        // A path under 16 characters is no path to the signed design (UI v0.1.13): it does
+        // not break after a `/`.
         assert_eq!(
             wrapped(
                 "テストはsrc/ui/chat.rsに追加しました。レビューをお願いします。",
@@ -2539,8 +2560,8 @@ mod tests {
         let rows = drawn(&m, 30, 120, People::default());
         let at = rows.iter().position(|r| r.contains("↳ senior")).unwrap();
         let ack: Vec<&str> = rows[at..].iter().map(|r| r.trim()).collect();
-        // Headless Chrome on the copy's `.ack` 23 wide, as under a bubble 25 wide here: each
-        // line filled, and each starting where the first does.
+        // Headless Chrome on the signed design's (UI v0.1.13) `.ack` 23 wide, as under a
+        // bubble 25 wide here: each line filled, and each starting where the first does.
         assert_eq!(
             ack,
             [
@@ -2555,10 +2576,11 @@ mod tests {
 
     #[test]
     fn an_ack_fills_each_line_and_lays_its_age_out_after_its_last_word_as_the_copy_does() {
-        // Headless Chrome on the copy's `.ack`, `· age` inline after the text: the words fill
-        // each line to the ack's width; ` · age` follows the last word where it fits, else
-        // `·` ends that line where it fits and the age starts the next, else `· age` does.
-        // Each line of `ack` as (its first column, its last column + 1, its text).
+        // Headless Chrome on the signed design's (UI v0.1.13) `.ack`, `· age` inline after
+        // the text: the words fill each line to the ack's width; ` · age` follows the last
+        // word where it fits, else `·` ends that line where it fits and the age starts the
+        // next, else `· age` does. Each line of `ack` as (its first column, its last column
+        // + 1, its text).
         let ack = |w: usize, bubble: &str, text: &str, now: i64| -> Vec<(usize, usize, String)> {
             let m = msgs(&[(bubble, "Report", 0), ("qa", text, 0)]);
             let rows = drawn(&m, w, now, People::default());
@@ -2608,9 +2630,10 @@ mod tests {
 
     #[test]
     fn an_acks_age_after_a_word_too_wide_for_a_line_starts_the_next_line() {
-        // Headless Chrome on the copy's `.ack`: a word too wide for a line overflows it and
-        // "· 8m" starts the next line, while a last word that fits keeps it ("ok · 8m").
-        // Under a bubble 25 wide, in a chat of 30, an ack's lines are 23 wide; the hash is 25.
+        // Headless Chrome on the signed design's (UI v0.1.13) `.ack`: a word too wide for a
+        // line overflows it and "· 8m" starts the next line, while a last word that fits
+        // keeps it ("ok · 8m"). Under a bubble 25 wide, in a chat of 30, an ack's lines are
+        // 23 wide; the hash is 25.
         let ack = |text: &str| -> Vec<String> {
             let m = msgs(&[("dev-1", "Report", 0), ("qa", text, 0)]);
             let rows = drawn(&m, 30, 8 * 60, People::default());
@@ -2769,9 +2792,9 @@ mod tests {
     #[test]
     fn a_first_lines_tag_after_an_indent_wider_than_the_bubble_stays_plain() {
         // At chat 40 an indent of 44 spaces is wider than the bubble's text, so it hangs on
-        // a blank row and the next piece starts with the tag. The copy tones the raw text,
-        // which starts with spaces: both draw plain, as the name lines show no tag. The
-        // control, with no indent, is toned.
+        // a blank row and the next piece starts with the tag. The signed design
+        // (UI v0.1.14) tones the raw text, which starts with spaces: both draw plain, as
+        // the name lines show no tag. The control, with no indent, is toned.
         let indent = " ".repeat(44);
         let m = msgs(&[
             (
@@ -2889,8 +2912,9 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // As the copy's pre-wrap details: each line's indent and runs stay, and a line that
-        // breaks at a run drops it, so the next line starts with its word.
+        // As the signed design's (UI v0.1.13) pre-wrap details: each line's indent and runs
+        // stay, and a line that breaks at a run drops it, so the next line starts with its
+        // word.
         assert_eq!(
             got,
             [
@@ -2941,9 +2965,9 @@ mod tests {
         assert_eq!((start(&line), details.len()), (33, 1));
         assert_eq!(start(&details[0]), 33);
         assert_eq!(details[0].trim(), "@manager could not deliver to qa-1: x");
-        // A line's trailing spaces widen the box, as the copy's pre-wrap shrink-to-fit counts
-        // them: 41 columns and 20 spaces make it 61 wide (22.0 in headless Chrome), though the
-        // drawn line drops them.
+        // A line's trailing spaces widen the box, as the signed design's (UI v0.1.13)
+        // pre-wrap shrink-to-fit counts them: 41 columns and 20 spaces make it 61 wide
+        // (22.0 in headless Chrome), though the drawn line drops them.
         let text = format!(
             "@manager could not deliver to qa-1: gone.{}\n- exit 1",
             " ".repeat(20)
@@ -3024,9 +3048,9 @@ mod tests {
 
     #[test]
     fn an_ideographic_space_ending_a_line_never_moves_a_centred_or_right_aligned_line() {
-        // As headless Chrome draws the copy's `.evt` and an owner's `.ack`, a U+3000 two
-        // columns wide: one ending a line hangs past its end whether it fits or not, so the
-        // line sits where the text before it alone would.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.evt` and an owner's
+        // `.ack`, a U+3000 two columns wide: one ending a line hangs past its end whether
+        // it fits or not, so the line sits where the text before it alone would.
         let none = BTreeSet::new();
         let drawn_rows = |m: &[Message], w: usize, keep: fn(&Row) -> bool| -> Vec<String> {
             let rows = plan(m, 0, w, shape(&none, 120, People::default()));
@@ -3105,12 +3129,12 @@ mod tests {
 
     #[test]
     fn an_ack_starts_its_next_line_with_the_run_of_ideographic_spaces_it_carries() {
-        // As headless Chrome draws the copy's `.ack` 36 wide: a word that is only a U+3000,
-        // after a space, does not end the first line, but starts the next with the word
-        // after it, under the owner's bubble (at the right, each line ending at the edge)
-        // and under anyone else's (at the left). Chrome's lines: "↳ dev-7: ok ab あああああ
-        // ああああ" / "　 いいいい · 1m". The bubble 38 wide in a chat of 45, its ack's
-        // lines 36.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.ack` 36 wide: a word
+        // that is only a U+3000, after a space, does not end the first line, but starts the
+        // next with the word after it, under the owner's bubble (at the right, each line
+        // ending at the edge) and under anyone else's (at the left). Chrome's lines: "↳
+        // dev-7: ok ab あああああ ああああ" / "　 いいいい · 1m". The bubble 38 wide in a chat of 45, its
+        // ack's lines 36.
         let none = BTreeSet::new();
         let text = "ok ab あああああああああ 　 いいいい";
         for (author, owner) in [("manager", true), ("qa-2", false)] {
@@ -3161,9 +3185,10 @@ mod tests {
 
     #[test]
     fn an_events_or_an_acks_word_too_wide_for_a_line_ends_its_last_line() {
-        // The copy's `.evt` and `.ack` leave `overflow-wrap` normal: Chrome lets a word too
-        // wide for a line overflow it and starts what follows on the next line. Here the
-        // word breaks where its lines end, and the next word starts a line of its own.
+        // The signed design's (UI v0.1.13) `.evt` and `.ack` leave `overflow-wrap` normal:
+        // Chrome lets a word too wide for a line overflow it and starts what follows on the
+        // next line. Here the word breaks where its lines end, and the next word starts a
+        // line of its own.
         let none = BTreeSet::new();
         let rows = |m: &[Message], w: usize| plan(m, 0, w, shape(&none, 60, People::default()));
         let events = |m: &[Message], w: usize| -> Vec<String> {
@@ -3213,8 +3238,9 @@ mod tests {
                      the board.";
         let hashed = "@manager could not deliver to a1b2c3d4e5f6a7b8c9d0e1f2: gone. Its posts \
                       stay on the board.";
-        // Where headless Chrome breaks the copy's `.evt` line in a box `ew` ch wide: its words
-        // as an event's, and its link whole, ending the last line when it fits there.
+        // Where headless Chrome breaks the signed design's (UI v0.1.13) `.evt` line in a
+        // box `ew` ch wide: its words as an event's, and its link whole, ending the last
+        // line when it fits there.
         let cases: [(&str, bool, usize, &[&str]); 12] = [
             (
                 failed,
@@ -3317,7 +3343,8 @@ mod tests {
             let got = failure_lines(text, open, ew);
             let said: Vec<&str> = got.iter().map(|(_, l)| l.as_str()).collect();
             assert_eq!(said, want, "{ew} wide, open {open}");
-            // Each line centred in the chat, as the copy's `text-align: center` puts it.
+            // Each line centred in the chat, as the signed design's (UI v0.1.13)
+            // `text-align: center` puts it.
             for (at, l) in &got {
                 assert_eq!(*at, (ew + 4 - l.width()) / 2, "{l:?}, {ew} wide");
             }
