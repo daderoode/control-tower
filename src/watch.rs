@@ -1608,8 +1608,12 @@ mod tests {
         );
         let long = format!("{} tail", "word ".repeat(60));
         let cut = asks(Some(&long)).unwrap();
-        assert_eq!(cut.chars().count(), ASKS_CHARS - 3 - 1 + 3, "{cut}");
-        assert!(cut.ends_with("word..."), "{cut}");
+        assert_eq!(cut.chars().count(), ASKS_CHARS, "{cut}");
+        assert!(
+            cut.starts_with("word word") && cut.ends_with("..."),
+            "{cut}"
+        );
+        assert!(!cut.contains("tail"), "{cut}");
         assert_eq!(asks(Some(" \u{7}\n ")), None);
         assert_eq!(asks(None), None);
     }
