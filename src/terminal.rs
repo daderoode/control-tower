@@ -2,14 +2,17 @@
 //! dashboard's `n`) reaches the terminal its workers run in. The core asks it for the live
 //! workers (`agents`), has it deliver a text to one by name (`prompt`), and has it open a
 //! new place for a lead (`start_lead`, undone by `undo`); its display name names the
-//! terminal in the core's texts and logs. A module is built in: `module` gives the one
-//! this build has, herdr (`herdr`), so another slots in here without touching the core.
+//! terminal in the core's texts and logs. A module is built in: `module` gives the one the
+//! watch's look uses, Rex (`rex`), so another slots in here without touching the core.
+//! Until #111 and #112 build Rex's prompt and lead start, delivery and the dashboard's `n`
+//! still reach herdr (`herdr`, `herdr_module`), which #114 removes.
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
 //! blocked kind where the terminal gives it). A value the core does not know is
 //! `Status::Unknown`: present, with nothing to judge by.
 
 pub mod herdr;
+pub mod rex;
 
 use std::ffi::OsStr;
 use std::fmt;
@@ -73,6 +76,9 @@ impl Status {
 pub struct Agent {
     pub name: String,
     pub status: Status,
+    /// The one line the terminal shows with its status, where it gives one: for a blocked
+    /// worker, what it is asked. Text from the worker's program, shown as plain text.
+    pub msg: Option<String>,
 }
 
 /// Why the terminal's workers could not be listed.
@@ -140,12 +146,77 @@ pub trait Terminal: Send + Sync {
     fn undo(&self, db: &Path, handle: &Handle) -> Result<String>;
 }
 
-/// The built-in terminal module, its executable at `exe`.
-pub fn module(exe: PathBuf) -> Arc<dyn Terminal> {
-    Arc::new(herdr::Herdr::new(exe))
+/// The built-in terminal module, Rex, its executable at `rex`, asking `claude` (`claude
+/// agents --json`) for the names of the Claude sessions it finds.
+pub fn module(rex: PathBuf, claude: PathBuf) -> Arc<dyn Terminal> {
+    Arc::new(rex::Rex::new(rex, claude))
 }
 
 /// The built-in module's executable as the environment names it.
 pub fn exe_from_env() -> PathBuf {
-    herdr::path()
+    rex::path()
+}
+
+/// herdr as a terminal module, its executable at `exe`: what delivery and the dashboard's
+/// `n` use until #111 and #112 build them on Rex.
+pub fn herdr_module(exe: PathBuf) -> Arc<dyn Terminal> {
+    Arc::new(herdr::Herdr::new(exe))
+}
+
+/// How long one terminal command may take before it is stopped, unless a caller has its
+/// own limit (`terminal_timeout`).
+#[cfg(not(test))]
+const TERMINAL_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long one terminal command may take before it is stopped: `TERMINAL_TIMEOUT`, but in
+/// unit tests `TEST_WAIT`. A fake terminal answers in milliseconds, but its first run can
+/// stall for seconds on a busy machine, and those tests check what it answered, not how
+/// fast.
+#[cfg(test)]
+pub(crate) fn terminal_timeout() -> Duration {
+    crate::watch::TEST_WAIT
+}
+
+/// How long one terminal command may take before it is stopped: `TERMINAL_TIMEOUT`.
+///
+/// Test knob, debug builds only: `TOWER_TERMINAL_TIMEOUT`, in whole seconds, replaces it,
+/// so the integration tests, which run this binary against a fake terminal whose first run
+/// can stall on a busy machine, wait longer; the repo's `.cargo/config.toml` sets it. A
+/// value that is not whole seconds panics, naming it. A release build (brew) never reads it.
+#[cfg(not(test))]
+pub(crate) fn terminal_timeout() -> Duration {
+    if cfg!(debug_assertions)
+        && let Some(v) = std::env::var_os("TOWER_TERMINAL_TIMEOUT")
+    {
+        let secs = (v.to_str().and_then(|v| v.parse().ok()))
+            .unwrap_or_else(|| panic!("TOWER_TERMINAL_TIMEOUT must be whole seconds, not {v:?}"));
+        return Duration::from_secs(secs);
+    }
+    TERMINAL_TIMEOUT
+}
+
+/// Where an executable (rex, herdr, claude) runs from: a name with a `/` as it is, else the
+/// first executable file by that name in `path` (a PATH value). `None` when there is none.
+pub fn find_exe(exe: &Path, path: Option<&OsStr>) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let runnable = |p: &Path| {
+        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if exe.components().count() > 1 {
+        return runnable(exe).then(|| exe.to_path_buf());
+    }
+    std::env::split_paths(path?)
+        .map(|dir| dir.join(exe))
+        .find(|p| runnable(p))
+}
+
+/// "`name` not found: tried ...", naming exactly what `find_exe` tried for `exe`.
+pub(crate) fn not_found(name: &str, exe: &Path, path: Option<&OsStr>) -> String {
+    let tried = if exe.components().count() > 1 {
+        exe.display().to_string()
+    } else {
+        let path = path.map_or("(no PATH)".into(), |p| p.to_string_lossy().into_owned());
+        format!("{} on PATH {path}", exe.display())
+    };
+    format!("{name} not found: tried {tried}")
 }

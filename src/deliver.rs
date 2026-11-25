@@ -455,7 +455,7 @@ impl Deliver {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let waits = self.stop.load(Ordering::Relaxed) || remaining.is_zero();
             if !waits && agents.is_none() {
-                let timeout = remaining.min(crate::watch::terminal_timeout());
+                let timeout = remaining.min(crate::terminal::terminal_timeout());
                 let listed = self.terminal.agents(&self.db, timeout);
                 agents = Some(
                     (listed.map(|a| a.into_iter().map(|a| a.name).collect()))
@@ -487,7 +487,7 @@ impl Deliver {
                     let sent = if listed {
                         let timeout = deadline
                             .saturating_duration_since(Instant::now())
-                            .min(crate::watch::terminal_timeout())
+                            .min(crate::terminal::terminal_timeout())
                             .max(Duration::from_millis(100));
                         let text = worker_text(&posts);
                         self.terminal.prompt(&self.db, name, &text, timeout)
@@ -878,7 +878,7 @@ mod tests {
             // A round waits for the fake as long as a test waits for anything.
             let deliver = Deliver {
                 budget: TEST_WAIT,
-                ..Deliver::new(&db, crate::terminal::module(herdr), Arc::default())
+                ..Deliver::new(&db, crate::terminal::herdr_module(herdr), Arc::default())
             };
             let f = Fixture { deliver, dir, db };
             // The lead's opening post goes to the assignee; tests start after it.

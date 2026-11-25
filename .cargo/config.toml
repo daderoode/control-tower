@@ -1,8 +1,8 @@
-# Test knob: how long a debug tower waits for herdr, in seconds, instead of 15. Read
-# only by debug builds (watch::herdr_timeout); a release build, so brew, never reads it,
-# and so `cargo test --release` keeps the 15 s too.
+# Test knob: how long a debug tower waits for its terminal (rex, herdr), in seconds,
+# instead of 15. Read only by debug builds (terminal::terminal_timeout); a release build,
+# so brew, never reads it, and so `cargo test --release` keeps the 15 s too.
 # Every process cargo starts here gets it: test binaries, the tower processes they start,
-# and a debug `cargo run`, which therefore also waits up to 60 s for herdr (accepted).
-# A fake herdr answers at once, but its first run can stall for seconds on a busy machine.
+# and a debug `cargo run`, which therefore also waits up to 60 s for its terminal (accepted).
+# A fake terminal answers at once, but its first run can stall for seconds on a busy machine.
 [env]
-TOWER_HERDR_TIMEOUT = "60"
+TOWER_TERMINAL_TIMEOUT = "60"

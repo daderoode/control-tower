@@ -250,7 +250,7 @@ fn input_loop(
                 writes.fold.push(writer::spawn(path, fold));
             }
             Some(Request::StartLead { line, repo }) => {
-                let terminal = crate::terminal::exe_from_env();
+                let terminal = crate::terminal::herdr::path();
                 let start = Write::start_lead_from_env(line, repo, terminal, std::env::var_os);
                 writes.start = Some(writer::spawn(path, start))
             }

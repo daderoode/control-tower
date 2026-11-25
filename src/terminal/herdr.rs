@@ -12,9 +12,9 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use super::{Agent, Handle, LeadStart, Sent, Status, Terminal, Unread};
+use super::{find_exe, not_found, terminal_timeout};
 use crate::ui::runner::{Outcome, Run, run_now};
 use crate::ui::writer::sh_quote;
-use crate::watch::{find_exe, not_found, terminal_timeout};
 
 /// The herdr executable: `TOWER_HERDR` if set, else `herdr` on the PATH.
 pub fn path() -> PathBuf {
@@ -71,6 +71,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Agent>> {
             Some(Agent {
                 name: a.name?,
                 status: Status::of(&a.agent_status, None),
+                msg: None,
             })
         })
         .collect())
@@ -295,11 +296,13 @@ mod tests {
             [
                 Agent {
                     name: "dev-1".into(),
-                    status: Status::Idle
+                    status: Status::Idle,
+                    msg: None
                 },
                 Agent {
                     name: "qa".into(),
-                    status: Status::Unknown
+                    status: Status::Unknown,
+                    msg: None
                 }
             ]
         );

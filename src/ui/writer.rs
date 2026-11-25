@@ -137,7 +137,7 @@ fn make(path: &Path, write: &Write) -> Result<String> {
                 home,
                 tower_db: own_board.then_some(path),
             };
-            let terminal = crate::terminal::module(terminal.clone());
+            let terminal = crate::terminal::herdr_module(terminal.clone());
             start_lead(&mut store, path, &*terminal, line, at)?
         }
     })
@@ -585,7 +585,7 @@ mod tests {
 
     /// The terminal module over the fake herdr at `exe`.
     fn herdr(exe: &Path) -> std::sync::Arc<dyn Terminal> {
-        crate::terminal::module(exe.to_path_buf())
+        crate::terminal::herdr_module(exe.to_path_buf())
     }
 
     fn calls(dir: &Path) -> Vec<String> {

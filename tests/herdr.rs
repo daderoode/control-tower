@@ -35,9 +35,11 @@ struct Herdr {
 
 impl Herdr {
     fn start() -> Herdr {
-        let exe =
-            control_tower::watch::find_exe(Path::new("herdr"), std::env::var_os("PATH").as_deref())
-                .expect("herdr is not on PATH; this test needs it");
+        let exe = control_tower::terminal::find_exe(
+            Path::new("herdr"),
+            std::env::var_os("PATH").as_deref(),
+        )
+        .expect("herdr is not on PATH; this test needs it");
         let session = format!("ct{}", std::process::id());
         let dir = PathBuf::from(format!("/tmp/{session}"));
         let _ = std::fs::remove_dir_all(&dir);

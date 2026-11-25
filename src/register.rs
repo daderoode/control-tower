@@ -448,11 +448,11 @@ pub fn register_skill(
         );
     }
     let path = std::env::var_os("PATH");
-    if crate::watch::find_exe(exe, path.as_deref()).is_none() {
+    if crate::terminal::find_exe(exe, path.as_deref()).is_none() {
         bail!(
             "{}; link it into Homebrew's bin (ln -s <its path> \"$(brew --prefix)/bin/claude\") \
              and run brew services restart control-tower",
-            crate::watch::not_found("claude", exe, path.as_deref())
+            crate::terminal::not_found("claude", exe, path.as_deref())
         );
     }
     let dir = brew

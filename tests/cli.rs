@@ -1892,6 +1892,9 @@ fn watch_starts_orphans_no_one_on_its_first_look_and_stops_cleanly_on_sigterm() 
         &herdr,
         "#!/bin/sh\necho '{\"result\":{\"agents\":[],\"type\":\"agent_list\"}}'\n",
     );
+    // A Rex with no sessions: the watch's look never reaches a real rex (REX_BIN_DIR).
+    let rex = dir.path().join("rex");
+    test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
     /// Kills the watch if the test fails before it stops, so none is left running.
     struct Reap(std::process::Child);
     impl Drop for Reap {
@@ -1905,6 +1908,7 @@ fn watch_starts_orphans_no_one_on_its_first_look_and_stops_cleanly_on_sigterm() 
             .arg("watch")
             .env("TOWER_DB", &db)
             .env("TOWER_HERDR", &herdr)
+            .env("TOWER_REX", &rex)
             .stderr(Stdio::piped())
             .spawn()
             .unwrap(),
@@ -1925,7 +1929,7 @@ fn watch_starts_orphans_no_one_on_its_first_look_and_stops_cleanly_on_sigterm() 
     assert!(killed.success());
     assert!(next().ends_with("tower watch: stopped"));
     assert!(child.wait().unwrap().success());
-    // dev-9 is missing from herdr, but for one look only: orphaned takes three.
+    // dev-9 is missing from Rex, but for one look only: orphaned takes three.
     let mut store = Store::open(&db).unwrap();
     assert!(store.flags().unwrap().is_empty());
     assert!(store.load().unwrap().milestones[0].threads.is_empty());
@@ -1947,6 +1951,9 @@ fn watch_restarts_itself_when_its_path_is_repointed_to_another_binary() {
         &herdr,
         "#!/bin/sh\necho '{\"result\":{\"agents\":[],\"type\":\"agent_list\"}}'\n",
     );
+    // A Rex with no sessions: the watch's look never reaches a real rex (REX_BIN_DIR).
+    let rex = dir.path().join("rex");
+    test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
     // Two installed versions and an opt link, as brew lays them out.
     let (old, new) = (dir.path().join("0.1.1"), dir.path().join("0.1.2"));
     for v in [&old, &new] {
@@ -1967,6 +1974,7 @@ fn watch_restarts_itself_when_its_path_is_repointed_to_another_binary() {
             .arg("watch")
             .env("TOWER_DB", &db)
             .env("TOWER_HERDR", &herdr)
+            .env("TOWER_REX", &rex)
             .env("HOME", dir.path())
             .stderr(Stdio::piped())
             .spawn()

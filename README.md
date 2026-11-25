@@ -601,16 +601,30 @@ Modules on the roadmap (such as notifications) enhance this later.
     tower watch
 
 `tower watch` spots stuck workers by fixed rules. Installed by brew it runs as a
-background service (see "Install"), so it keeps going whether the dashboard or herdr is
-open or not: every 20 seconds it reads the board and herdr's live agents (`herdr agent
-list`), logs one line per action to stderr, and stops cleanly on SIGTERM or Ctrl-C. When
-herdr is not running it skips the look, says so, and looks again 20 seconds later.
-`TOWER_HERDR` names the herdr executable (default `herdr` on the PATH). The watch sees one
-herdr session, the one its `herdr` talks to.
+background service (see "Install"), so it keeps going whether the dashboard or the
+terminal is open or not: every 20 seconds it reads the board and the terminal's live
+workers, logs one line per action to stderr, and stops cleanly on SIGTERM or Ctrl-C.
 
-A worker is linked to its herdr agent by name: **a task's assignee is the herdr agent name
-of the worker on it** (compared ignoring case; name agents with `herdr agent start <name>`
-or `herdr agent rename`). Only assigned tasks under a milestone with a lead, not Done, are
+The terminal is Rex, reached through its one module (the terminal module). A look lists
+every session on the local Rex server and every block in each, and asks each terminal
+block for its program status, reading only the root record (a session's background shells
+and subagents report as child records, so a worker waiting on a background job reads as
+what it is). A block whose root record is Claude Code's, with the process that reported
+it, is joined by that process id to `claude agents --json`: the worker's name is that
+Claude session's name and its status the record's state (`idle`, `working`, `done`,
+`blocked` with what it waits on). Blocks running no Claude, and Claude sessions Claude
+does not list, are no one; a state the watch does not know is unknown, never idle. The
+look has a 15 second limit, and one call that fails (Rex not running, a block that cannot
+be read, `claude` failing) skips the whole look, says so, and looks again 20 seconds
+later: a Rex half read never reads as workers gone. The watch never starts a Rex server.
+`TOWER_REX` names the rex executable, else `rex` in `$REX_BIN_DIR` (where Rex keeps it),
+else `rex` on the PATH; `TOWER_CLAUDE` names `claude`. When rex cannot be found the log
+says once what it tried and how to link it into Homebrew's bin. Until #111, nudges go
+through Rex and are recorded as refused, and delivery still goes through herdr.
+
+A worker is linked to its live Claude session in Rex by name: **a task's assignee is the
+Claude session name of the worker on it** (compared ignoring case; the lead names it with
+`claude -n <name>`). Only assigned tasks under a milestone with a lead, not Done, are
 watched, since every flag is a message on that lead's board, posted by `system` in the
 task's open thread (its newest), or in a new "Watch on #N" thread linked to it.
 
@@ -625,34 +639,36 @@ the prompt or that team, so one prompt is one need-you item. A worker that has n
 posted on a task nor been named there is on no team, and is not seen; nor is the team of an
 unassigned task.
 
-- **Waiting on a prompt** (herdr shows any member of the team blocked): a message starting
-  `question: @manager` at once, naming that member, so it is a need-you item in the inbox and
-  on the alert line; two members waiting are two items. When the member leaves the prompt, a
+- **Waiting on a prompt** (Rex shows any member of the team blocked: at a permission,
+  question or credential prompt): a message starting `question: @manager` at once, naming
+  that member and quoting what the prompt asks when Claude Code says ("It asks: approve
+  Bash: ...", on one line, at most 200 characters), so it is a need-you item in the inbox
+  and on the alert line; two members waiting are two items. When the member leaves the prompt, a
   plain note says "qa-2's prompt was answered."; the need-you item itself stays until the
   owner clears it or its thread is resolved, as every need-you item does. The signals below are the assignee's alone.
 - **Says it is stuck** (its own `blocked:` post): nothing for the watch.
 - **Stopped without reporting** (the assignee idle or done, no post for 5 min) and **silent
   while working** (task in progress, assignee working, no post for 30 min): the worker is
-  nudged with `herdr agent prompt`, "no post on #N for M min, post your status", and the
-  nudge is recorded as a plain message, "nudged dev-1: ...", saying so if herdr refused
+  nudged through the terminal, "no post on #N for M min, post your status", and the
+  nudge is recorded as a plain message, "nudged dev-1: ...", saying so if Rex refused
   delivery; with no post 2 minutes later, a message tells the lead. A task flagged blocked
   is never nudged: its worker already said it is stuck, and the lead owns it.
-- **Orphaned** (task in progress, no live herdr agent by its assignee's name for three
-  looks in a row): a message to the lead, ending with how to clear it ("if it was closed:
-  tower task unassign N, or set the next worker"). An empty agent list (herdr restarting,
-  or the wrong session) orphans no one.
+- **Orphaned** (task in progress, no live Claude session in Rex by its assignee's name for
+  three looks in a row): a message to the lead, saying it is "gone from Rex" and ending
+  with how to clear it ("if it was closed: tower task unassign N, or set the next
+  worker"). An empty list of workers (Rex restarting, or no team running) orphans no one.
 
 A post is any message in the task's threads but the watch's own; a task with none counts
 from when the watch first saw it with that assignee, kept on the board so a restart does
-not reset it. herdr keeps live agent names unique, so several matches can differ only by
-case; the first herdr lists is used. Changing a task's assignee ends the old assignee's
+not reset it. When several workers match a name ignoring case, the first Rex lists is
+used. Changing a task's assignee ends the old assignee's
 nudge and orphan episodes and starts the clock afresh; a prompt goes on while the old
-assignee is still on the team. Renaming a worker's herdr agent away from the assignee makes
-it look gone (orphaned after three looks), so rename the assignee with it. Each flag is
+assignee is still on the team. Renaming a worker's Claude session away from the assignee
+makes it look gone (orphaned after three looks), so rename the assignee with it. Each flag is
 raised once, and again only after its episode ends (the prompt answered or the member off
 the team, a post after the nudge, the worker back, the task Done, or for a nudge or orphan
-flag, reassigned). If herdr cannot be read, the watch skips that look and says so,
-rather than taking every worker for gone. `system` messages show their author in slate
+flag, reassigned). If Rex cannot be read, the watch skips that look and says so, rather
+than taking every worker for gone. `system` messages show their author in slate
 grey, a colour no role or lead has; no one else can post as `system`.
 
 A board written by an older `tower` is upgraded by `tower upgrade` (or by any other
@@ -868,11 +884,13 @@ only; on an Intel Mac `brew install` refuses with Homebrew's own message.
 `brew install` puts `tower` on your PATH and writes the herdr plugin `control-tower` to
 `$(brew --prefix)/var/control-tower`, where it runs the installed `tower`. `brew services
 start` runs the stuck-worker watch, `tower watch`, as a launchd service: it starts at login,
-restarts if it stops, finds herdr on the Homebrew PATH and logs to
-`$(brew --prefix)/var/log/control-tower.log`. No herdr tab is needed for it. If herdr is
-installed outside Homebrew's PATH, the log says once which path it tried: link it into
-Homebrew's bin (`ln -s /path/to/herdr "$(brew --prefix)/bin/herdr"`) and run `brew
-services restart control-tower`. A watch run by hand takes herdr's full path in
+restarts if it stops, finds rex and herdr on the Homebrew PATH and logs to
+`$(brew --prefix)/var/log/control-tower.log`. No terminal tab is needed for it. Rex keeps
+`rex` in `$REX_BIN_DIR`, not on the PATH, so the log says once which path it tried: link
+it into Homebrew's bin (`ln -s "$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with
+`REX_BIN_DIR` as a Rex tab has it) and run `brew services restart control-tower`. The same
+goes for herdr installed outside Homebrew's PATH (`ln -s /path/to/herdr "$(brew
+--prefix)/bin/herdr"`). A watch run by hand takes their full paths in `TOWER_REX` and
 `TOWER_HERDR`.
 
 The plugin links itself: when herdr has no plugin `control-tower`, the watch (or `tower ui`)
