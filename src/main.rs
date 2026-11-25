@@ -254,7 +254,11 @@ enum LeadCommand {
     },
     /// The lead's Claude Code hooks (run by the control-tower plugin, not by hand): reads
     /// the hook's JSON on stdin. Stop: for the session a lead attached, blocks the end of
-    /// its turn while posts on its board are unread, naming them. SessionStart: a session
+    /// its turn while posts on its board are unread, naming them, and counts a turn it lets
+    /// end with no board waiter running (not one it holds), for the watch's "Lead not
+    /// listening" check. StopFailure: a turn of that session that ended on an API error is
+    /// counted the same way, never told and nothing printed; a turn the user interrupts
+    /// runs no hook and is not counted. SessionStart: a session
     /// named as a lead's registered session is attached again (as tower lead attach would)
     /// and told how to resume leading. Any other session passes.
     Hook,
