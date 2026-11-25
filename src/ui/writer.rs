@@ -144,7 +144,8 @@ fn make(path: &Path, write: &Write) -> Result<String> {
 const NAME_MAX: usize = 40;
 
 /// The name of the lead the dashboard starts for milestone `m`: on the repo named `repo`
-/// (`Repo::name`), that name plus "-lead" (`checkpoint-lead`); in no repo yet, or when the
+/// (`Repo::name`), that name plus "-lead" (`checkpoint-lead`, once for a repo whose name
+/// already ends in it); in no repo yet, or when the
 /// repo's name has no ASCII letter or digit, `m` plus "-lead" (`m4-lead`). Lowercase ASCII
 /// letters and digits only, each run of anything else one "-", none at either end, at most
 /// `NAME_MAX` long: so no command takes it for an option, a mention (`@checkpoint-lead`)
@@ -159,6 +160,10 @@ pub fn lead_name(repo: Option<&str>, m: MilestoneId) -> String {
             .to_ascii_lowercase()
     };
     let mut name = repo.map(words).unwrap_or_default();
+    // A repo named like its lead (`checkpoint-lead`) gets "-lead" once.
+    if let Some(base) = name.strip_suffix("-lead") {
+        name.truncate(base.len());
+    }
     // ASCII only, so any byte is a char boundary.
     name.truncate(NAME_MAX - "-lead".len());
     name.truncate(name.trim_end_matches('-').len());
@@ -504,6 +509,8 @@ mod tests {
         for (repo, want) in [
             (Some("checkpoint"), "checkpoint-lead"),
             (Some("control-tower"), "control-tower-lead"),
+            (Some("checkpoint-lead"), "checkpoint-lead"),
+            (Some("Checkpoint_Lead"), "checkpoint-lead"),
             (Some("Control_Tower"), "control-tower-lead"),
             (Some("my app.v2"), "my-app-v2-lead"),
             (Some("--force"), "force-lead"),
