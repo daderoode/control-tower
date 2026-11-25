@@ -1,4 +1,4 @@
-//! The milestone overview, as in the golden UI: the milestone in its lead's colour with the
+//! The milestone overview, as in the signed design: the milestone in its lead's colour with the
 //! lead's name and its tracker link, and "open milestone ▶" (or "open task ▶") at the right,
 //! the goal (wrapping to two lines), the stage, bar and done count, then one column of task
 //! cards per stage, side by side when the pane is `COLUMNS_MIN` wide and stacked when
@@ -21,7 +21,7 @@ use super::theme::{
 use super::tree::{badge_spans, done_tally, lead_style, marked_done, milestones};
 use crate::board::{Board, Milestone, MilestoneId, Repo, Stage, Task, TaskId};
 
-/// Cells in the progress bar of the milestone overview, as in the golden UI.
+/// Cells in the progress bar of the milestone overview, as in the signed design.
 const OVERVIEW_BAR_CELLS: usize = 24;
 /// The stage columns sit side by side from this overview width; below it they stack.
 pub(crate) const COLUMNS_MIN: usize = 60;

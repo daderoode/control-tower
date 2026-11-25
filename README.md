@@ -119,7 +119,7 @@ session is ASCII letters, digits, `-`, `_`, `.` and single spaces between words 
 session names can have them, like "Catalogue Lead": quote such a name in commands);
 both are compared ignoring the case of ASCII letters. `--colour`
 picks the lead's colour from blue, purple, orange, teal, pink and green (the first three
-are the golden UI's); without it the lead gets the first colour no lead has yet.
+are the signed design's); without it the lead gets the first colour no lead has yet.
 
     tower lead set M1 --session cat-lead-two
 

@@ -1750,7 +1750,7 @@ fn post_reads_the_message_from_stdin_when_it_is_a_dash() {
     );
 
     // A list keeps its first line's indent, so it reads in line (#16); leading blank lines
-    // and the end go, as the UI copy's composer drops them.
+    // and the end go, as the signed design's composer drops them.
     let list = "\n  - preheat the left oven\n  - proof the rye\n";
     let out = tower_with_stdin(&db, &post, list);
     assert!(out.status.success(), "{}", text(&out.stderr));

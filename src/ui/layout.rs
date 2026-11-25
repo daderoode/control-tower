@@ -14,7 +14,7 @@ use super::tree::{FoldClick, tree_folds, tree_items, tree_tickets};
 use super::{Mode, View};
 use crate::board::{Board, MilestoneId, Talk, TaskId};
 
-/// The tree takes this share of the width, as in the golden UI...
+/// The tree takes this share of the width, as in the signed design...
 const TREE_PERCENT: usize = 34;
 /// ...but never fewer columns than this, so a milestone row keeps its bar.
 const TREE_MIN: usize = 30;

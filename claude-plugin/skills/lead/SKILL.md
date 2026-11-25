@@ -37,7 +37,7 @@ the repo's forge.
   | Merges | As the repo's SDLC says (see Finishing) | As the repo's SDLC says |
   | Releases | With the owner's permission (the repo's SDLC or standing context), cut the release yourself; otherwise propose one | The go, unless given to you |
   | Spec and tickets | For a new goal or milestone, ask the owner to run `/to-spec` and `/to-tickets` (never run them yourself); open the spec for the owner (see Starting, step 7). A ready-for-agent issue is a ticket in its own right | Runs them; signs off the spec and the tickets before building |
-  | UI | Build only to a signed-off copy | Sign-off |
+  | UI | Build only to a signed-off design (see Finishing) | Signs off the design before it is built; approves the change's new and changed snapshots in its PR before it merges |
 
 ## Principles
 
@@ -588,9 +588,9 @@ and `tower repo show <R>` lists threads by title.
     `gh run view <run-id> --log-failed`. A CI failure is a fix back to the implementer, a
     new commit and hand-off. A new snapshot or other generated test file comes from CI (its
     log, or an artifact the repo's CI uploads, as its SDLC says: downloaded into a temp
-    folder, never over the worktree), checked against the signed UI copy and only then
-    copied into the repo, one more push round. The tester and the
-    reviewers never run the gate.
+    folder, never over the worktree), checked against the spec and, for a UI change, its
+    signed-off design, and only then copied into the repo, one more push round. The tester
+    and the reviewers never run the gate.
   - Just before staging a hand-off, the implementer brings its unpushed branch up to the
     default branch on `origin`, so what is built is what the PR will merge:
     `git fetch origin && git merge --ff-only origin/<default branch>`, which keeps the
@@ -754,6 +754,10 @@ standalone task finishes on its own. Then the branch the MR targets decides:
   does peer review and merges. A repo's SDLC, or a milestone's or task's standing context,
   can give you that merge; when you hold it, take the PR out of draft and merge the approved
   head once CI is green, as for a working branch, then mark the task Done.
+- **A UI change** is built only to a design the owner signed off (a prototype artifact
+  linked from its issue, invented data only), and merges, wherever you hold the merge, only
+  once the owner has approved its new and changed snapshots in the PR: ask in principle 4's
+  shape. From then on the snapshots, not the design, are the reference.
 - You update a task's MR line whenever you open, update or merge its MR:
   `tower task set N --mr "<MR line>"`.
 - When the work is done, record the outcome on its issue (the PR link, what was verified
@@ -788,10 +792,10 @@ is one milestone on its forge, as its SDLC says:
   `gh api --method PATCH repos/{owner}/{repo}/milestones/<number> -f title="<title>"`
   (GitLab: `glab milestone edit <id> --project <path> --title "<title>"`, `<id>` and
   `<path>` as in The backlog).
-- Its UI changes share one UI copy, named in its description: the owner signs it off before
-  the UI work is built. When the milestone needs an amendment, it is the copy's next
-  version, signed off the same way, never an edit in place. You build only to a signed-off
-  version.
+- Its UI changes share one design (a prototype artifact linked from its issue, invented data
+  only), named in its description: the owner signs it off before the UI work is built. When
+  the milestone needs an amendment, it is the design's next version, signed off the same
+  way, never an edit in place. Each UI change in it merges as Finishing says.
 - When its work is merged, propose or cut its release as above. An issue still open in it
   either holds the release or moves to the next milestone: your call.
 - The tag is the version SemVer gives what shipped. Once the release is published, close

@@ -3,8 +3,9 @@
 A taskboard for a team of Claude Code agents in Rex: what the work is, how far
 along it is, and where the owner is needed.
 
-- Spec: `control-tower spec.md`, which the owner keeps outside this repo.
-- UI: the frozen, signed-off files kept with the spec; the rules for a UI change are in SDLC.md.
+- Spec: `docs/spec.md`; the repo is its one source of truth.
+- UI: how the dashboard behaves is in the spec; how it looks is the approved snapshots in
+  `tests/snapshots`. The rules for a UI change are in SDLC.md.
 - No em dashes in code, UI text or docs.
 
 ## How work is done

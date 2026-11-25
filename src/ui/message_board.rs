@@ -491,7 +491,7 @@ fn boxed(
     fit(row, w)
 }
 
-/// `text` with the golden UI's highlights: when `start` (the text starts a message or a
+/// `text` with the signed design's highlights: when `start` (the text starts a message or a
 /// doing line), a leading `blocked:` in bold amber, or `decision:` in bold cyan when the
 /// message is for the owner's awareness (`Tone::Awareness`; a delivery failure never starts
 /// with `decision:`); and every mention of the owner in bold red, as `board::mentioned`
@@ -553,7 +553,7 @@ pub(crate) fn highlight_marked(
     spans
 }
 
-/// The status pill's colour, as in the golden UI: open in its warn amber, resolved green.
+/// The status pill's colour, as in the signed design: open in its warn amber, resolved green.
 pub(crate) fn status_style(status: ThreadStatus, depth: Depth) -> Style {
     match status {
         ThreadStatus::Open => Style::new().fg(warn(depth)),
@@ -1882,7 +1882,7 @@ mod tests {
         assert!(red("see `@manager` in the docs").is_empty());
         assert!(red("```\n@manager\n```").is_empty());
         assert!(red("mail me at x@manager.example").is_empty());
-        // Right after kana, with no space: marked, as the signed copy's hl marks it.
+        // Right after kana, with no space: marked, as the signed design's hl marks it.
         assert_eq!(
             red("notes.mdを見てから@managerに返事します。"),
             ["@manager"]

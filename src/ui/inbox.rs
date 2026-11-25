@@ -1,4 +1,4 @@
-//! The owner's alerts on screen, as in the golden UI's layout E: the alert line under the
+//! The owner's alerts on screen, as in the signed design's layout E: the alert line under the
 //! header (one line, never more), and the inbox it opens, across the body: a "◀ back  INBOX"
 //! line over the NEED YOU section, then FOR YOUR AWARENESS (no read section: read items stay
 //! readable in their threads), each item its author
@@ -38,7 +38,7 @@ const AGE_COLUMNS: usize = 4;
 /// The most lines an inbox item's message takes, as the copy's `.txt clamp2` clamps it.
 const MESSAGE_LINES: usize = 2;
 
-/// The alert line's background, the golden UI's #1d1517, on a 24-bit terminal; none on the
+/// The alert line's background, the signed design's #1d1517, on a 24-bit terminal; none on the
 /// 256-colour palette, which has no tint this dark.
 pub(crate) fn alert_bg(depth: Depth) -> Style {
     match depth {

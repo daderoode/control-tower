@@ -182,8 +182,9 @@ lifecycle applies.
   of the PR's head commit, with `snapshots-changed.txt` naming the new and changed files.
   The dev downloads it into a temp folder, never over the worktree (`gh run
   download <run-id> -n snapshots-<sha12> -D <temp folder>`), checks each listed file against
-  the signed UI copy, copies the ones that pass into `tests/snapshots` and stages them: one
-  push round however many snapshots a change touches. Each failing test's log still prints
+  the spec and, for a UI change, its signed-off design (UI changes), copies the ones that
+  pass into `tests/snapshots` and stages them: one push round however many snapshots a
+  change touches. Each failing test's log still prints
   its rendering.
 
 - New tests are up to the dev and reviewer; no blanket rule.
@@ -201,30 +202,27 @@ lifecycle applies.
 
 - A UI change is a visible change to the dashboard's layout or elements. Rewording a label is
   not one.
-- The UI is defined by frozen, signed-off files the owner keeps outside this repo, each
-  superseding the one before only for its listed changes:
-  - `control-tower UI golden v0.1.0.html`;
-  - `control-tower UI v0.1.3.html`;
-  - `control-tower UI v0.1.4.html` (the fold);
-  - `control-tower UI v0.1.7.html`;
-  - `control-tower UI v0.1.12.html` (the resolved threads folded);
-  - `control-tower UI v0.1.13.html`;
-  - `control-tower UI v0.1.14.html`.
-
-  The spec kept with them records each file's sha256 and listed changes.
-- A UI change gets a new versioned copy, signed off by the owner in their own terminal or an
-  artifact, never from a chat mockup, before it is built. A release milestone's UI changes
-  share one copy, named in its description; when the milestone needs it, the copy is amended
-  as its next version (for example v0.1.13), frozen and signed off the same way: a signed
-  copy is never edited in place.
-- Where the UI files disagree with the spec's errata, the spec wins.
+- How the dashboard behaves is in `docs/spec.md`; how it looks is the approved snapshots in
+  `tests/snapshots`, rendered by the real code with invented data. They are the reference.
+  No prototype is kept in the repo.
+- A UI change starts with a design the owner signs off before it is built: a prototype
+  showing the change, as an artifact linked from its issue (never a chat mockup), with
+  invented data only. A release milestone's UI changes share one design, named in its
+  description; when the milestone needs an amendment, it is the design's next version,
+  signed off the same way, never an edit in place.
+- The change is built to the design, and the owner approves its new and changed snapshots in
+  the PR before it merges. From then on the snapshots are the reference; the design is not
+  consulted again. Where the design and the terminal differ (a browser's line breaking, font
+  sizes), the snapshot the owner approved counts.
+- Where a design disagrees with the spec's errata, the spec wins. The spec records each
+  signed-off design, one row in its section 7, which the UI change's PR adds.
 
 ## Releases
 
 - A release is a GitHub milestone. Its title is the version SemVer gives its planned
   content, plus a short theme ("v1.2.0: Faster search"); its description says what it
-  carries, why that version, and its UI copy, if it has one. The lead renames it when the
-  content changes what SemVer says.
+  carries, why that version, and its signed-off UI design, if it has one. The lead renames
+  it when the content changes what SemVer says.
 - Scope is judgment, not a rule: whether a release waits for an issue, or the issue moves to
   the next milestone, is the lead's call, made in the owner's interest.
 - The lead may propose a release; when the owner asks, the lead tags it with a signed
