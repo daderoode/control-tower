@@ -778,9 +778,14 @@ thread when that one is resolved). A round posts one item per board, naming each
 newly failing there and why, so a post naming several gone workers is one item. A recipient
 Rex has no worker for that is the assignee of a task not done on that board has its line
 end with how to clear it ("if it was closed: tower task unassign N, or set the next
-worker"). While an episode is open, further failures to that recipient are only logged; a
-send that gets through ends it, and one still failing after an hour is told again with a
-new item. A send that may have arrived (the relay stopped at its limit, or a SendMessage
+worker"). One Rex has no worker for that is the assignee of no task not done is the
+owner's item only when a post in the send is less than an hour old; an older one is a closed
+worker's, found by a watch catching up after a stop, and is only logged, opening no episode:
+"could not deliver 2 post(s) to dev-24: Rex has no agent named dev-24, a worker with no task
+not done and no post to it in the last hour; no item for the owner". A worker Rex lists is
+sent its posts however old they are. While an episode is open, further failures to that
+recipient are only logged; a send that gets through ends it, and one still failing after an
+hour is told again with a new item. A send that may have arrived (the relay stopped at its limit, or a SendMessage
 with no answer) is logged only, and never resent.
 
 ### How posts reach a lead

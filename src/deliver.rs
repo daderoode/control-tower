@@ -43,6 +43,12 @@
 //! resent and no item. A send that went to someone else (`Sent::Misrouted`) always posts its
 //! own item naming who got it, open episode or not (`Store::misrouted`), tower's replies
 //! too: it is worse than a lost send.
+//!
+//! A worker the board knew that the terminal no longer has is the owner's item only while it
+//! can still need the posts: it is the assignee of a task not done, or a post in the send is
+//! less than `CATCH_UP` old. Otherwise it is a closed worker, and the posts are ones a watch
+//! catching up after a stop found (#128): logged only, no episode and no item. A send to an
+//! agent the terminal lists goes whatever the post's age.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -70,6 +76,10 @@ pub const WORKER_BUDGET: Duration = Duration::from_secs(10);
 /// How long a failure episode stays told: a recipient still failing after this is told
 /// again, with a new item.
 pub const EPISODE_EXPIRES: i64 = 60 * 60;
+/// How old the newest post in a send to a worker the terminal no longer has may be, in
+/// seconds, for its failure to be the owner's item when the worker is no task's assignee:
+/// an older one is a closed worker's, found by a watch catching up, and is logged only.
+pub const CATCH_UP: i64 = 60 * 60;
 /// The most characters of a failure's reason a failure item quotes.
 const WHY_CHARS: usize = 300;
 /// How tower's reply to a post's author starts after "@<author> ", when the post named
@@ -89,6 +99,8 @@ pub struct Post {
     pub task: Option<TaskId>,
     pub author: String,
     pub text: String,
+    /// When it was posted, in seconds since the epoch.
+    pub posted_at: i64,
 }
 
 /// A lead's board: its repo and its lead.
@@ -131,6 +143,12 @@ impl Pending {
     /// Whether a worker on the board was ever named `name`, ignoring case.
     fn knows(&self, name: &str) -> bool {
         self.known.contains(&name.to_ascii_lowercase())
+    }
+
+    /// Whether the worker `name` (ignoring case) is the assignee of a task not done, on any
+    /// board.
+    fn assigns(&self, name: &str) -> bool {
+        (self.open.iter()).any(|(_, _, a)| a.eq_ignore_ascii_case(name))
     }
 
     /// The tasks on `repo`'s board, not done and in id order, whose assignee is the worker
@@ -548,6 +566,18 @@ impl Deliver {
                          the board has had; no item for the owner"
                     )
                 }
+                // A closed worker's posts, found by a watch catching up after a stop: no task
+                // of its is open and none of the posts is recent, so no one needs them now.
+                Sent::Failed(why)
+                    if gone
+                        && !pending.assigns(&who)
+                        && posts.iter().all(|p| now - p.posted_at >= CATCH_UP) =>
+                {
+                    format!(
+                        "could not deliver {n} post(s) to {who}: {why}, a worker with no task \
+                         not done and no post to it in the last hour; no item for the owner"
+                    )
+                }
                 Sent::Failed(why) => {
                     let (m, thread) = (posts[0].repo, posts[0].thread);
                     let at = match failed.iter().position(|(b, _, _)| *b == m) {
@@ -699,6 +729,7 @@ mod tests {
             task: task.map(TaskId),
             author: author.into(),
             text: text.into(),
+            posted_at: 0,
         }
     }
 
@@ -937,6 +968,11 @@ mod tests {
 
         fn post(&self, who: &str, text: &str) {
             self.store().post(ThreadId(1), who, text).unwrap();
+        }
+
+        /// A post in T1 stamped `at`, a controlled time.
+        fn post_at(&self, who: &str, text: &str, at: i64) {
+            self.store().post_at(ThreadId(1), who, text, at);
         }
 
         fn drain(&self) -> Vec<String> {
@@ -1375,6 +1411,76 @@ mod tests {
             told.as_deref()
                 .is_some_and(|t| t.starts_with("@dev-1 no worker is named `@ghost-9`, so")),
             "{told:?}"
+        );
+    }
+
+    /// A worker Rex no longer has that is no task's assignee is the owner's item only for a
+    /// post under `CATCH_UP` old; an older one is a closed worker's, found by a watch catching
+    /// up after a stop, and is logged only (#128).
+    #[test]
+    fn a_gone_worker_with_no_task_not_done_is_an_item_only_for_a_post_under_an_hour_old() {
+        let f = Fixture::new();
+        // qa-8 and qa-9 worked on the board and are gone from Rex.
+        f.post("qa-8", "done");
+        f.post("qa-9", "done");
+        f.post_at("dev-2", "@qa-9 one more thing", 10_000);
+        let log = f.drain_at(10_000 + CATCH_UP - 1);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "could not deliver 1 post(s) to qa-9: Rex has no agent named qa-9; told the \
+                 owner in "
+            ),
+            "{log:?}"
+        );
+        assert_eq!(f.items().len(), 1);
+        f.post_at("dev-2", "@qa-8 one more thing", 10_000);
+        assert_eq!(
+            f.drain_at(10_000 + CATCH_UP),
+            [
+                "could not deliver 1 post(s) to qa-8: Rex has no agent named qa-8, a worker with \
+                 no task not done and no post to it in the last hour; no item for the owner"
+            ]
+        );
+        assert_eq!(f.items().len(), 1);
+    }
+
+    /// An old post to a closed worker opens no failure episode, so a new post to it that
+    /// fails is still told.
+    #[test]
+    fn an_old_post_to_a_closed_worker_opens_no_episode_so_a_new_one_is_still_told() {
+        let f = Fixture::new();
+        f.post("qa-9", "done");
+        f.post_at("dev-2", "@qa-9 an old one", 10_000);
+        let log = f.drain_at(10_000 + CATCH_UP);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(log[0].ends_with("; no item for the owner"), "{log:?}");
+        assert!(f.items().is_empty());
+        f.post_at("dev-2", "@qa-9 a new one", 20_000);
+        let log = f.drain_at(20_000);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(log[0].contains("; told the owner in "), "{log:?}");
+        assert_eq!(f.items().len(), 1);
+    }
+
+    /// A gone assignee of a task not done is the owner's item however old the post, with how
+    /// to clear it.
+    #[test]
+    fn a_gone_assignee_of_a_task_not_done_is_an_item_however_old_the_post() {
+        let f = Fixture::new();
+        f.agents(&["dev-2"]);
+        f.post_at("cat-lead", "status?", 10_000);
+        let log = f.drain_at(10_000 + 24 * CATCH_UP);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(log[0].contains("; told the owner in "), "{log:?}");
+        let items = f.items();
+        assert_eq!(items.len(), 1, "{items:?}");
+        assert!(
+            items[0].contains(
+                "dev-1: Rex has no agent named dev-1; if it was closed: tower task unassign 1, \
+                 or set the next worker"
+            ),
+            "{items:?}"
         );
     }
 
