@@ -1,4 +1,4 @@
-//! The detail views, as in the golden UI's layout E, each with "◀ close" at the right of its
+//! The detail views, as in the signed design's layout E, each with "◀ close" at the right of its
 //! first line: a repo's lead and team, main checkout, forge link and work, its milestones,
 //! its standalone tasks and its whole message board (UI v0.1.7); a milestone's goal, stage, lead and team, standing context, spec, tracker
 //! link, its tasks with a line of description each and its message board; a task's
@@ -41,7 +41,7 @@ const LABEL: usize = 10;
 const VALUE_X: usize = LABEL + 2;
 /// Where a task row's description line starts in the milestone detail, under its title.
 const ROW_INDENT: usize = 6;
-/// Cells in the milestone detail's progress bar, as in the golden UI.
+/// Cells in the milestone detail's progress bar, as in the signed design.
 const BAR_CELLS: usize = 20;
 
 /// Where a task's row is in the milestone detail: `height` lines from `line`.
@@ -819,7 +819,7 @@ fn task_lines(
         Some(a) => Span::raw(a.clone()),
         None => Span::styled("unassigned", pen.dim()),
     }];
-    // The team on the same line, cut to fit, as in the golden UI.
+    // The team on the same line, cut to fit, as in the signed design.
     if let Some(names) =
         m.and_then(|m| team_lines(m.team(), m.lead.as_ref(), usize::MAX, pen).pop())
     {
@@ -947,7 +947,7 @@ fn task_lines(
         checklist(&mut lines, s.stage == Stage::Done, &text, doing, w, pen);
     }
 
-    // A standalone task in no repo has no board, so no thread, as in the golden UI.
+    // A standalone task in no repo has no board, so no thread, as in the signed design.
     let (mut threads, mut resolved) = (Vec::new(), None);
     let talk = match (m, repo) {
         (Some(m), _) => Some(Talk::of_milestone(board, m)),
@@ -970,7 +970,7 @@ fn task_lines(
     Detail { lines, layout }
 }
 
-/// " [x] text" in the golden UI's checklist style, wrapped under the text, with an optional
+/// " [x] text" in the signed design's checklist style, wrapped under the text, with an optional
 /// dim note after it, such as "in progress".
 fn checklist(
     lines: &mut Vec<Line<'static>>,

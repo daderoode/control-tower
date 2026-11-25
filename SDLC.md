@@ -182,8 +182,9 @@ lifecycle applies.
   of the PR's head commit, with `snapshots-changed.txt` naming the new and changed files.
   The dev downloads it into a temp folder, never over the worktree (`gh run
   download <run-id> -n snapshots-<sha12> -D <temp folder>`), checks each listed file against
-  the spec and, for a UI change, its signed-off design (UI changes), copies the ones that pass into `tests/snapshots` and stages them: one
-  push round however many snapshots a change touches. Each failing test's log still prints
+  the spec and, for a UI change, its signed-off design (UI changes), copies the ones that
+  pass into `tests/snapshots` and stages them: one push round however many snapshots a
+  change touches. Each failing test's log still prints
   its rendering.
 
 - New tests are up to the dev and reviewer; no blanket rule.
@@ -214,14 +215,14 @@ lifecycle applies.
   consulted again. Where the design and the terminal differ (a browser's line breaking, font
   sizes), the snapshot the owner approved counts.
 - Where a design disagrees with the spec's errata, the spec wins. The spec records each
-  signed-off design (its section 7).
+  signed-off design, one row in its section 7, which the UI change's PR adds.
 
 ## Releases
 
 - A release is a GitHub milestone. Its title is the version SemVer gives its planned
   content, plus a short theme ("v1.2.0: Faster search"); its description says what it
-  carries, why that version, and its signed-off UI design, if it has one. The lead renames it when the
-  content changes what SemVer says.
+  carries, why that version, and its signed-off UI design, if it has one. The lead renames
+  it when the content changes what SemVer says.
 - Scope is judgment, not a rule: whether a release waits for an issue, or the issue moves to
   the next milestone, is the lead's call, made in the owner's interest.
 - The lead may propose a release; when the owner asks, the lead tags it with a signed

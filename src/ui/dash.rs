@@ -1070,7 +1070,7 @@ impl Dash {
             Input::Up | Input::Down => {
                 let all = shown_items(board);
                 let cur = self.tree_selection(board)?;
-                // Moving away from what a detail view shows closes it, as in the golden UI.
+                // Moving away from what a detail view shows closes it, as in the signed design.
                 self.close_details();
                 let i = all.iter().position(|x| *x == cur).unwrap_or(0);
                 let next = if input == Input::Up {

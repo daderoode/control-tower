@@ -38,7 +38,7 @@ use super::message_board::{IDEOGRAPHIC_SPACE, clamp, wrap_at_most};
 use super::theme::{Depth, accent, bad, bar, bold, dim, fit, ok, stage_mark, warn};
 use crate::board::{Board, Milestone, MilestoneId, Repo, RepoId, Stage, Task, TaskId};
 
-/// Cells in a milestone's progress bar in the tree, as in the golden UI.
+/// Cells in a milestone's progress bar in the tree, as in the signed design.
 const BAR_CELLS: usize = 8;
 /// Columns a repo's name keeps, " ▾ c…" at least, before its badges are dropped.
 const MIN_LEFT: usize = 5;

@@ -1,4 +1,4 @@
-//! The lead's full message board, as in the golden UI's layout E: a "◀ back" line naming the
+//! The lead's full message board, as in the signed design's layout E: a "◀ back" line naming the
 //! board, a channel list of the lead's threads grouped OPEN and RESOLVED, and the selected
 //! thread's header (status pill, id, title, who started it, its linked task, how many
 //! messages) over its whole conversation as a group chat (`chat`), which opens at the

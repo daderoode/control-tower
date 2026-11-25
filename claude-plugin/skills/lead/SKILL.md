@@ -37,7 +37,7 @@ the repo's forge.
   | Merges | As the repo's SDLC says (see Finishing) | As the repo's SDLC says |
   | Releases | With the owner's permission (the repo's SDLC or standing context), cut the release yourself; otherwise propose one | The go, unless given to you |
   | Spec and tickets | For a new goal or milestone, ask the owner to run `/to-spec` and `/to-tickets` (never run them yourself); open the spec for the owner (see Starting, step 7). A ready-for-agent issue is a ticket in its own right | Runs them; signs off the spec and the tickets before building |
-  | UI | Build only to a signed-off copy | Sign-off |
+  | UI | Build only to a signed-off design (see Releasing a milestone) | Signs off the design before it is built; approves the change's new and changed snapshots in its PR before it merges |
 
 ## Principles
 
@@ -588,9 +588,9 @@ and `tower repo show <R>` lists threads by title.
     `gh run view <run-id> --log-failed`. A CI failure is a fix back to the implementer, a
     new commit and hand-off. A new snapshot or other generated test file comes from CI (its
     log, or an artifact the repo's CI uploads, as its SDLC says: downloaded into a temp
-    folder, never over the worktree), checked against the spec and, for a UI change, its signed-off design, and only then
-    copied into the repo, one more push round. The tester and the
-    reviewers never run the gate.
+    folder, never over the worktree), checked against the spec and, for a UI change, its
+    signed-off design, and only then copied into the repo, one more push round. The tester
+    and the reviewers never run the gate.
   - Just before staging a hand-off, the implementer brings its unpushed branch up to the
     default branch on `origin`, so what is built is what the PR will merge:
     `git fetch origin && git merge --ff-only origin/<default branch>`, which keeps the

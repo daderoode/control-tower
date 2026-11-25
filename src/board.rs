@@ -205,7 +205,7 @@ pub const MAX_MESSAGE_CHARS: usize = 4000;
 
 /// Checks a message or evidence (`what` names it) as `check_text` does, but up to
 /// `MAX_MESSAGE_CHARS`. Pasted text works: CRLF and CR become LF and a tab four spaces
-/// first. Returns it so, as the UI copy's composer submits it: its leading blank lines
+/// first. Returns it so, as the signed design's composer submits it: its leading blank lines
 /// dropped and its end trimmed, its first line's indent kept, so a list reads in line. A
 /// hidden whitespace character before the text (a form feed from a pager) goes too, as it
 /// always did, since the board can store none.
@@ -263,7 +263,7 @@ pub fn check_link(what: &str, value: &str) -> Result<String> {
     Ok(url.to_string())
 }
 
-/// A lead's colour, from a fixed palette that starts with the golden UI's lead colours.
+/// A lead's colour, from a fixed palette that starts with the signed design's lead colours.
 /// Stored and typed by name; the dashboard turns it into a terminal colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Colour {
@@ -1939,7 +1939,7 @@ mod tests {
 
     #[test]
     fn check_message_takes_line_breaks_and_up_to_4000_characters() {
-        // As the UI copy's composer: leading blank lines dropped, the end trimmed, the first
+        // As the signed design's composer: leading blank lines dropped, the end trimmed, the first
         // line's indent kept, so a list reads in line.
         assert_eq!(
             check_message("message", " Plan:\n1. layout\n\n2. tests \n").unwrap(),
@@ -2438,7 +2438,7 @@ mod tests {
             ("@", vec![]),
             // Only an ASCII letter or digit makes an e-mail address; after any other
             // letter, such as kana, an ideograph or hangul, where words have no spaces
-            // between them, it is a mention, as the signed copy marks every `@manager`.
+            // between them, it is a mention, as the signed design marks every `@manager`.
             ("2@x or Z@x but (@y", vec!["y"]),
             ("a@x", vec![]),
             ("notes.mdを見てから@managerに返事します。", vec!["manager"]),
@@ -2485,7 +2485,7 @@ mod tests {
             ("ask @qa... or @dev-2.)", vec!["qa", "dev-2"]),
             ("@qa (see above)", vec!["qa"]),
             // Only ASCII after the `.` or `(` is code: Chinese and Japanese go straight on
-            // after a name, as the signed copy marks every `@manager`.
+            // after a name, as the signed design marks every `@manager`.
             ("请@dev-zh.谢谢", vec!["dev-zh"]),
             ("確認後@dev-ja.よろしく", vec!["dev-ja"]),
             ("请@dev-zh(明天)看一下", vec!["dev-zh"]),

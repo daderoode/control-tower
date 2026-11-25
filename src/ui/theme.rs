@@ -26,7 +26,7 @@ impl Depth {
     }
 }
 
-/// A lead's colour on this terminal: the golden UI's lead colours first, then three more
+/// A lead's colour on this terminal: the signed design's lead colours first, then three more
 /// that read as well on its dark background (#13161c, at least 7:1 contrast), in 24-bit or
 /// as the nearest 256-colour stand-in.
 pub fn lead_colour(c: Colour, depth: Depth) -> Color {
@@ -44,7 +44,7 @@ pub fn lead_colour(c: Colour, depth: Depth) -> Color {
     }
 }
 
-/// A stage's colour, as in the golden UI: Done in its green, In progress in its cyan,
+/// A stage's colour, as in the signed design: Done in its green, In progress in its cyan,
 /// Waiting dim.
 pub fn stage_style(stage: Stage, depth: Depth) -> Style {
     match stage {
@@ -69,7 +69,7 @@ pub(crate) fn stage_glyph(stage: Stage) -> &'static str {
     }
 }
 
-/// The golden UI's "ok" green, #7bd88f.
+/// The signed design's "ok" green, #7bd88f.
 pub fn ok(depth: Depth) -> Color {
     match depth {
         Depth::TrueColor => Color::Rgb(0x7b, 0xd8, 0x8f),
@@ -77,7 +77,7 @@ pub fn ok(depth: Depth) -> Color {
     }
 }
 
-/// The golden UI's "info" cyan, #78dce8: In progress, and an awareness message.
+/// The signed design's "info" cyan, #78dce8: In progress, and an awareness message.
 pub fn info(depth: Depth) -> Color {
     match depth {
         Depth::TrueColor => Color::Rgb(0x78, 0xdc, 0xe8),
@@ -85,7 +85,7 @@ pub fn info(depth: Depth) -> Color {
     }
 }
 
-/// The golden UI's "bad" red, #ff6b6b: `@manager`, a message waiting on the owner, and the
+/// The signed design's "bad" red, #ff6b6b: `@manager`, a message waiting on the owner, and the
 /// owner's name, `manager`, in a conversation.
 pub fn bad(depth: Depth) -> Color {
     match depth {
@@ -94,7 +94,7 @@ pub fn bad(depth: Depth) -> Color {
     }
 }
 
-/// The golden UI's "warn" amber, #e6c07b: an open thread's pill, and anything blocked.
+/// The signed design's "warn" amber, #e6c07b: an open thread's pill, and anything blocked.
 pub fn warn(depth: Depth) -> Color {
     match depth {
         Depth::TrueColor => Color::Rgb(0xe6, 0xc0, 0x7b),
@@ -102,7 +102,7 @@ pub fn warn(depth: Depth) -> Color {
     }
 }
 
-/// The golden UI's selected-row background, #23324a.
+/// The signed design's selected-row background, #23324a.
 pub fn selected_bg(depth: Depth) -> Color {
     match depth {
         Depth::TrueColor => Color::Rgb(0x23, 0x32, 0x4a),
@@ -110,7 +110,7 @@ pub fn selected_bg(depth: Depth) -> Color {
     }
 }
 
-/// The golden UI's accent, #6cb6ff: the border of the selected card.
+/// The signed design's accent, #6cb6ff: the border of the selected card.
 pub fn accent(depth: Depth) -> Color {
     lead_colour(Colour::Blue, depth)
 }
@@ -123,7 +123,7 @@ pub fn goal(depth: Depth) -> Color {
     }
 }
 
-/// The golden UI's dim grey, #6c7280: ids, counts, labels and the bar's empty track.
+/// The signed design's dim grey, #6c7280: ids, counts, labels and the bar's empty track.
 pub fn dim_colour(depth: Depth) -> Color {
     match depth {
         Depth::TrueColor => Color::Rgb(0x6c, 0x72, 0x80),

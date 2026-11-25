@@ -186,7 +186,7 @@ fn led_fixture() -> Board {
     board
 }
 
-/// The led fixture with a message board on M1, as in the golden UI: T3 for #13's team with
+/// The led fixture with a message board on M1, as in the signed design: T3 for #13's team with
 /// seven messages, T4 for #14, and T2 resolved with its evidence.
 fn board_fixture() -> Board {
     let mut board = led_fixture();
@@ -677,7 +677,7 @@ fn each_task_shows_its_stage_mark_in_the_golden_colours() {
 
 #[test]
 fn dim_text_and_the_bar_track_are_the_copy_grey_at_both_depths() {
-    // The signed-off copy's --dim, #6c7280, and its nearest 256-colour grey: never
+    // The signed design's --dim, #6c7280, and its nearest 256-colour grey: never
     // ANSI DarkGray, which a dark terminal theme maps to near the background.
     for (depth, grey) in [
         (Depth::TrueColor, Color::Rgb(0x6c, 0x72, 0x80)),
@@ -1675,7 +1675,7 @@ fn the_keys_line_drops_whole_hints_and_keeps_quit() {
 
 // Detail views: opened with Enter or a second click, closed with Esc.
 
-/// The led fixture with details on M1 and its tasks, as the golden UI's example.
+/// The led fixture with details on M1 and its tasks, as the signed design's example.
 fn detail_fixture() -> Board {
     let mut board = led_fixture();
     let m = &mut board.milestones[0];
@@ -5819,7 +5819,7 @@ fn the_inbox_opens_a_thread_and_esc_comes_back_to_the_inbox_then_the_tree() {
     dash.handle(&view, a, Input::Esc);
     assert_eq!(dash.view(), ViewKind::Overview);
     assert_eq!(dash.selection(board), Some(Item::Task(TaskId(21))));
-    // `i` toggles the inbox shut too, as in the golden UI.
+    // `i` toggles the inbox shut too, as in the signed design.
     dash.handle(&view, a, Input::Char('i'));
     dash.handle(&view, a, Input::Char('i'));
     assert_eq!(dash.view(), ViewKind::Overview);
@@ -6510,7 +6510,7 @@ fn the_new_lead_control_on_the_alert_line_is_the_n_key() {
 
 #[test]
 fn failures_are_the_golden_red_at_both_depths() {
-    // The golden UI's #ff6b6b and its 256-colour red, never the terminal palette's red,
+    // The signed design's #ff6b6b and its 256-colour red, never the terminal palette's red,
     // which a translucent theme can mute like it muted ANSI dark grey.
     for (depth, red) in [
         (Depth::TrueColor, Color::Rgb(0xff, 0x6b, 0x6b)),

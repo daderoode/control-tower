@@ -1,4 +1,4 @@
-//! The clickable controls of the golden UI's layout E, styled like links: "open repo ▶",
+//! The clickable controls of the signed design's layout E, styled like links: "open repo ▶",
 //! "open milestone ▶" or "open task ▶" on the overview's header, "open full board ▶" on its message board's
 //! heading, "◀ close" on a detail view and "new lead (n) ▶" on the alert line. Each is
 //! a key: a click on it is that key pressed, so the two can never do different things, and
