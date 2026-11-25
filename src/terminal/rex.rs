@@ -62,6 +62,21 @@ pub fn path_in(env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
     in_bin_dir.unwrap_or_else(|| PathBuf::from("rex"))
 }
 
+/// What a lead running outside Rex is told, by `env`: `None` inside Rex, where Rex sets
+/// `REX_SESSION` (an empty one counts as unset).
+pub fn outside(env: impl Fn(&str) -> Option<OsString>) -> Option<String> {
+    if env("REX_SESSION").is_some_and(|s| !s.is_empty()) {
+        return None;
+    }
+    Some(
+        "control-tower: this session runs outside Rex (REX_SESSION is not set), but the \
+         board's team runs in Rex. Outside Rex the board does not see the workers you start: \
+         not their prompts, and posts and nudges are not delivered to them. Raise it with the \
+         owner in a question: post to @manager."
+            .into(),
+    )
+}
+
 /// Rex as the terminal module, run from `exe`, asking the `claude` at `claude` for the
 /// names of the Claude sessions it finds.
 pub struct Rex {
@@ -80,6 +95,7 @@ impl Rex {
             exe: self.exe.clone(),
             args: args.iter().map(|a| a.to_string()).collect(),
             db: db.to_path_buf(),
+            env: Vec::new(),
             stdin: None,
             timeout: terminal_timeout(),
         })
@@ -111,6 +127,7 @@ impl Rex {
             .map(String::from)
             .to_vec(),
             db: db.to_path_buf(),
+            env: Vec::new(),
             stdin: None,
             timeout: left,
         });
@@ -397,7 +414,8 @@ impl Terminal for Rex {
 /// `|`; a call whose method or session or block has a file `fail-<it>` exits 1 saying so.
 ///
 /// The fake claude is the relay too (`claude -p`): it reads the instruction on stdin and
-/// sends the text between its markers to the name it gives, printing the stream a relay
+/// sends the text between its two marker lines (the first line shaped as one, and its
+/// closing twin) to the name it gives, writes the relay's `TOWER_RELAY` to `relay.env`, printing the stream a relay
 /// prints, and appends each send it makes as "name|text" (newlines as `\n`) to
 /// `prompts.log`. For a recipient `<to>`: `relay-refuse-<to>` has its SendMessage refused
 /// with that file's text; `relay-quiet-<to>` makes the send, then crashes before its
@@ -454,7 +472,9 @@ if [ "$*" = "agents --json" ]; then cat "$d/claude.json"; exit 0; fi
 [ "$1" = "-p" ] || { echo "unexpected: $*" >&2; exit 2; }
 in=$(cat)
 to=$(printf '%s\n' "$in" | sed -n 's/.*"to" set to "\([^"]*\)".*/\1/p' | head -n 1)
-text=$(printf '%s\n' "$in" | sed '1,/^<control-tower-text>$/d' | sed '/^<\/control-tower-text>$/,$d')
+begin=$(printf '%s\n' "$in" | grep -m 1 '^<control-tower-text-[0-9a-f]*>$')
+text=$(printf '%s\n' "$in" | awk -v b="$begin" -v e="</${begin#<}" '$0 == e {p = 0} p {print} $0 == b {p = 1}')
+printf '%s\n' "${TOWER_RELAY-unset}" > "$d/relay.env"
 [ -e "$d/slow" ] && sleep "$(cat "$d/slow")"
 if [ -e "$d/hold" ]; then : > "$d/started"; HOLD; : > "$d/ended"; fi
 json() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}'; }
@@ -739,6 +759,9 @@ mod tests {
         assert_eq!(sent, format!("dev-1|{}\n", text.replace('\n', "\\n")));
         let calls = f.calls();
         assert_eq!(calls.last().unwrap(), RELAY_CALL);
+        // The relay runs marked, so tower's own hooks in it do nothing.
+        let env = std::fs::read_to_string(dir.path().join("relay.env")).unwrap();
+        assert_eq!(env, "1\n");
         assert_eq!(relays(&f), 1);
         // At a prompt: nothing is sent, and why says what it asks. A twin at a prompt stops a
         // send to the name too.
@@ -773,27 +796,29 @@ mod tests {
         f.write("relay-to-dev-1", "qa-7");
         assert_eq!(
             prompt(&f, "dev-1", "x").sent,
-            Sent::Failed("the relay sent it to qa-7, not to dev-1".into())
+            Sent::Failed("the relay sent it to \"qa-7\", not to dev-1".into())
         );
         std::fs::remove_file(dir.path().join("relay-to-dev-1")).unwrap();
         f.write("relay-none-dev-1", "I could not find that session.");
         assert_eq!(
             prompt(&f, "dev-1", "x").sent,
-            Sent::Failed("the relay sent nothing; it said: I could not find that session.".into())
+            Sent::Failed(
+                "the relay sent nothing; it said: \"I could not find that session.\"".into()
+            )
         );
         std::fs::remove_file(dir.path().join("relay-none-dev-1")).unwrap();
         f.write("relay-refuse-dev-1", "No agent named 'dev-1' is reachable.");
         assert_eq!(
             prompt(&f, "dev-1", "x").sent,
             Sent::Failed(
-                "the relay could not send it: No agent named 'dev-1' is reachable.".into()
+                "the relay could not send it: \"No agent named 'dev-1' is reachable.\"".into()
             )
         );
         std::fs::remove_file(dir.path().join("relay-refuse-dev-1")).unwrap();
         f.write("relay-quiet-dev-1", "");
         assert_eq!(
             prompt(&f, "dev-1", "x").sent,
-            Sent::Unsure("the relay's send had no answer; it said: relay crashed".into())
+            Sent::Unsure("the relay's send had no answer; it said: \"relay crashed\"".into())
         );
         std::fs::remove_file(dir.path().join("relay-quiet-dev-1")).unwrap();
         // A relay past the limit is stopped: it may have sent, so Unsure.
@@ -922,6 +947,25 @@ mod tests {
             began.elapsed() < Duration::from_secs(4),
             "{:?}",
             began.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_session_without_rex_session_is_told_it_runs_outside_rex() {
+        let with = |vars: &[(&str, &str)]| {
+            outside(|name| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.into()))
+        };
+        // Inside Rex: nothing, whatever else is set.
+        assert_eq!(with(&[("REX_SESSION", "session:7")]), None);
+        // Unset, or empty: told, naming what the board cannot see and whom to ask.
+        let told = with(&[("REX_BIN_DIR", "/opt/rex")]).unwrap();
+        assert_eq!(with(&[("REX_SESSION", "")]).as_deref(), Some(told.as_str()));
+        assert!(
+            told.starts_with(
+                "control-tower: this session runs outside Rex (REX_SESSION is not set)"
+            ) && told.contains("not their prompts, and posts and nudges are not delivered")
+                && told.ends_with("question: post to @manager."),
+            "{told}"
         );
     }
 

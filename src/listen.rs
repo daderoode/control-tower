@@ -539,12 +539,15 @@ pub const LISTED_ASK: Duration = Duration::from_secs(5);
 /// the same name (a fork, or a second `claude -n`, a separate process `claude agents
 /// --json` lists beside it) is told it is not the attached one, so two sessions never take
 /// turns as the lead. A `/clear` and a compaction are the same process going on, so they
-/// attach whatever the list says of the old id. Errors (a board
-/// needing `tower upgrade`, `claude` failing) are the caller's to keep quiet: a hook can
-/// never stop a session from starting.
+/// attach whatever the list says of the old id. A session that attaches is also told
+/// `outside`, the terminal module's notice for a session outside its terminal, when given:
+/// after the rest, or alone after a compaction that would otherwise say nothing. Errors (a
+/// board needing `tower upgrade`, `claude` failing) are the caller's to keep quiet: a hook
+/// can never stop a session from starting.
 pub fn session_start(
     db: &Path,
     input: &str,
+    outside: Option<&str>,
     mut agents: impl FnMut() -> Result<String>,
 ) -> Result<Option<String>> {
     let input: StartInput = serde_json::from_str(input)
@@ -599,8 +602,11 @@ pub fn session_start(
     );
     // Background commands outlive a compaction and a /clear: its waiters may still run.
     let waiting = same_process && listening(db, repo)?;
-    let text = match (source, waiting) {
-        (Some("compact"), true) => return Ok(None),
+    let mut text = match (source, waiting) {
+        (Some("compact"), true) => match outside {
+            Some(notice) => return Ok(Some(start_context(notice))),
+            None => return Ok(None),
+        },
         (Some("clear"), true) => format!(
             "control-tower: this session is {}, the lead of {repo}, and is attached again \
              after /clear. Your board waiter and forge waiter still run (background commands \
@@ -611,6 +617,10 @@ pub fn session_start(
         (Some("startup" | "clear"), _) => fresh,
         _ => resume,
     };
+    if let Some(notice) = outside {
+        text.push('\n');
+        text.push_str(notice);
+    }
     Ok(Some(start_context(&text)))
 }
 
@@ -1537,17 +1547,18 @@ mod tests {
         // No name, a blank one, a name no lead has, and a lead's display name (not its
         // session): all pass at once.
         for title in [None, Some("  "), Some("dev-4"), Some("Catalogue")] {
-            let reply = session_start(&db, &start("sess-9", "startup", title), never).unwrap();
+            let reply =
+                session_start(&db, &start("sess-9", "startup", title), None, never).unwrap();
             assert_eq!(reply, None, "{title:?}");
         }
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-1"));
         // A board that does not exist is not made.
         let none = dir.path().join("none.db");
-        let reply = session_start(&none, &start("s", "startup", Some("cat-lead")), never);
+        let reply = session_start(&none, &start("s", "startup", Some("cat-lead")), None, never);
         assert_eq!(reply.unwrap(), None);
         assert!(!none.exists());
         // Input that is not a SessionStart's is an error for the caller to keep quiet.
-        assert!(session_start(&db, "{}", never).is_err());
+        assert!(session_start(&db, "{}", None, never).is_err());
     }
 
     #[test]
@@ -1576,7 +1587,7 @@ mod tests {
         ] {
             let id = format!("sess-{n}");
             let lists = claude_lists(&[(&id, "Cat-Lead"), ("other", "dev-1")]);
-            let reply = session_start(&db, &start(&id, source, Some("Cat-Lead")), || {
+            let reply = session_start(&db, &start(&id, source, Some("Cat-Lead")), None, || {
                 Ok(lists.clone())
             });
             assert_eq!(context(reply.unwrap()).as_deref(), Some(want), "{source}");
@@ -1594,17 +1605,23 @@ mod tests {
         // A compaction with its board waiter still running: nothing to say.
         let _held = waiter_runs(&db, 1);
         let lists = claude_lists(&[("sess-6", "cat-lead")]);
-        let reply = session_start(&db, &start("sess-6", "compact", Some("cat-lead")), || {
-            Ok(lists.clone())
-        });
+        let reply = session_start(
+            &db,
+            &start("sess-6", "compact", Some("cat-lead")),
+            None,
+            || Ok(lists.clone()),
+        );
         assert_eq!(reply.unwrap(), None);
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-6"));
         // A /clear with its waiters still running (they outlive it): attached again, and
         // told not to arm them again.
         let lists = claude_lists(&[("sess-7", "cat-lead")]);
-        let reply = session_start(&db, &start("sess-7", "clear", Some("cat-lead")), || {
-            Ok(lists.clone())
-        });
+        let reply = session_start(
+            &db,
+            &start("sess-7", "clear", Some("cat-lead")),
+            None,
+            || Ok(lists.clone()),
+        );
         assert_eq!(
             context(reply.unwrap()).as_deref(),
             Some(
@@ -1620,7 +1637,7 @@ mod tests {
         for (n, source) in [(8, "clear"), (9, "compact")] {
             let (old, id) = (format!("sess-{}", n - 1), format!("sess-{n}"));
             let lists = claude_lists(&[(&old, "cat-lead"), (&id, "cat-lead")]);
-            let reply = session_start(&db, &start(&id, source, Some("cat-lead")), || {
+            let reply = session_start(&db, &start(&id, source, Some("cat-lead")), None, || {
                 Ok(lists.clone())
             });
             assert!(
@@ -1633,6 +1650,62 @@ mod tests {
         }
         // R2's lead was never touched.
         assert_eq!(attached(&mut store, 2), None);
+    }
+
+    #[test]
+    fn a_session_that_attaches_outside_the_terminal_is_told_so_and_no_other_is() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        let notice = Some("outside: the board cannot see your workers.");
+        let never = || -> Result<String> { panic!("claude was asked") };
+        // A session no lead is registered under: told nothing, notice or not.
+        let reply = session_start(
+            &db,
+            &start("sess-9", "startup", Some("dev-4")),
+            notice,
+            never,
+        );
+        assert_eq!(reply.unwrap(), None);
+        // A second session under the lead's name while the attached one runs: not attached,
+        // so not told.
+        let lists = claude_lists(&[("sess-1", "cat-lead"), ("sess-2", "cat-lead")]);
+        let reply = session_start(
+            &db,
+            &start("sess-2", "fork", Some("cat-lead")),
+            notice,
+            || Ok(lists.clone()),
+        );
+        let said = context(reply.unwrap()).unwrap();
+        assert!(
+            said.contains("is not attached") && !said.contains("outside"),
+            "{said}"
+        );
+        // Attached: told after the rest, on its own line.
+        let lists = claude_lists(&[("sess-2", "cat-lead")]);
+        let reply = session_start(
+            &db,
+            &start("sess-2", "resume", Some("cat-lead")),
+            notice,
+            || Ok(lists.clone()),
+        );
+        let said = context(reply.unwrap()).unwrap();
+        assert!(
+            said.starts_with("control-tower: re-attached as Catalogue")
+                && said.ends_with("(lead skill, New issues and idle).\noutside: the board cannot see your workers."),
+            "{said}"
+        );
+        assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-2"));
+        // A compaction with its board waiter running says nothing else, but still tells it.
+        let _held = waiter_runs(&db, 1);
+        let lists = claude_lists(&[("sess-3", "cat-lead")]);
+        let reply = session_start(
+            &db,
+            &start("sess-3", "compact", Some("cat-lead")),
+            notice,
+            || Ok(lists.clone()),
+        );
+        assert_eq!(context(reply.unwrap()).as_deref(), notice);
+        assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-3"));
     }
 
     #[test]
@@ -1649,7 +1722,12 @@ mod tests {
                 lists.clone()
             })
         };
-        let reply = session_start(&db, &start("sess-2", "startup", Some("cat-lead")), agents);
+        let reply = session_start(
+            &db,
+            &start("sess-2", "startup", Some("cat-lead")),
+            None,
+            agents,
+        );
         assert!(context(reply.unwrap()).unwrap().ends_with(
             "ask them to run /control-tower:lead R1 to resume leading R1 (it arms your forge \
              waiter)."
@@ -1662,7 +1740,12 @@ mod tests {
             asked.set(asked.get() + 1);
             Ok("[]".to_string())
         };
-        let err = session_start(&db, &start("sess-3", "startup", Some("cat-lead")), never);
+        let err = session_start(
+            &db,
+            &start("sess-3", "startup", Some("cat-lead")),
+            None,
+            never,
+        );
         assert!(
             err.unwrap_err()
                 .to_string()
@@ -1678,29 +1761,41 @@ mod tests {
         store.attach_lead(RepoId(1), "sess-1").unwrap();
         // Claude lists this session under another name: refused, as tower lead attach is.
         let lists = claude_lists(&[("sess-2", "something else")]);
-        let err = session_start(&db, &start("sess-2", "startup", Some("cat-lead")), || {
-            Ok(lists.clone())
-        })
+        let err = session_start(
+            &db,
+            &start("sess-2", "startup", Some("cat-lead")),
+            None,
+            || Ok(lists.clone()),
+        )
         .unwrap_err();
         assert!(err.to_string().contains("not \"cat-lead\""), "{err}");
         // Not listed at all: refused too. Claude failing: its error, for the caller.
-        let err = session_start(&db, &start("sess-2", "startup", Some("cat-lead")), || {
-            Ok("[]".into())
-        })
+        let err = session_start(
+            &db,
+            &start("sess-2", "startup", Some("cat-lead")),
+            None,
+            || Ok("[]".into()),
+        )
         .unwrap_err();
         assert!(err.to_string().contains("lists no session sess-2"), "{err}");
-        let err = session_start(&db, &start("sess-2", "startup", Some("cat-lead")), || {
-            anyhow::bail!("claude agents failed")
-        })
+        let err = session_start(
+            &db,
+            &start("sess-2", "startup", Some("cat-lead")),
+            None,
+            || anyhow::bail!("claude agents failed"),
+        )
         .unwrap_err();
         assert_eq!(err.to_string(), "claude agents failed");
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-1"));
         // The attached session still runs and a second one starts under its name (a fork):
         // the lead keeps its session, and the second is told it is not the attached one.
         let lists = claude_lists(&[("sess-1", "cat-lead"), ("sess-2", "cat-lead")]);
-        let reply = session_start(&db, &start("sess-2", "fork", Some("cat-lead")), || {
-            Ok(lists.clone())
-        });
+        let reply = session_start(
+            &db,
+            &start("sess-2", "fork", Some("cat-lead")),
+            None,
+            || Ok(lists.clone()),
+        );
         assert_eq!(
             context(reply.unwrap()).as_deref(),
             Some(
@@ -1712,9 +1807,12 @@ mod tests {
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-1"));
         // Once sess-1 has ended, the same start takes over.
         let lists = claude_lists(&[("sess-2", "cat-lead")]);
-        let reply = session_start(&db, &start("sess-2", "fork", Some("cat-lead")), || {
-            Ok(lists.clone())
-        });
+        let reply = session_start(
+            &db,
+            &start("sess-2", "fork", Some("cat-lead")),
+            None,
+            || Ok(lists.clone()),
+        );
         assert!(
             context(reply.unwrap())
                 .unwrap()

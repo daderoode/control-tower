@@ -11,7 +11,8 @@ The repo: $ARGUMENTS
 
 In the commands, `<R>` is your repo's id, `<M>` a milestone id, `<you>` your own Claude
 session name (quote it: it may have spaces), `N` a task id, `T` a thread id, `<name>` a
-worker's herdr agent name and `#I` an issue on the repo's forge.
+worker's name (its Claude session name, set with `claude -n <name>`) and `#I` an issue on
+the repo's forge.
 
 ## Who you are
 
@@ -216,7 +217,9 @@ implement, test or review.
       you registered, so register first and keep the names in step (after a `/rename`,
       `tower lead set <R> --session "<new name>"`, then attach), and records your session,
       so the control-tower plugin's Stop hook knows you are the lead and the watch can tell
-      you are listening.
+      you are listening. If it, or the SessionStart hook, says this session runs outside Rex,
+      you are still attached, but the board does not see the workers you start from here:
+      raise it with the owner as a `question:` post to `@manager` before you start any.
 
    Each time your waiter ends (its notice: the background command completed), in that
    same turn: run `tower lead unread <R>`, handle what it prints, then arm `tower lead wait
@@ -266,13 +269,13 @@ implement, test or review.
    tasks. You do not use `/goal`: the board is the goal, so re-read it the same way. Re-read
    too the standing rules you recorded (principle 7): your memory and the standing context.
 3. **The repo first:** the work's git repo is yours, and a new project gets its repo (step 1)
-   before any worker starts. Workers nest as herdr worktrees under
-   you (see Workers), so each one shows under its lead; never start a worker in a separate
-   plain workspace. Then read the repo's SDLC (for example `SDLC.md`), if it has one, and
-   follow it
-   for anything it covers: steps, gates, merge rules, releases. Where it says nothing, the
-   default lifecycle (see Workers) applies. How you work (the board, threads, workers, the
-   gate, @manager) is always this skill's.
+   before any worker starts. Workers start under you (see Workers), so each one shows under
+   its lead: in Rex as tabs in your own Rex session, never in a separate session; in herdr
+   as herdr worktrees, never in a separate plain workspace. Then read the repo's SDLC (for
+   example `SDLC.md`), if it has one, and follow it for anything it covers: steps, gates,
+   merge rules, releases. Where it says nothing, the default lifecycle (see Workers)
+   applies. How you work (the board, threads, workers, the gate, @manager) is always this
+   skill's.
 4. **The backlog:** then the repo's issues. First write the time into the forge waiter's
    `since` file, so the waiter later reports anything that changes while you work through
    the backlog:
@@ -436,18 +439,62 @@ and `tower repo show <R>` lists threads by title.
 
 ## Workers
 
-- Workers are implementers, testers and reviewers: visible sessions, each nested under you
-  in herdr, as a herdr worktree space:
+- Workers are implementers, testers and reviewers: visible sessions, each under you in
+  your terminal, named by its Claude session name (`claude -n <name>`), which the watch and
+  delivery find it by. Every start is without focus, so the owner stays where they are.
+  - **In Rex** (`$REX_SESSION` is set; `rex` is in `$REX_BIN_DIR` when it is not on PATH).
+    An implementer gets a git worktree beside the repo, on its own branch from the default
+    branch, then a tab in your session named after its work item:
 
-      herdr worktree create --workspace "$HERDR_WORKSPACE_ID" --branch <branch> \
-        --base <default branch> --label "<task slug>" --no-focus
-      herdr agent start <name> --kind claude --pane <pane id from the create>
-      herdr agent prompt <pane id> "<brief>"
+        git worktree add ../<repo>.worktrees/<#NN-slug> -b <branch> <default branch>
+        w=$(cd ../<repo>.worktrees/<#NN-slug> && pwd)
+        rex window new -s "$REX_SESSION" "<#NN slug>" -c "$w" --focus=false \
+          --json -- claude -n <name> "<brief>"
 
-  That is how an implementer starts. A tester or Stage 1 reviewer works as a pane in the
-  implementer's workspace, with no worktree of its own:
-  `herdr pane split <the implementer's pane id> --direction right`, then `herdr agent start`
-  and `herdr agent prompt` in the new pane.
+    `-c` takes an absolute path (Rex does not resolve one against your folder). Keep the
+    worktree's absolute path, the printed `.window_id` (its tab) and `.block_ids[0]` (its
+    block). A tester or Stage 1 reviewer works as a block beside the implementer's, in its
+    tab, with no worktree of its own; keep its printed `.block_ids[0]`:
+
+        rex split -s "$REX_SESSION" -b <the implementer's block> --split right \
+          --focus=false -c <the worktree's absolute path> --json \
+          -- claude -n <name> "<brief>"
+
+    A Stage 2 reviewer works as a block beside the implementer's too, but in a folder of its
+    own outside any worktree: it reviews the PR on the forge, never local code. Keep its
+    printed `.block_ids[0]`; its folder stays when its block closes:
+
+        mkdir -p ../<repo>.review/<name>
+        d=$(cd ../<repo>.review/<name> && pwd)
+        rex split -s "$REX_SESSION" -b <the implementer's block> --split right \
+          --focus=false -c "$d" --json -- claude -n <name> "<brief>"
+
+  - **In herdr**, as a herdr worktree space:
+
+        herdr worktree create --workspace "$HERDR_WORKSPACE_ID" --branch <branch> \
+          --base <default branch> --label "<task slug>" --no-focus
+        herdr agent start <name> --kind claude --pane <pane id from the create>
+        herdr agent prompt <pane id> "<brief>"
+
+    That is how an implementer starts. A tester or Stage 1 reviewer works as a pane in the
+    implementer's workspace, with no worktree of its own:
+    `herdr pane split <the implementer's pane id> --direction right`, then `herdr agent
+    start` and `herdr agent prompt` in the new pane.
+  - **Only in a trusted folder.** A worker at Claude's folder-trust dialog is not listed by
+    `claude agents --json`, so the watch cannot see it: it raises nothing and later reads as
+    gone. Start a worker only in a folder Claude trusts, itself or a folder above it: the
+    folder holding the repo, trusted once by the owner, covers the checkout and the
+    `<repo>.worktrees`, `<repo>.review` and `<repo>.standing` folders beside it.
+  - **One live worker per name.** Claude does not keep session names unique, so before a
+    start check that no live session has the name, ignoring case:
+    `claude agents --json | jq -e --arg n "<name>" 'any(.[]; (.name // "" | ascii_downcase) == ($n | ascii_downcase))'`
+    exits 0 when the name is taken (pick another, never start a second), 1 when it is free;
+    any other exit means the list was not read: do not start, and retry.
+  - **Check it started:** within about 30 s of the start, `claude agents --json` lists the
+    name. When it does not, look at its block (`rex capture -s "$REX_SESSION" -b <its
+    block>`). A worker at the trust dialog is closed at once by its ids (an implementer:
+    `rex window close`, then `git worktree remove`), and the folder raised with the owner
+    as a `question:` post to `@manager`.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
   and reviewers (Senior dev for Stage 1, external for Stage 2); how many of each is your call.
 - **Standing roles, optional:** beside them you may keep a few standing workers, read-only
@@ -461,19 +508,32 @@ and `tower repo show <R>` lists threads by title.
   A standing worker runs in its own tab under you with no worktree, working in a folder of
   its own outside any worktree, is named by its role and the repo (`qa-R1`), and takes one
   item at a time from you. The standby and close-when-done rules below do not apply to
-  it: you close it when the milestone ends.
+  it: you close it when the milestone ends. In Rex, beside the repo, so trusted as above:
+
+      mkdir -p ../<repo>.standing/<name>
+      d=$(cd ../<repo>.standing/<name> && pwd)
+      rex window new -s "$REX_SESSION" "<name>" -c "$d" --focus=false --json \
+        -- claude -n <name> "<brief>"
+
+  Keep the printed `.window_id`, and close it with `rex window close -s "$REX_SESSION"
+  <window id>`; its folder stays.
 - **Start a worker only when it has something to act on:** a tester when there is something
   to test, a reviewer when its stage is ready, never a worker on standby.
 - **Close a finished worker when its step is done,** unless you give it the next step
   straight away. A step is done when its verdict passes, or when the fixes for its findings
   are re-checked (a "changes needed" verdict is not the end of the step: the same worker
-  re-checks the fix). Close by what the worker is:
-  - a tester or reviewer working as a pane in the implementer's workspace:
-    `herdr pane close <its pane id>`, which leaves the worktree alone;
-  - the workspace's own implementer, with its worktree, once Test, Stage 1 and every fix
-    re-check are closed: the tester and Stage 1 reviewer work in its workspace, and fixes
-    are made in its worktree, so it stays until then although its own step ended at
-    Implement: `herdr worktree remove --workspace <its workspace id from the create>`.
+  re-checks the fix). Close only what you started, by the ids its start printed, never by
+  a label or name. Close by what the worker is:
+  - a tester or reviewer working beside the implementer: in Rex, `rex block close -s
+    "$REX_SESSION" <its block>`; in herdr, `herdr pane close <its pane id>`. Either leaves
+    the worktree alone;
+  - the implementer, with its worktree, once its PR is delivered (merged, or handed to
+    the owner or the named reviewer to merge): the tester and both reviewers work beside
+    it, a fix from any step is made in its worktree, and closing its tab closes every block
+    in it, so it stays until then although its own step ended at Implement. In Rex,
+    `rex window close -s "$REX_SESSION" <its window>`, then `git worktree remove <its
+    worktree's absolute path>`; in herdr, `herdr worktree remove --workspace <its workspace
+    id from the create>`.
 
   A later fix on the same branch gets a new worker.
 - **The gate:** a task has an assignee and its task thread before it leaves Waiting (to In
@@ -487,7 +547,7 @@ and `tower repo show <R>` lists threads by title.
   Dispatch per task, one by one. First check what it has:
   `tower task show N` prints its assignee and its threads; its task thread is the first
   `open` one listed, whatever its title. Then start the
-  worker's agent (`herdr agent start <name>` above) and
+  worker (above) and
 
       tower task set N --assignee <name>
       T=$(tower thread new <M> --by "<you>" --task N "<task's title>" "<opening message>")
@@ -496,7 +556,7 @@ and `tower repo show <R>` lists threads by title.
   open: `thread new` opens another each time, and a re-dispatch keeps that open thread and
   changes only the assignee. Send the brief (with the task thread's `T`: the open one listed,
   or the one `thread new` printed), then `tower task stage N in-progress`. The assignee is
-  the task's implementer, or whoever does its current step, by herdr agent name: the watch
+  the task's implementer, or whoever does its current step, by the worker's name: the watch
   nudges only that worker, linked by the name (a mismatch gives false flags and no nudges).
   The rest of the team joins through the thread: when you start a tester or reviewer, name
   it there (`@qa-12 please test X`), so the watch flags it if it waits on a prompt before
@@ -605,9 +665,10 @@ and `tower repo show <R>` lists threads by title.
 - **Sub-leads, by exception only:** when a piece is too big for your own context, you may
   start a sub-lead for it, as a worker nested under you, briefed with that piece. It reports
   on the repo's board like a worker, in the piece's task thread; it does not register as a
-  lead. Label starting one as your decision on the board. It runs in a linked worktree,
-  which herdr refuses as the source of `worktree create`, so its brief gives it your
-  workspace id (`$HERDR_WORKSPACE_ID`) for the workers it starts.
+  lead. Label starting one as your decision on the board. Its brief gives it your terminal's
+  place for the workers it starts: in Rex your Rex session (`$REX_SESSION`), so they open as
+  tabs there; in herdr your workspace id (`$HERDR_WORKSPACE_ID`), as it runs in a linked
+  worktree, which herdr refuses as the source of `worktree create`.
 
 ## The message board
 
@@ -716,17 +777,17 @@ standalone task finishes on its own. Then the branch the MR targets decides:
 - You update a task's MR line whenever you open, update or merge its MR:
   `tower task set N --mr "<MR line>"`.
 - When the work is done, record the outcome on its issue (the PR link, what was verified
-  and the steps-run line, principle 6), resolve its thread with the same evidence and,
-  once its worker is closed, remove its worktree and every hand-off artifact
-  of its PR's commits, unless the repo's SDLC says otherwise.
+  and the steps-run line, principle 6), resolve its thread with the same evidence, close
+  its implementer with its worktree as Workers says, and remove every hand-off artifact of
+  its PR's commits, unless the repo's SDLC says otherwise.
 - Before you close the last worker of a step, clear the task's assignee (`tower task
   unassign N`) or set it to the next live worker, so your posts in its thread are not sent
   to a closed worker. Once a task is Done, your posts in its thread go to its assignee only
   when they @mention it.
 - Between steps, a started task stays In progress and unassigned: you are never its
-  assignee (you have no herdr agent name, and `tower task set --assignee` refuses a lead's
-  session). If it waits on something (a pipeline, a review), set its blocked flag with the
-  reason (`tower task block N "<reason>"`), and assign the next step's worker when that step
+  assignee (you are no worker, and `tower task set --assignee` refuses a lead's session).
+  If it waits on something (a pipeline, a review), set its blocked flag with the reason
+  (`tower task block N "<reason>"`), and assign the next step's worker when that step
   starts. Never move a started task back to Waiting to quiet the watch. The merge task keeps
   its own rule (see Workers).
 

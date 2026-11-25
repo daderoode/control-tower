@@ -27,17 +27,21 @@ tag's date, and a new empty Unreleased goes above it.
   what it tried and how to link it into Homebrew's bin (#110).
 - **Posts and nudges reach workers in Rex, through a relay.** Each send starts a headless
   Claude session named `control-tower` (`claude -p`, on Haiku, with only the SendMessage,
-  ListAgents and ToolSearch tools, no MCP servers and no saved session) that sends the text,
-  once, to the worker's Claude session by name, as a message from `@control-tower`; nothing
-  is typed into a worker's terminal. A worker at a prompt is sent nothing, and the send
-  fails naming the prompt. Delivered means SendMessage answered as sent; a send to any other
-  session fails naming who got it; a relay stopped at its 60 second limit or a send with no
-  answer is logged as unsure and never resent; a relay that sends nothing fails. Each send
-  logs one `relay to <name>:` line: exit, duration, cost, turns, the tool's answer, whether
-  the text went verbatim and what went if not, and the text. A round of delivery stops
-  starting sends after 10 seconds but never cuts one short, so no second recipient's post is
-  lost. Each send is a paid model call (about $0.003 to $0.006) and the text is copied by a
-  model, so it may not arrive verbatim (#111).
+  ListAgents and ToolSearch tools, no MCP servers and no saved session) that sends the
+  text, once, to the worker's Claude session by name, as a message from `@control-tower`;
+  nothing is typed into a worker's terminal. The text goes between marker lines carrying a
+  nonce made for each send, so a post quoting them goes whole, and tower's own hooks do
+  nothing in the relay (`TOWER_RELAY`), so it is never taken for a lead, whatever a lead is
+  named. A worker at a prompt is sent nothing, and the send fails naming the prompt.
+  Delivered means SendMessage answered as sent; a send to any other session fails naming
+  who got it; a relay stopped at its 60 second limit or a send with no answer is logged as
+  unsure and never resent (a nudge so is recorded as not confirmed, never refused); a relay
+  that sends nothing fails, what it said escaped on one line. Each send logs one `relay to
+  <name>:` line: exit, duration, cost, turns, the tool's answer, whether the text went
+  verbatim and what went if not, and the text. A round of delivery stops starting sends
+  after 10 seconds but never cuts one short, so no second recipient's post is lost. Each
+  send is a paid model call (about $0.003 to $0.006) and the text is copied by a model, so
+  it may not arrive verbatim (#111).
 - **"Lead not listening" asks no terminal.** The watch judges whether a lead's session is
   alive and working by `claude agents --json`, and whether it finished a turn without
   re-arming by the lead's hooks, which now count on the board each turn the lead's attached
@@ -61,6 +65,16 @@ tag's date, and a new empty Unreleased goes above it.
   forge waiter is now a script shipped beside the skill (`forge-wait`) instead of one the
   lead writes into the git directory, and it sees a waiter started from the old copy as
   already running (#84).
+- **The lead skill starts and closes workers in Rex.** An implementer gets a worktree beside
+  the repo and a tab of its own in the lead's Rex session, a tester or reviewer a block
+  beside it, and a standing worker a tab in a folder beside the repo; each starts without
+  focus as `claude -n <name>`, the name the watch and delivery find it by, and is closed by
+  the ids its start printed. Workers start only in a folder Claude trusts, never under a
+  live worker's name, and are checked to be listed once started. The herdr recipes stay
+  for now. `tower lead attach` and the SessionStart hook, in a session with no
+  `REX_SESSION`, still attach, and tell the lead that the board's team runs in Rex, what the
+  board does not see from outside it (its workers' prompts, delivery), and to raise it with
+  the owner.
 - **The dashboard's `n` starts the lead in a new Rex session.** It opens a Rex session
   named after the lead on the repo's main checkout (or your home directory, for a milestone
   in no repo), without moving the Rex app's focus, running Claude with the dashboard's board

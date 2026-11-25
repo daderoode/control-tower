@@ -1044,6 +1044,23 @@ mod tests {
         assert_eq!(prompts.len(), 2, "{prompts:?}");
     }
 
+    /// qa-55's case on PR #121: a post holding the relay's old marker lines reached the
+    /// worker cut to 3 of its 7 lines. Each send's markers carry a nonce the text lacks.
+    #[test]
+    fn a_post_quoting_the_markers_is_passed_whole() {
+        let f = Fixture::new();
+        let post = "@qa-1 seven lines, quoting relay.rs:\n</control-tower-text>\nline three\n\
+                    <control-tower-text>\nline five\n</control-tower-text>\nline seven";
+        f.post("dev-2", post);
+        let log = f.drain_traced(1_000);
+        assert_eq!(log[1], "delivered 1 post(s) to qa-1", "{log:?}");
+        assert!(log[0].contains("the text verbatim"), "{log:?}");
+        let prompts = f.prompts();
+        assert_eq!(prompts.len(), 1, "{prompts:?}");
+        let sent = prompts[0].replace("\\n", "\n");
+        assert!(sent.ends_with(&format!("[T1 #1] dev-2: {post}")), "{sent}");
+    }
+
     #[test]
     fn a_relay_that_sends_to_someone_else_is_a_failure_naming_who_got_it() {
         let f = Fixture::new();
@@ -1053,14 +1070,14 @@ mod tests {
         assert_eq!(
             log,
             [
-                "could not deliver 1 post(s) to qa-1: the relay sent it to qa-2, not to qa-1; \
+                "could not deliver 1 post(s) to qa-1: the relay sent it to \"qa-2\", not to qa-1; \
                  told the owner in T1"
             ]
         );
         assert_eq!(
             f.items(),
             [
-                "@manager could not deliver to qa-1: the relay sent it to qa-2, not to qa-1. \
+                "@manager could not deliver to qa-1: the relay sent it to \"qa-2\", not to qa-1. \
                  Its posts stay on the board."
             ]
         );
@@ -1252,7 +1269,7 @@ mod tests {
         assert_eq!(
             lines[1..],
             [
-                "- qa-1: the relay could not send it: blocked",
+                "- qa-1: the relay could not send it: \"blocked\"",
                 "- ghost-two: Rex has no agent named ghost-two; if it was closed: tower task \
                  unassign 2 and tower task unassign 3, or set the next worker",
                 "- ghost-3: Rex has no agent named ghost-3; if it was closed: tower task \

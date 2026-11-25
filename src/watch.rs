@@ -598,15 +598,20 @@ impl Watch {
                 let terminal = &self.terminal;
                 let prompted = terminal.prompt(&self.db, agent, text, SEND_TIMEOUT);
                 let (sent, trace) = (prompted.sent, prompted.trace);
+                let quoted = |why: &str| why.chars().take(300).collect::<String>();
                 let record = match &sent {
                     Sent::Delivered => format!("nudged {agent}: {text}"),
-                    Sent::Unsure(why) | Sent::Failed(why) => {
-                        let why: String = why.chars().take(300).collect();
-                        format!(
-                            "nudged {agent}: {text}; {} refused delivery: {why}",
-                            terminal.name()
-                        )
-                    }
+                    // It may have arrived: never said to be refused.
+                    Sent::Unsure(why) => format!(
+                        "nudged {agent}: {text}; not confirmed by {}: {}",
+                        terminal.name(),
+                        quoted(why)
+                    ),
+                    Sent::Failed(why) => format!(
+                        "nudged {agent}: {text}; {} refused delivery: {}",
+                        terminal.name(),
+                        quoted(why)
+                    ),
                 };
                 store.watch_step(flag.task, FlagChange::None, Some(&record), now)?;
                 let traced = |line: String| match &trace {
@@ -853,7 +858,8 @@ mod tests {
 
     /// The watch's terminal in most of these tests: Rex's look over the fake rex and claude
     /// in `rex/`, and a prompt that appends "name|text" to `prompts.log`, or refuses with the
-    /// text of `refuse` when that file exists, with no trace, so each test reads only the
+    /// text of `refuse` (or is unsure, with the text of `unsure`) when that file exists, with
+    /// no trace, so each test reads only the
     /// watch's own lines. Rex's own prompt, the relay, is in `a_nudge_reaches_a_rex_worker...`.
     struct Team {
         rex: crate::terminal::rex::Rex,
@@ -876,6 +882,9 @@ mod tests {
         fn prompt(&self, _db: &Path, name: &str, text: &str, _timeout: Duration) -> Prompted {
             if let Ok(why) = std::fs::read_to_string(self.dir.join("refuse")) {
                 return Sent::Failed(why).into();
+            }
+            if let Ok(why) = std::fs::read_to_string(self.dir.join("unsure")) {
+                return Sent::Unsure(why).into();
             }
             let mut log = std::fs::OpenOptions::new()
                 .create(true)
@@ -1423,6 +1432,26 @@ mod tests {
             system[0],
             "nudged dev-1: no post on #1 for 6 min, post your status; Rex refused delivery: dev-1 \
              is at a permission prompt"
+        );
+        assert!(system[1].starts_with("@cat-lead dev-1 on #1 has not posted"));
+        assert_eq!(system.len(), 2);
+    }
+
+    #[test]
+    fn a_nudge_that_may_have_arrived_is_recorded_as_not_confirmed_never_refused() {
+        let mut f = Fixture::new();
+        let why = "the relay did not finish in 60 s and was stopped";
+        std::fs::write(f.dir.path().join("unsure"), why).unwrap();
+        assert_eq!(f.tick(6).len(), 1);
+        assert!(f.tick(7).is_empty(), "not retried every tick");
+        assert_eq!(f.tick(8).len(), 1);
+        let system = f.system(1);
+        assert_eq!(
+            system[0],
+            format!(
+                "nudged dev-1: no post on #1 for 6 min, post your status; not confirmed by Rex: \
+                 {why}"
+            )
         );
         assert!(system[1].starts_with("@cat-lead dev-1 on #1 has not posted"));
         assert_eq!(system.len(), 2);

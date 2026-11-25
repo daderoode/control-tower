@@ -25,12 +25,15 @@ pub enum Outcome {
     Failed(String),
 }
 
-/// One run to make: the executable, its arguments, the board and optional stdin.
+/// One run to make: the executable, its arguments, the board, any more environment
+/// variables and optional stdin.
 #[derive(Debug, Clone)]
 pub struct Run {
     pub exe: PathBuf,
     pub args: Vec<String>,
     pub db: PathBuf,
+    /// Set in the run's environment besides `TOWER_DB`, as (name, value).
+    pub env: Vec<(&'static str, &'static str)>,
     pub stdin: Option<String>,
     pub timeout: Duration,
 }
@@ -40,6 +43,7 @@ pub fn run_now(run: &Run) -> Outcome {
     let child = Command::new(&run.exe)
         .args(&run.args)
         .env("TOWER_DB", &run.db)
+        .envs(run.env.iter().copied())
         .stdin(if run.stdin.is_some() {
             Stdio::piped()
         } else {
@@ -121,6 +125,7 @@ mod tests {
             exe,
             args: args.iter().map(|a| a.to_string()).collect(),
             db: PathBuf::from("/tmp/some board.db"),
+            env: Vec::new(),
             stdin: stdin.map(String::from),
             timeout,
         })

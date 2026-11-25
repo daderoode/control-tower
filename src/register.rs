@@ -395,6 +395,7 @@ pub fn claude_within(
         exe: exe.to_path_buf(),
         args: args.iter().map(|a| a.to_string()).collect(),
         db: db.to_path_buf(),
+        env: Vec::new(),
         stdin: None,
         timeout,
     });

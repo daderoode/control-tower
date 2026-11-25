@@ -232,7 +232,9 @@ enum LeadCommand {
     /// watch can tell whether it is listening. The lead runs it from its own Claude
     /// session's Bash, at start and after a restart, once its board waiter runs: it reads
     /// CLAUDE_CODE_SESSION_ID, and refuses unless `claude agents --json` lists that session
-    /// under the session name the lead registered.
+    /// under the session name the lead registered. A session outside the terminal the
+    /// board's team runs in (Rex: no REX_SESSION) is attached all the same, and told what
+    /// the board does not see from there.
     Attach {
         /// The repo it leads, like R2, or a milestone of it, like M2.
         repo: RepoOf,
@@ -263,7 +265,9 @@ enum LeadCommand {
     /// counted the same way, never told and nothing printed; a turn the user interrupts
     /// runs no hook and is not counted. SessionStart: a session
     /// named as a lead's registered session is attached again (as tower lead attach would)
-    /// and told how to resume leading. Any other session passes.
+    /// and told how to resume leading, and, outside the team's terminal (Rex: no
+    /// REX_SESSION), what the board does not see from there. Any other session passes, and
+    /// so does every hook in tower's own relay (TOWER_RELAY set), whatever its name.
     Hook,
 }
 
@@ -824,7 +828,14 @@ fn replies(t: &Thread) -> String {
 /// at all is quiet whatever the event (the event cannot be known then); bytes that are not
 /// UTF-8 are read lossily, and input that is not JSON, or JSON naming no `hook_event_name`,
 /// takes the Stop path, which refuses it with an error as it always has.
+///
+/// In tower's own relay (`relay::ENV` set) it does nothing at all, before reading anything:
+/// a relay is never attached as a lead, has no turn counted and is told of no posts,
+/// whatever a lead is named.
 fn lead_hook() -> Result<()> {
+    if std::env::var_os(control_tower::terminal::relay::ENV).is_some_and(|v| !v.is_empty()) {
+        return Ok(());
+    }
     let mut input = Vec::new();
     if let Err(e) = std::io::stdin().read_to_end(&mut input) {
         eprintln!("tower lead hook: cannot read the hook's input: {e}");
@@ -849,7 +860,8 @@ fn lead_hook() -> Result<()> {
                     control_tower::listen::LISTED_ASK,
                 )
             };
-            control_tower::listen::session_start(&path, &input, agents)
+            let outside = control_tower::terminal::outside_from_env();
+            control_tower::listen::session_start(&path, &input, outside.as_deref(), agents)
         })();
         match started {
             Ok(Some(reply)) => println!("{reply}"),
@@ -1121,6 +1133,9 @@ fn run(cli: Cli) -> Result<()> {
                  it through its board waiter (tower lead wait {repo}) and its Stop hook",
                 lead.name
             );
+            if let Some(notice) = control_tower::terminal::outside_from_env() {
+                println!("{notice}");
+            }
         }
         Command::Lead(LeadCommand::Wait { repo }) => {
             control_tower::listen::wait(&path, listener_repo(&path, repo)?)?;

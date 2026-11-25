@@ -661,7 +661,8 @@ unassigned task.
   while working** (task in progress, assignee working, no post for 30 min): the worker is
   nudged through the relay (Live delivery), "no post on #N for M min, post your status",
   and the nudge is recorded as a plain message, "nudged dev-1: ...", saying so if Rex
-  refused delivery, with the relay's line in the watch's log; with no post 2 minutes later, a message tells the lead. A task flagged blocked
+  refused delivery, or "not confirmed by Rex" when it may have arrived, with the relay's
+  line in the watch's log; with no post 2 minutes later, a message tells the lead. A task flagged blocked
   is never nudged: its worker already said it is stuck, and the lead owns it.
 - **Orphaned** (task in progress, no live Claude session in Rex by its assignee's name for
   three looks in a row): a message to the lead, saying it is "gone from Rex" and ending
@@ -718,17 +719,16 @@ send loses that one send, and no one is told.
   worker's Claude session as a message from `@control-tower`, through the relay (below),
   every control character but newline stripped first. Only to a worker the look finds in
   Rex by that name (its Claude session name, compared ignoring case, so `@Senior` reaches
-  senior). A name must start with a letter or digit. Never the post's author, a lead or
-  the owner, and never a `system` post (the watch nudges workers itself), except tower's
-  reply to an author below, which goes to that author. A name that is no worker in Rex
-  counts as a failed send, so quote example names in backticks. Code is no mention: a name followed
-  straight by `(` and an ASCII character or the end of its line (`@cart(x)`), or by `.`
-  and an ASCII letter, digit or `_` (`@cart.isEmpty()`), while a sentence ending on a name
+  senior). A name must start with a letter or digit. Never the post's author, a lead or the
+  owner, and never a `system` post (the watch nudges workers itself), except tower's reply
+  to an author below, which goes to that author. A name that is no worker in Rex counts as
+  a failed send, so quote example names in backticks. Code is no mention: a name followed
+  straight by `(` and an ASCII character or the end of its line (`@cart(x)`), or by `.` and
+  an ASCII letter, digit or `_` (`@cart.isEmpty()`), while a sentence ending on a name
   (`@qa.`) still mentions it, and so does a name before `.` or `(` and any character that
-  is not ASCII, such as Chinese or Japanese (`请@qa.谢谢`). While Rex cannot be read,
-  posts for workers wait (said once in the log) and go when it answers. A lead
-  receives the posts on its own board only: a worker naming another board's lead reaches
-  no one.
+  is not ASCII, such as Chinese or Japanese (`请@qa.谢谢`). While Rex cannot be read, posts
+  for workers wait (said once in the log) and go when it answers. A lead receives the posts
+  on its own board only: a worker naming another board's lead reaches no one.
 - **To the owner:** unchanged, the `@manager` items.
 
 **The relay.** tower cannot use Claude Code's cross-session messaging itself, so each send
@@ -738,19 +738,23 @@ once, to the worker's Claude session by name; the worker sees "Message from
 @control-tower". There is no typing into the worker's terminal. The relay has only the
 SendMessage, ListAgents and ToolSearch tools, so a post's text can never get it to run a
 command, no MCP servers, and no saved session. It gets its instruction and the text on
-stdin, never in its arguments, the text between markers and named as data to pass on,
-never instructions. It loads the owner's plugins and hooks as any Claude session does.
-Each send is a paid model call (about $0.003 to $0.006, and 6 to 10 seconds, on Haiku),
-and the text is copied by a model, so it may not arrive verbatim.
+stdin, never in its arguments, the text between two marker lines carrying a nonce made for
+that send (so a post quoting the markers still goes whole) and named as data to pass on,
+never instructions. It loads the owner's plugins and hooks as any Claude session does, but
+runs with `TOWER_RELAY=1`, so tower's own `tower lead hook` does nothing in it: a relay is
+never attached as a lead, counts no lead's turn and is told of no posts, whatever a lead is
+named. Each send is a paid model call (about $0.003 to $0.006, and 6 to 10 seconds, on
+Haiku), and the text is copied by a model, so it may not arrive verbatim.
 
 A worker at a prompt (any of its Claude sessions blocked in Rex, looked up afresh just
 before the send) is sent nothing: the send fails "at a permission prompt (approve Bash:
 ...)", naming the kind and what it asks. How a send went is read from the relay's own
 events, never from what the model says: a SendMessage to the worker that its tool answered
-as sent is delivered; one to any other session fails, naming who got it; one with no answer,
-or a relay stopped at its 60 second limit, may have arrived, so it is logged and never
-resent; one refused (no session by that name, two sharing it), or none at all, fails. A
-worker running with permissions bypassed holds a cross-session message for its own user's
+as sent is delivered; one to any other session fails, naming who got it (what the relay or
+its tool said goes into the reason escaped on one line, as in its log line); one with no
+answer, or a relay stopped at its 60 second limit, may have arrived, so it is logged and
+never resent; one refused (no session by that name, two sharing it), or none at all, fails.
+A worker running with permissions bypassed holds a cross-session message for its own user's
 approval (Claude Code's rule), which the relay cannot see: that send reads as delivered.
 
 Every send logs one line starting `relay to <name>:`: how the relay ended, how long it
@@ -867,6 +871,12 @@ and an idle lead is never woken while nothing is posted:
   asked (each ask bounded to 5 s) or the board opened to write. A hook cannot stop a session
   from starting: a board that needs `tower upgrade`, or `claude` failing, prints nothing and
   goes to Claude Code's debug log.
+- **A lead outside Rex:** a lead's session with no `REX_SESSION` (not run in a Rex tab) is
+  attached all the same, by `tower lead attach` and by the SessionStart hook, and both tell
+  it that the board's team runs in Rex and what the board does not see from outside it (the
+  workers it starts there: their prompts, and delivery to them), to raise with you. The hook
+  says so even after a compaction that has nothing else to say. With `REX_SESSION` set,
+  nothing more is said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
   attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it

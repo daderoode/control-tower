@@ -2635,7 +2635,8 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
         cmd.args(["lead", "attach", m])
             .env("TOWER_DB", &db)
             .env("TOWER_CLAUDE", &claude)
-            .env_remove("CLAUDE_CODE_SESSION_ID");
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env("REX_SESSION", "session:7");
         for (k, v) in vars {
             cmd.env(k, v);
         }
@@ -2701,6 +2702,31 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
         "attached Catalogue as Claude session sess-1; posts on the board of R1 reach it through \
          its board waiter (tower lead wait R1) and its Stop hook\n"
     );
+    // Outside Rex (no REX_SESSION, or an empty one): attached all the same, and told what the
+    // board does not see from there.
+    for outside in [None, Some("")] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
+        cmd.args(["lead", "attach", "M1"])
+            .env("TOWER_DB", &db)
+            .env("TOWER_CLAUDE", &claude)
+            .env("CLAUDE_CODE_SESSION_ID", "sess-1");
+        match outside {
+            None => cmd.env_remove("REX_SESSION"),
+            Some(v) => cmd.env("REX_SESSION", v),
+        };
+        let out = cmd.output().unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let said = text(&out.stdout);
+        assert!(
+            said.starts_with("attached Catalogue as Claude session sess-1; posts on the board")
+                && said.contains(
+                    " and its Stop hook\ncontrol-tower: this session runs outside Rex \
+                     (REX_SESSION is not set), but the board's team runs in Rex."
+                )
+                && said.ends_with("question: post to @manager.\n"),
+            "{outside:?}: {said}"
+        );
+    }
     assert!(
         ok(&["milestone", "show", "M1"]).contains("  session    attached, Claude session sess-1\n")
     );
@@ -4094,6 +4120,114 @@ fn a_board_waiter_ends_on_an_unread_post_tells_nothing_and_unread_tells_it_once(
     assert!(!lock.exists());
 }
 
+/// qa-55's finding on PR #121: the relay, a Claude session named control-tower, ran tower's
+/// SessionStart hook on the board and took over a lead registered under that name. In the
+/// relay (TOWER_RELAY set) every hook does nothing.
+#[test]
+fn no_hook_in_the_relay_touches_the_board_even_for_a_lead_named_like_it() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("board.db");
+    // A fake claude listing the relay's session and the lead's, both named control-tower,
+    // leaving a mark that it was asked. Never the real claude.
+    let claude = dir.path().join("claude");
+    test_exe::executable(
+        &claude,
+        "#!/bin/sh\n[ \"$1 $2\" = \"agents --json\" ] || exit 2\n: > \"$(dirname \"$0\")/asked\"\n\
+         echo '[{\"sessionId\":\"sess-r\",\"name\":\"control-tower\",\"kind\":\"interactive\"},\
+         {\"sessionId\":\"sess-l\",\"name\":\"control-tower\",\"kind\":\"interactive\"}]'\n",
+    );
+    let asked = dir.path().join("asked");
+    let hook = |event: &str, session: &str, relay: bool| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
+        cmd.args(["lead", "hook"])
+            .env("TOWER_DB", &db)
+            .env("TOWER_CLAUDE", &claude)
+            .env("REX_SESSION", "session:7")
+            .env_remove("TOWER_RELAY");
+        if relay {
+            cmd.env("TOWER_RELAY", "1");
+        }
+        let mut child = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = serde_json::json!({
+            "session_id": session, "hook_event_name": event, "source": "startup",
+            "session_title": "control-tower", "cwd": "/anywhere", "error": "rate_limit"
+        });
+        (child.stdin.take().unwrap())
+            .write_all(input.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{event}: {}", text(&out.stderr));
+        out
+    };
+    let session = || ok(&db, &["milestone", "show", "M1"]);
+    ok(&db, &["milestone", "add", "MVP", "--goal", "g"]);
+    in_repo(&db, "M1");
+    ok(
+        &db,
+        &[
+            "lead",
+            "add",
+            "M1",
+            "--name",
+            "Tower",
+            "--session",
+            "control-tower",
+        ],
+    );
+    ok(
+        &db,
+        &[
+            "thread",
+            "new",
+            "--by",
+            "control-tower",
+            "M1",
+            "Reviews",
+            "opened",
+        ],
+    );
+    // The relay starting: nothing printed, claude never asked, the lead not attached.
+    let out = hook("SessionStart", "sess-r", true);
+    assert!(out.stdout.is_empty() && out.stderr.is_empty());
+    assert!(!asked.exists());
+    assert!(session().contains("  session    not attached (tower lead attach)\n"));
+    // The lead's own start attaches it, as the relay's start did before.
+    let out = hook("SessionStart", "sess-l", false);
+    assert!(!out.stdout.is_empty());
+    assert!(session().contains("  session    attached, Claude session sess-l\n"));
+    // A relay starting later never takes it over.
+    hook("SessionStart", "sess-r", true);
+    assert!(session().contains("  session    attached, Claude session sess-l\n"));
+    // With a post unread, a Stop or StopFailure in a relay, even under the lead's own
+    // session id, passes, counts no turn and tells nothing.
+    ok(
+        &db,
+        &["post", "--by", "dev-1", "T1", "status: for the lead"],
+    );
+    let turns = r1_turns(&db);
+    for event in ["Stop", "StopFailure"] {
+        let out = hook(event, "sess-l", true);
+        assert!(out.stdout.is_empty() && out.stderr.is_empty(), "{event}");
+    }
+    assert_eq!(r1_turns(&db), turns);
+    let r1 = control_tower::board::RepoId(1);
+    assert!(Store::open(&db).unwrap().has_unread(r1).unwrap(), "told");
+    // Outside a relay the same Stop is held for the post.
+    let out = hook("Stop", "sess-l", false);
+    assert!(
+        text(&out.stdout).contains("\"decision\":\"block\""),
+        "{}",
+        text(&out.stdout)
+    );
+}
+
 #[test]
 fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
     use std::io::Write;
@@ -4111,8 +4245,14 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
          cat \"$d/sessions.json\"\n",
     );
     let asked = dir.path().join("asked");
-    let hook = |input: serde_json::Value| {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_tower"))
+    // In Rex unless `rex` is false, when no REX_SESSION is set.
+    let hook_in = |input: serde_json::Value, rex: bool| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
+        cmd.env("REX_SESSION", "session:7");
+        if !rex {
+            cmd.env_remove("REX_SESSION");
+        }
+        let mut child = cmd
             .args(["lead", "hook"])
             .env("TOWER_DB", &db)
             .env("TOWER_CLAUDE", &claude)
@@ -4126,6 +4266,7 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
             .unwrap();
         child.wait_with_output().unwrap()
     };
+    let hook = |input: serde_json::Value| hook_in(input, true);
     let start = |session: &str, title: &str| {
         serde_json::json!({
             "session_id": session, "hook_event_name": "SessionStart", "source": "resume",
@@ -4207,6 +4348,35 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
     let out = hook(serde_json::json!({"session_id": "sess-2", "hook_event_name": "Stop"}));
     let v: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
     assert_eq!(v["decision"], "block");
+    // In Rex the reply ends where it did; outside Rex (no REX_SESSION) the same start is
+    // attached and told, after the rest, what the board does not see from there.
+    let context = |out: Output| {
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let v: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
+        v["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let inside = context(hook(start("sess-2", "Cat-Lead")));
+    assert!(
+        inside.ends_with("(lead skill, New issues and idle).") && !inside.contains("Rex"),
+        "{inside}"
+    );
+    let outside = context(hook_in(start("sess-2", "Cat-Lead"), false));
+    assert_eq!(
+        outside,
+        format!(
+            "{inside}\ncontrol-tower: this session runs outside Rex (REX_SESSION is not set), \
+             but the board's team runs in Rex. Outside Rex the board does not see the workers \
+             you start: not their prompts, and posts and nudges are not delivered to them. \
+             Raise it with the owner in a question: post to @manager."
+        )
+    );
+    assert!(
+        ok(&db, &["milestone", "show", "M1"])
+            .contains("  session    attached, Claude session sess-2\n")
+    );
 }
 
 #[test]
