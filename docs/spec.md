@@ -150,7 +150,7 @@ Deliberately rough: don't design further until there's real use.
 ### A task's process
 
 - **A repo's SDLC wins where it covers something** (owner decision, 2026-11-05). A lead follows the SDLC of the work's repo (for example `SDLC.md`) for anything it covers: steps, gates, merge rules, releases. Where it says nothing, the default lifecycle below applies. How a lead works (the board, threads, workers, the gate, @manager) is always this spec's.
-- **The default lifecycle** (owner decision, 2026-11-05) is control-tower's own lifecycle, from its `SDLC.md`. The two copies differ only in who merges (see Finishing); a change to one is checked against the other.
+- **The default lifecycle** (owner decision, 2026-11-05) is control-tower's own lifecycle, from its `SDLC.md`, which the lead skill carries as its default lifecycle for any other repo; `SDLC.md` says how the two copies differ and that a change to one is checked against the other.
 
 ```mermaid
 flowchart TD
@@ -161,29 +161,14 @@ flowchart TD
   S2 --> F[Finish]
 ```
 
-1. **Implement (dev):** picks up the work, builds it and runs the quality gate (or, where the repo's SDLC keeps them in CI, as control-tower's does, only the local checks it names) and its own sanity checks, stages it and reports. Only the lead commits and pushes: for a Standard change it then commits, pushes and opens the draft PR, so CI runs on that commit.
-2. **Test (QA):** runs the hand-off and judges it as a person would, against the spec and ticket: does it do what was asked, the way it was asked, with no obvious nonsense a test would not catch.
-3. **Stage 1 review (senior dev):** reviews the PR diff and its CI result, against the spec and ticket, and for bugs, code smells and tests that pass whatever the code does.
-4. **Stage 2 review (external, skeptical):** reviews the PR, not local code, with no stake in the work. Sized by the lead: one reviewer, a review team, or a tabletop.
-5. **Finish:** see Finishing.
-
-- **Hand-off:** each step picks up work marked ready for it and marks it ready for the next, by reporting to the lead, who starts the next step on the board. Testing and review may start as soon as there is something to test ("I have done A and B, please test them while I do C") (owner decision, 2026-11-05); for a Standard change, that partial hand-off is a commit and a hand-off like any other.
-- **Build once per change** (owner decision, 2026-11-09, old tracker 147): for a Standard change the change is built once, and nobody else compiles it: by the implementer, which also runs the quality gate, with CI the independent check; or, where the repo's SDLC keeps the gate and the build in CI (control-tower's does), by CI from the hand-off commit.
-  - The implementer stages the whole change with nothing left unstaged, so what it built or checked is the commit's, and after any hand-off stages and builds nothing more until the lead has committed it (and, when it built one, copied the artifact).
-  - The hand-off names the commit, the PR and the built artifact, kept in a place named after the commit so a later rebuild cannot touch it. A change that builds nothing (the lead skill, hooks, docs) hands off its commit. The repo's SDLC names its artifact and where it goes.
-  - The tester runs the hand-off, with no build and no worktree of its own. The tester and the reviewers work as panes in the implementer's tab. The implementer and its worktree stay until its PR is delivered, since a fix from any step is made there.
-  - Stage 1 builds nothing of its own: a finding it can prove only by running code uses the hand-off, and one that needs a different build goes back to the dev as a fix (in control-tower, a CI round).
-  - A fix is a new commit and a new hand-off.
-- **Findings:** whoever finds a problem supplies the evidence (a reproduction where one exists). The dev fixes it or answers it; an answer stands when the finder accepts it. A fix gets the dev's checks as in Implement and goes to Test if it changes behaviour. Once a PR exists, the lead commits and pushes it as a new hand-off. The step that found the problem then re-checks the fix only; Stage 1 does not repeat for a Stage 2 finding. In a dispute the lead decides, labelled as its decision; anything about UI, releases or scope goes to the owner.
-- **The PR:** a Standard PR is a draft from the end of Implement through Stage 2; a Light PR opens ready after Test. Delivery merges only the head Stage 2 passed, or a later head whose fixes were re-checked; a Light PR merges the head that passed Test. CI is green on the head before it merges. A hold puts the PR back to draft.
-- **Sizing:** the lead picks the path and writes it on the work item; anyone can raise it, nobody can lower it. **Light** changes no behaviour (docs other than agent instructions, comments, typos, release notes): Implement, Test, Finish. A Light change may go to subagents (one implements, one tests) instead of visible workers; its task then needs no assignee, which is the gate's one exception (owner decision, 2026-11-05). The lead tracks the subagents itself, since the watch does not see them, and posts their results on the task thread. **Standard** is everything else, agent-instruction docs included: every step. A Light change that is raised to Standard goes back to draft, and the full lifecycle applies.
-- **Work items:** read the whole item (description and every comment) before planning, reviewing or finishing. Follow-on work becomes its own item before the parent closes. Owner decisions are quoted and dated on the item; lead decisions are labelled as the lead's.
+- **The steps and their rules** (Implement, Test, Stage 1 and Stage 2, the hand-off, Build once, findings, the PR, sizing and work items) are `SDLC.md`'s for control-tower, and the lead skill's default lifecycle for a repo whose SDLC does not cover them. This spec does not restate them.
+- **What the board adds** (how a lead works, always this spec's): each step reports to the lead, who starts the next step on the board. A Light change may go to subagents instead of visible workers; its task then needs no assignee, which is the gate's one exception (owner decision, 2026-11-05). The lead tracks those subagents itself, since the watch does not see them, and posts their results on the task thread.
 
 ### Finishing
 
 - **A task that is part of a larger MR** waits until every task that MR needs is done; a standalone task finishes on its own.
 - **MR into a working branch** (the ticket's or integration branch): the lead merges it, then marks the task Done.
-- **MR into master or main: the owner's gate by default** (owner decision, 2026-11-05). The lead takes the MR out of draft, posts "ready for your review" and @mentions the owner; the owner does peer review and merges. A repo's SDLC, or a milestone's or task's standing context, can give the lead that merge (control-tower's `SDLC.md` does).
+- **MR into master or main: the owner's gate by default** (owner decision, 2026-11-05). The lead takes the MR out of draft and asks the owner, as a `question:` post that mentions @manager, to review and merge it; the owner does peer review and merges. A repo's SDLC, or a milestone's or task's standing context, can give the lead that merge (control-tower's `SDLC.md` does).
 - **Waiting on the owner's merge, by scope:**
   - the "merge" task or subtask is created during spec and ticketing, before work starts, so progress never shows 100% while the owner's review is pending;
   - in a milestone, the merge is its own task: every other task can be Done while the "merge" task waits;
@@ -207,9 +192,9 @@ Covered by section 4 (the task process and finishing).
 ### How the UI is set (owner decision, 2026-11-25, #122)
 
 - **The reference is the product, not a prototype.** This spec says how the dashboard behaves; the approved snapshots in `tests/snapshots` show how it looks, rendered by the real code with invented data. Both are reviewed in PRs. No prototype is kept in the repo.
-- **A UI change starts with a design the owner signs off:** a prototype (an artifact linked from its issue) showing only the change, with invented data (no real board, host, project or person). The change is built to it. The owner approves its new and changed snapshots in the PR, and from then on the snapshots are the reference: the prototype is not consulted again. A release milestone's UI changes share one such design, named in its description. `SDLC.md` says how.
+- **A UI change starts with a design the owner signs off:** a prototype (an artifact linked from its issue) showing only the change, with invented data (no real board, host, project or person). The change is built to it. The owner approves its new and changed snapshots in the PR, and from then on the snapshots are the reference: the prototype is not consulted again. `SDLC.md` says how.
 - **Where a prototype and the terminal differ** (a browser's line breaking, font sizes), the snapshot the owner approved is what counts. The prototypes used smaller text for times, tags and events; the terminal has one font size, so the build shows them in dim colour.
-- **Signed designs**, one row per signed-off design, the sign-off record; a UI change's PR adds its design's row (the prototypes themselves are not kept):
+- **Signed designs**, one row per signed-off design, the sign-off record (the prototypes themselves are not kept):
 
   | Version | Approved | What it set or changed |
   |---|---|---|
@@ -265,7 +250,7 @@ Covered by section 4 (the task process and finishing).
 ## 8. Storage
 
 - **One SQLite database per machine**, written only through a `tower` command. Agents never touch the file directly; the command checks every write and refuses a bad one loudly. The dashboard reads the same file.
-- Agents use the command from the shell, as the lead skill teaches them (for example `tower task stage 12 done`, `tower post <thread> "copy, testing now"`, `tower milestone show M2`).
+- Agents use the command from the shell, as the lead skill teaches them (for example `tower task stage 12 done`, `tower post <thread> --by qa-2 "copy, testing now"`, `tower milestone show M2`).
 - **Each machine has its own board.** The phone gets pushes (Claude's own, or ntfy), not the board.
 - **A server later, if it grows:** for one board across machines or a phone view.
 

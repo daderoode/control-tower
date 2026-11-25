@@ -86,6 +86,12 @@ tag's date, and a new empty Unreleased goes above it.
   names rex, else `rex` in `REX_BIN_DIR`, else on the PATH. A main checkout that is no
   longer a directory, or a rex that cannot be found, is refused before anything is written
   (#112).
+- **The lead skill builds a UI change to a signed-off design and merges it only once its
+  snapshots are approved.** A UI change is built to a prototype the owner signed off, an
+  artifact linked from its issue with invented data only, and merges only once the owner
+  has approved its new and changed snapshots in the PR, wherever the lead holds the merge;
+  from then on the snapshots are the reference. The spec is in the repo, `docs/spec.md`
+  (#122).
 
 ### Removed
 
