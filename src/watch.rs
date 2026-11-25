@@ -1480,7 +1480,7 @@ mod tests {
             "@manager could not deliver to dev-1: {why} (the nudge: no post on #1 for 6 min, \
              post your status)"
         );
-        assert_eq!(f.system(1), [item.clone()]);
+        assert_eq!(f.system(1), [item.as_str()]);
         let board = f.store().load().unwrap();
         let aware: Vec<&str> = (board.inbox.awareness.iter())
             .map(|a| a.message.text.as_str())
