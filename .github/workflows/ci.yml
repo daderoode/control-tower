@@ -17,7 +17,7 @@ name: CI
 # with the same rendering; when a snapshot comes out new or changed, the whole snapshots
 # folder as this run renders it is uploaded, with snapshots-changed.txt naming the new and
 # changed files, as the artifact `snapshots-<first 12 characters of the PR's head commit>`:
-# the dev downloads it, checks each named file against the signed UI copy and
+# the dev downloads it, checks each named file against the spec (and a UI change's design) and
 # stages it, one push round however many a change touches. Never on a passing run, and
 # never committed from here.
 #

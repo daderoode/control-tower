@@ -588,7 +588,7 @@ and `tower repo show <R>` lists threads by title.
     `gh run view <run-id> --log-failed`. A CI failure is a fix back to the implementer, a
     new commit and hand-off. A new snapshot or other generated test file comes from CI (its
     log, or an artifact the repo's CI uploads, as its SDLC says: downloaded into a temp
-    folder, never over the worktree), checked against the signed UI copy and only then
+    folder, never over the worktree), checked against the spec and, for a UI change, its signed-off design, and only then
     copied into the repo, one more push round. The tester and the
     reviewers never run the gate.
   - Just before staging a hand-off, the implementer brings its unpushed branch up to the
@@ -788,10 +788,12 @@ is one milestone on its forge, as its SDLC says:
   `gh api --method PATCH repos/{owner}/{repo}/milestones/<number> -f title="<title>"`
   (GitLab: `glab milestone edit <id> --project <path> --title "<title>"`, `<id>` and
   `<path>` as in The backlog).
-- Its UI changes share one UI copy, named in its description: the owner signs it off before
-  the UI work is built. When the milestone needs an amendment, it is the copy's next
-  version, signed off the same way, never an edit in place. You build only to a signed-off
-  version.
+- Its UI changes share one design (a prototype artifact linked from its issue, invented data
+  only), named in its description: the owner signs it off before the UI work is built. When
+  the milestone needs an amendment, it is the design's next version, signed off the same
+  way, never an edit in place. You build only to a signed-off design, and ask the owner to
+  approve the change's new and changed snapshots in its PR before it merges: from then on
+  the snapshots, not the design, are the reference.
 - When its work is merged, propose or cut its release as above. An issue still open in it
   either holds the release or moves to the next milestone: your call.
 - The tag is the version SemVer gives what shipped. Once the release is published, close
