@@ -273,8 +273,8 @@ implement, test or review.
    its lead: in Rex as tabs in your own Rex session, never in a separate session. Then
    read the repo's SDLC (for example `SDLC.md`), if it has one, and follow it for anything
    it covers: steps, gates, merge rules, releases. Where it says nothing, the default
-   lifecycle (see Workers) applies. How you work (the board, threads, workers, the gate, @manager) is always this
-   skill's.
+   lifecycle (see Workers) applies. How you work (the board, threads, workers, the gate,
+   @manager) is always this skill's.
 4. **The backlog:** then the repo's issues. First write the time into the forge waiter's
    `since` file, so the waiter later reports anything that changes while you work through
    the backlog:

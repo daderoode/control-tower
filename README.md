@@ -922,26 +922,27 @@ Give a dev build a test board in `TOWER_DB`.
 
 ## Install
 
-Needs Rex, the terminal the team runs in, on macOS (Apple silicon). Releases are built for Apple silicon
-only; on an Intel Mac `brew install` refuses with Homebrew's own message.
+Needs Rex, the terminal the team runs in, on macOS (Apple silicon). Releases are built for
+Apple silicon only; on an Intel Mac `brew install` refuses with Homebrew's own message.
 
     brew install daderoode/tap/control-tower
     brew services start control-tower
 
-`brew install` puts `tower` on your PATH. `brew services start` runs the stuck-worker watch, `tower watch`, as a launchd service: it starts at login,
-restarts if it stops, finds rex on the Homebrew PATH and logs to
-`$(brew --prefix)/var/log/control-tower.log`. No terminal tab is needed for it. Rex keeps
-`rex` in `$REX_BIN_DIR`, not on the PATH, so the log says once which path it tried: link
-it into Homebrew's bin (`ln -s "$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with
-`REX_BIN_DIR` as a Rex tab has it); the next look finds it. A watch run by hand takes its
-full path in `TOWER_REX`. Brew does not restart the service on `brew upgrade`; the watch
-notices its binary changed and restarts itself between looks, logging one line.
+`brew install` puts `tower` on your PATH. `brew services start` runs the stuck-worker
+watch, `tower watch`, as a launchd service: it starts at login, restarts if it stops, finds
+rex on the Homebrew PATH and logs to `$(brew --prefix)/var/log/control-tower.log`. No
+terminal tab is needed for it. Rex keeps `rex` in `$REX_BIN_DIR`, not on the PATH, so the
+log says once which path it tried: link it into Homebrew's bin
+(`ln -s "$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with `REX_BIN_DIR` as a Rex tab has
+it); the next look finds it. A watch run by hand takes its full path in `TOWER_REX`. Brew does
+not restart the service on `brew upgrade`; the watch notices its binary changed and
+restarts itself between looks, logging one line.
 
 The lead skill is a Claude Code plugin in `claude-plugin/`, `control-tower`; this repo is
 its marketplace, also `control-tower`. A lead starts it with `/control-tower:lead M1`.
 `brew install` puts the marketplace in the formula's share directory, and the watch
-registers it with Claude Code itself (brew's own install step cannot write `~/.claude`). When Claude Code has no marketplace `control-tower`, the watch
-runs, once:
+registers it with Claude Code itself (brew's own install step cannot write `~/.claude`).
+When Claude Code has no marketplace `control-tower`, the watch runs, once:
 
     claude plugin marketplace add "$(brew --prefix)/opt/control-tower/share/control-tower/claude"
     claude plugin install control-tower@control-tower
