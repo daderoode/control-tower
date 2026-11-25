@@ -161,7 +161,7 @@ flowchart TD
   S2 --> F[Finish]
 ```
 
-- **The steps and their rules** (Implement, Test, Stage 1 and Stage 2, the hand-off, Build once, findings, the PR, sizing and work items) are `SDLC.md`'s for control-tower, and the lead skill's default lifecycle for a repo whose SDLC does not cover them. This spec does not restate them.
+- **The steps and their rules** (Implement, Test, Stage 1 and Stage 2; the hand-off, a partial one included (owner decision, 2026-11-05: "I have done A and B, please test them while I do C"); Build once per change (owner decision, 2026-11-09, old tracker 147); findings, the PR, sizing and work items) are `SDLC.md`'s for control-tower, and the lead skill's default lifecycle for a repo whose SDLC does not cover them. This spec does not restate them.
 - **What the board adds** (how a lead works, always this spec's): each step reports to the lead, who starts the next step on the board. A Light change may go to subagents instead of visible workers; its task then needs no assignee, which is the gate's one exception (owner decision, 2026-11-05). The lead tracks those subagents itself, since the watch does not see them, and posts their results on the task thread.
 
 ### Finishing
@@ -245,7 +245,7 @@ Covered by section 4 (the task process and finishing).
   - task: description, acceptance criteria, blocked by, who is on it, subtasks as a checklist, standing context, tracker link, MR and pipeline, its thread.
 - **Standalone tasks** (no milestone) are their own group, shown like a team: each with its assignee or lead and subtask count, opening into the same task detail; `tower task hand` hands one to a lead. Selecting a standalone task shows its detail straight away, since there is no milestone overview above it.
 - **Alerts take one line, never more:** "⚠ N need you · ⓘ N for your awareness" with the newest need-you item. Clicking it opens an **inbox** listing every item (need you first), each opening its thread. Each lead in the tree shows its own counts as badges.
-- **The layout of the views is settled from mockups** rendered by the real code on the owner's screen, not from descriptions.
+- **The layout of the views is set as section 7 says** (How the UI is set): a design the owner signs off, then the snapshots the owner approves, rendered by the real code.
 
 ## 8. Storage
 
