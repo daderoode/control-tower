@@ -153,7 +153,7 @@ terms; where two words are easy to mix up, the entry says which is which.
   dashboard shows the whole board on a repo, and on a milestone or task only the threads
   linked to it (to a milestone or one of its tasks). An overview shows a summary under its
   contents (every thread, an open one's last six messages and a resolved one's last two;
-  the dashboard runs in a terminal tab, and its own space and popup come back with #85);
+  the dashboard runs in a Rex tab, brought into view by its keys: its tab and its popup);
   the repo and milestone details show their board's summary, the task detail its THREAD.
 - **Board waiter**: `tower lead wait R2`, run by the lead as a background Bash command:
   it ends when a post on its board is unread, and its end wakes the lead, which

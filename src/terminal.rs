@@ -1,10 +1,11 @@
 //! The terminal module: the one place the core (the watch's look, the delivery round, the
 //! dashboard's `n`) reaches the terminal its workers run in. The core asks it for the live
 //! workers (`agents`), has it deliver a text to one by name (`prompt`), and has it open a
-//! new place for a lead (`start_lead`, undone by `undo`); its display name names the
-//! terminal in the core's texts and logs. A module is built in: `module` gives the one this
-//! build has, Rex (`rex`), so another slots in here without touching the core. Rex's prompt
-//! reaches a worker's Claude session through the relay (`relay`).
+//! new place for a lead (`start_lead`, undone by `undo`), and serves the dashboard's keys
+//! (`space`, `popup`); its display name names the terminal in the core's texts and logs. A
+//! module is built in: `module` gives the one this build has, Rex (`rex`), so another slots
+//! in here without touching the core. Rex's prompt reaches a worker's Claude session
+//! through the relay (`relay`).
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
 //! blocked kind where the terminal gives it). A value the core does not know is
@@ -148,6 +149,30 @@ pub struct LeadStart<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Handle(pub String);
 
+/// Where a key was pressed: its session and block, as the terminal names them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Here {
+    pub session: String,
+    pub block: String,
+}
+
+/// A place the terminal can show: a session and one of its windows (a tab). It is also
+/// what the back file beside the board holds, as JSON.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Place {
+    pub session_id: String,
+    pub window_id: String,
+}
+
+/// What the dashboard's key is to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Shown {
+    /// This place.
+    Go(Place),
+    /// Nothing moves, for this reason.
+    Stay(String),
+}
+
 /// The terminal module interface. `db` is the board, passed to what the module runs as
 /// `TOWER_DB`.
 pub trait Terminal: Send + Sync {
@@ -168,6 +193,13 @@ pub trait Terminal: Send + Sync {
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle>;
     /// Undoes a start: closes the place `handle` names. Says what it did.
     fn undo(&self, db: &Path, handle: &Handle) -> Result<String>;
+    /// The dashboard's key, pressed `here`: from the dashboard's tab, the place the key was
+    /// last pressed outside it, as `back` (a file) holds it; from anywhere else, the
+    /// dashboard's tab, opening one running `dashboard` (one word per argument) when there
+    /// is none, with `here` written to `back`.
+    fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Shown>;
+    /// The popup's key, pressed `here`: opens `dashboard` in a popup over `here`'s tab.
+    fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()>;
 }
 
 /// The built-in terminal module, Rex, its executable at `exe`, asking the `claude` the
@@ -185,6 +217,13 @@ pub fn exe_from_env() -> PathBuf {
 /// the built-in module's terminal, by this process's environment; `None` inside it.
 pub fn outside_from_env() -> Option<String> {
     rex::outside(|name| std::env::var_os(name))
+}
+
+/// What the dashboard in a tab of its own writes to its terminal, by this process's
+/// environment, so the dashboard's key can find it: (on start, on exit), or `None` where
+/// the built-in module's terminal is not the one it runs in.
+pub fn dashboard_status_from_env() -> Option<(&'static str, &'static str)> {
+    rex::dashboard_status(|name| std::env::var_os(name))
 }
 
 /// How long one terminal command may take before it is stopped, unless a caller has its

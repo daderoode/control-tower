@@ -13,6 +13,7 @@ use control_tower::store::{
     MilestoneFields, Moved, Removed, RepoDetails, SCHEMA_VERSION, Store, TaskFields, TaskRemoved,
     board_path,
 };
+use control_tower::terminal::{self, Here, Shown};
 
 /// The control-tower board: repos, their leads, milestones and tasks, and the dashboard.
 ///
@@ -66,6 +67,30 @@ enum Command {
     },
     /// Open the dashboard (q or Ctrl-C closes it).
     Ui,
+    /// The Rex key's dashboard tab, run by rex/control-tower.lua's tower_space action: from
+    /// the dashboard's tab, print the tab the key was last pressed in outside it; from any
+    /// other, remember that tab and print the dashboard's, opening one in the key's session
+    /// when there is none. Prints the place to show as JSON ({"session_id", "window_id"}),
+    /// or {} with why on stderr.
+    Space {
+        /// The Rex session the key was pressed in.
+        #[arg(long)]
+        session: String,
+        /// The Rex block the key was pressed in.
+        #[arg(long)]
+        block: String,
+    },
+    /// The Rex key's popup, run by rex/control-tower.lua's tower_popup action: open the
+    /// dashboard in a popup over the key's tab, 85% of it each way; Esc at its top level or
+    /// q closes it.
+    Popup {
+        /// The Rex session the key was pressed in.
+        #[arg(long)]
+        session: String,
+        /// The Rex block the key was pressed in.
+        #[arg(long)]
+        block: String,
+    },
     /// Watch for stuck workers until SIGTERM or Ctrl-C: every 20 s, read the board and the
     /// Claude sessions running in Rex (a task's assignee is its worker's Claude session
     /// name), nudge a worker that stopped or went silent, and post system flags in the
@@ -866,6 +891,30 @@ fn lead_hook() -> Result<()> {
     Ok(())
 }
 
+/// The file beside the board `board` that the dashboard's key keeps the place it was last
+/// pressed in outside the dashboard: the board's name with `.space-back` in place of its
+/// extension.
+fn back_path(board: &Path) -> PathBuf {
+    board.with_extension("space-back")
+}
+
+/// The dashboard's command for the key to open, one word per argument: this tower's `ui` on
+/// the board `board`, in the popup's mode when `popup`.
+fn dashboard_command(board: &Path, popup: bool) -> Result<Vec<String>> {
+    let exe = std::env::current_exe().context("cannot find this tower's own path")?;
+    let word = |p: &Path, what: &str| {
+        (p.to_str().map(String::from))
+            .with_context(|| format!("{what} {} is not UTF-8", p.display()))
+    };
+    let mut command = vec!["env".to_string()];
+    if popup {
+        command.push(format!("{}=popup", control_tower::ui::MODE_VAR));
+    }
+    command.push(format!("TOWER_DB={}", word(board, "the board's path")?));
+    command.extend([word(&exe, "tower's own path")?, "ui".into()]);
+    Ok(command)
+}
+
 fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Command::Lead(LeadCommand::Hook)) {
         return lead_hook();
@@ -1270,6 +1319,23 @@ fn run(cli: Cli) -> Result<()> {
             println!("posted {what}to {thread}, {}", replies(&t));
         }
         Command::Ui => control_tower::ui::run(&path)?,
+        Command::Space { session, block } => {
+            let here = Here { session, block };
+            let terminal = terminal::module(terminal::exe_from_env());
+            let dashboard = dashboard_command(&path, false)?;
+            match terminal.space(&path, &here, &back_path(&path), &dashboard)? {
+                Shown::Go(place) => println!("{}", serde_json::to_string(&place)?),
+                Shown::Stay(why) => {
+                    eprintln!("tower space: {why}");
+                    println!("{{}}");
+                }
+            }
+        }
+        Command::Popup { session, block } => {
+            let here = Here { session, block };
+            let terminal = terminal::module(terminal::exe_from_env());
+            terminal.popup(&path, &here, &dashboard_command(&path, true)?)?;
+        }
         Command::Watch => control_tower::watch::run(&path)?,
         Command::Upgrade => {
             // Opening for writing runs any migrations, and refuses a newer board.
@@ -1287,6 +1353,67 @@ fn run(cli: Cli) -> Result<()> {
 mod tests {
     use super::*;
     use control_tower::board::{Message, Resolution};
+
+    #[test]
+    fn the_keys_dashboard_is_this_tower_on_this_board_in_its_mode() {
+        let exe = std::env::current_exe().unwrap();
+        let exe = exe.to_str().unwrap();
+        let board = Path::new("/b/board.db");
+        assert_eq!(
+            dashboard_command(board, false).unwrap(),
+            ["env", "TOWER_DB=/b/board.db", exe, "ui"]
+        );
+        assert_eq!(
+            dashboard_command(board, true).unwrap(),
+            [
+                "env",
+                "TOWER_UI_MODE=popup",
+                "TOWER_DB=/b/board.db",
+                exe,
+                "ui"
+            ]
+        );
+        assert_eq!(back_path(board), Path::new("/b/board.space-back"));
+    }
+
+    #[test]
+    fn the_rex_snippet_runs_the_keys_commands_as_tower_parses_them_and_brew_fills_it_in() {
+        let snippet = include_str!("../rex/control-tower.lua");
+        // Both actions run `tower <command> --session <s> --block <b>`, which tower takes.
+        let argv = r#"{ tower, command, "--session", ctx.session_id, "--block", ctx.block_id }"#;
+        assert!(snippet.contains(argv));
+        for command in ["space", "popup"] {
+            assert!(snippet.contains(&format!("run(\"{command}\", ctx)")));
+            let args = [
+                "tower",
+                command,
+                "--session",
+                "session:a",
+                "--block",
+                "block:1",
+            ];
+            let (Command::Space { session, block } | Command::Popup { session, block }) =
+                Cli::try_parse_from(args).unwrap().command
+            else {
+                panic!("tower {command} is not the key's command");
+            };
+            assert_eq!((session.as_str(), block.as_str()), ("session:a", "block:1"));
+        }
+        // brew writes its prefix over the snippet's placeholder, checks it did, and the
+        // release puts the snippet in the archive brew installs from.
+        assert!(snippet.contains(r#"local prefix = "@HOMEBREW_PREFIX@""#));
+        let formula = include_str!("../packaging/control-tower.rb.in");
+        assert!(formula.contains(
+            r#"inreplace pkgshare/"rex/control-tower.lua", "@HOMEBREW_PREFIX@", HOMEBREW_PREFIX.to_s"#
+        ));
+        assert!(
+            formula.contains(r##"assert_match "local prefix = \"#{HOMEBREW_PREFIX}\"", snippet"##)
+        );
+        assert!(formula.contains(r#"refute_match "@HOMEBREW_PREFIX@", snippet"#));
+        let release = include_str!("../.github/workflows/release.yml");
+        assert!(release.contains("cp -R rex stage/"));
+        assert!(release.contains(r#"tar -czf "$ARCHIVE" -C stage tower claude rex"#));
+    }
 
     fn message(id: i64, author: &str, text: &str, at: i64) -> Message {
         Message {

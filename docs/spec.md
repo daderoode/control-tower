@@ -228,7 +228,13 @@ Covered by section 4 (the task process and finishing).
 - **Task Done guard (lead decision, 2026-11-01):** a task cannot be Done while any of its subtasks is open, so a waiting merge subtask keeps it below complete; reopening a subtask moves a Done parent back to In progress.
 - **A task's "doing" line** is the worker's latest progress post on that task.
 - **Navigation:** Esc always goes back to where the owner came from (including inbox to thread and back); `q` or Ctrl-C closes the dashboard.
-- **Where the dashboard runs** (owner decisions, 2026-11-20 and 2026-11-23, #86): `tower ui` in a Rex tab. Its own space, popup and key binding in Rex are #85 (owner, 2026-11-20: "mark full parity for later we need it").
+- **Where the dashboard runs** (owner decisions, 2026-11-20 and 2026-11-23, #86): `tower ui` in a Rex tab.
+- **The dashboard's keys in Rex** (#85; owner decision, 2026-11-25: Remote Control stays off). Rex has no plugins, so the keys are two actions in a Lua file the repo ships (`rex/control-tower.lua`) and brew installs with its prefix written in; the owner loads it from their own `init.lua` and binds the keys. Each action runs `tower space` or `tower popup` with the session and block the key was pressed in.
+  - **The dashboard's tab** (`tower space`): pressed outside the dashboard's tab, it shows that tab, the key's own session searched first, and opens one in a new tab of the key's session when there is none. Pressed in the dashboard's tab (any pane of it), it goes back to the tab it was last pressed in outside it. `q` in the dashboard's tab only closes the dashboard; it never goes back.
+  - **Found by asking Rex, never by its label:** `tower ui` in a tab of its own (not the popup), and only in Rex, names itself in its root program status record as `control-tower`, cleared when it closes. A block is the dashboard while that record's owner is the block's foreground process, by pid and name, since a record outlives its program.
+  - **The back file** beside the board (its name with `.space-back` in place of its extension) holds the one place the key was last pressed outside the dashboard, as JSON: its Rex session and window. With no back file, one that cannot be read as a place, or a place Rex no longer has, the key from the dashboard moves nothing: `tower space` prints `{}` and the reason on stderr, which Rex logs.
+  - **The popup** (`tower popup`): the dashboard in popup mode in a floating layer over the key's tab, 85% of it each way and focused; `q`, or Esc at its top level, closes it, and the layer goes with its block.
+  - **Nothing outside a key press moves the Rex app:** tower only answers the key's action, which asks the app to show the place (`session.select`), so Rex's Remote Control is never needed and tower never asks for it.
 - **Keyboard parity:** every mouse action has a key: `c` writes a message, PgUp and PgDn scroll, up/down and Enter work in the inbox.
 - **Clock:** the header shows the real local time.
 - **Progress:** the percentage rounds down, and the bar uses the same rounding.
@@ -262,7 +268,6 @@ Covered by section 4 (the task process and finishing).
 - Multi-repo projects (see section 3): one lead per repo, coordinating on each other's boards.
 - Support for sub-leads on the board, once one has been used.
 - **Modules (all of them):** tracker import and sync for GitLab, GitHub and Jira (section 6), notification channels such as ntfy (section 3a), and other terminals beside Rex (herdr-core, #2).
-- The dashboard's own space, popup and key binding in Rex (#85).
 - A server for one board across machines or a phone view.
 - A macOS menu bar app (to investigate): turn the watch on and off, and see a few stats (needs you, blocked, milestone progress) outside the terminal. The watch runs as a `brew services` background service.
 

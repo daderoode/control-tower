@@ -20,6 +20,19 @@
 //! (ignoring case): a worker Rex has no Claude session for, or one at a prompt (any of its
 //! sessions `blocked`), is sent nothing and the send fails saying why; else the relay sends
 //! the text to its Claude session (`super::relay`), within what is left of the time limit.
+//!
+//! The dashboard's key (`space`, run by `rex/control-tower.lua`'s `tower_space` action with
+//! the session and block the key was pressed in) finds the dashboard's tab by asking Rex, not
+//! by its label: the dashboard in a tab of its own names itself in its root `program_status`
+//! record (`dashboard_status`), and a block is the dashboard while that record's owner is
+//! the block's foreground process, by pid and name (a record outlives its program). The
+//! key's session is looked in first, then the others in Rex's order. The key answers with
+//! the place for the snippet to show (`session.select`, which only the app does): from the
+//! dashboard's tab, the place in the back file, if Rex still has it; from anywhere else, the
+//! dashboard's tab, after writing where the key was pressed to the back file. With no
+//! dashboard, it opens a tab running it in the key's session first. The popup (`popup`)
+//! is a floating layer over the key's tab, 85% each way, focused; it goes when its block
+//! exits.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -31,8 +44,8 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::{
-    Agent, Handle, Kind, LeadStart, Prompted, Sent, Status, Terminal, Unread, find_exe, not_found,
-    relay, terminal_timeout,
+    Agent, Handle, Here, Kind, LeadStart, Place, Prompted, Sent, Shown, Status, Terminal, Unread,
+    find_exe, not_found, relay, terminal_timeout,
 };
 use crate::ui::runner::{Outcome, Run, run_now};
 
@@ -42,6 +55,20 @@ const TERMINAL_CREATOR: &str = "com.superlogical.terminal";
 const PROGRAM_STATUS: &str = "com.superlogical.terminal.program_status";
 /// The app Claude Code reports itself as.
 const CLAUDE_CODE: &str = "claude-code";
+/// The app the dashboard in a tab of its own reports itself as (`dashboard_status`).
+const DASHBOARD_APP: &str = "control-tower";
+/// The terminal block method naming a terminal's processes.
+const PROCESS: &str = "com.superlogical.terminal.process";
+/// The flavor of a terminal block, which runs its command through the user's shell.
+const SHELL: &str = "com.superlogical.terminal.shell";
+/// The label of the dashboard's tab and popup block, for the owner's eyes only: the key
+/// never finds the dashboard by it.
+const DASHBOARD_LABEL: &str = "control-tower";
+/// The popup's place in its tab, as [x, y, w, h] fractions: 85% each way, centred.
+const POPUP_BOUNDS: [f64; 4] = [0.075, 0.075, 0.85, 0.85];
+/// How long the key waits after opening the dashboard's tab before answering: the app can
+/// drop a `session.select` of a window made just before it (a known Rex bug).
+const NEW_TAB_SETTLE: Duration = Duration::from_millis(300);
 
 /// The rex executable as this process's environment names it (`path_in`).
 pub fn path() -> PathBuf {
@@ -60,6 +87,20 @@ pub fn path_in(env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
         .map(|d| PathBuf::from(d).join("rex"))
         .filter(|p| p.is_absolute() && find_exe(p, None).is_some());
     in_bin_dir.unwrap_or_else(|| PathBuf::from("rex"))
+}
+
+/// What the dashboard in a tab of its own writes to its terminal, by `env`: on start its
+/// root program status record, idle, as `control-tower`; on exit, the record cleared. `None`
+/// outside Rex, where Rex sets `REX_BLOCK` (an empty one counts as unset), so another
+/// terminal is never sent Rex's sequence.
+pub fn dashboard_status(
+    env: impl Fn(&str) -> Option<OsString>,
+) -> Option<(&'static str, &'static str)> {
+    env("REX_BLOCK").filter(|b| !b.is_empty())?;
+    Some((
+        "\x1b]7501;state=idle:app=control-tower\x1b\\",
+        "\x1b]7501;state=clear\x1b\\",
+    ))
 }
 
 /// What a lead running outside Rex is told, by `env`: `None` inside Rex, where Rex sets
@@ -163,6 +204,65 @@ impl Rex {
     }
 }
 
+impl Rex {
+    /// `call` for the dashboard's key, within the terminal time limit from `deadline`.
+    fn ask<T: DeserializeOwned>(
+        &self,
+        db: &Path,
+        method: &str,
+        input: serde_json::Value,
+        deadline: Instant,
+    ) -> Result<T> {
+        Ok(self.call(db, method, input, deadline, terminal_timeout())?)
+    }
+
+    /// Whether the terminal block `block` in `session` is the dashboard: its root record is
+    /// `control-tower`'s and its owner is the block's foreground process.
+    fn is_dashboard(
+        &self,
+        db: &Path,
+        session: &str,
+        block: &str,
+        deadline: Instant,
+    ) -> Result<bool> {
+        let input = serde_json::json!({ "session_id": session, "block_id": block, "args": {} });
+        let records: Records = self.ask(db, PROGRAM_STATUS, input.clone(), deadline)?;
+        let Some(owner) = dashboard_in(records.records) else {
+            return Ok(false);
+        };
+        let processes: Processes = self.ask(db, PROCESS, input, deadline)?;
+        Ok(processes.foreground.is_some_and(|f| {
+            f.pid == owner.pid && owner.name.as_ref().is_none_or(|n| *n == f.name)
+        }))
+    }
+}
+
+/// The layout node of the dashboard's block: a terminal block labelled for the dashboard,
+/// running `command` (one word per argument).
+fn dashboard_block(command: &[String]) -> serde_json::Value {
+    serde_json::json!({
+        "block": { "flavor": SHELL, "label": DASHBOARD_LABEL, "options": { "command": command } }
+    })
+}
+
+/// The place in the back file at `back`: `Ok(None)` when there is none, `Err` saying why
+/// when it cannot be read as one.
+fn read_back(back: &Path) -> Result<Option<Place>, String> {
+    let text = match std::fs::read_to_string(back) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(format!(
+                "the back file {} cannot be read: {e}",
+                back.display()
+            ));
+        }
+    };
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|e| format!("the back file {} is not a place ({e})", back.display()))
+}
+
 /// A look that ran past its limit.
 fn out_of_time(limit: Duration) -> Unread {
     Unread::Failed(format!(
@@ -225,6 +325,25 @@ struct Blocks {
 struct Block {
     block_id: Option<String>,
     creator_name: Option<String>,
+    placement: Option<String>,
+    window_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct NewWindow {
+    window_id: String,
+}
+
+/// What `com.superlogical.terminal.process` says, as far as the key reads it.
+#[derive(Deserialize)]
+struct Processes {
+    foreground: Option<Process>,
+}
+
+#[derive(Deserialize)]
+struct Process {
+    pid: i64,
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -246,6 +365,7 @@ struct Record {
 #[derive(Deserialize)]
 struct Owner {
     pid: i64,
+    name: Option<String>,
 }
 
 /// A Claude session as `claude agents --json` lists it, as far as the look reads it.
@@ -265,6 +385,16 @@ fn claude_in(records: Vec<Record>) -> Option<(i64, Status, Option<String>)> {
     }
     let pid = root.owner?.pid;
     Some((pid, Status::of(&root.state, root.kind.as_deref()), root.msg))
+}
+
+/// The owner of a block's root record when that record is the dashboard's
+/// (`DASHBOARD_APP`); `None` for any other, or one that names no owner.
+fn dashboard_in(records: Vec<Record>) -> Option<Owner> {
+    let root = records.into_iter().find(|r| r.id.is_none())?;
+    if root.effective_app.as_deref() != Some(DASHBOARD_APP) {
+        return None;
+    }
+    root.owner
 }
 
 /// The workers: each block's Claude (`found`, in Rex's order) that `claude agents --json`
@@ -404,12 +534,132 @@ impl Terminal for Rex {
         stdout("kill", self.run(db, &["kill", &handle.0]))?;
         Ok(format!("killed Rex session {}", handle.0))
     }
+
+    fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Shown> {
+        let deadline = Instant::now() + terminal_timeout();
+        let none = serde_json::json!({});
+        let sessions: Sessions = self.ask(db, "session.list", none, deadline)?;
+        let mut ids: Vec<String> = (sessions.sessions.unwrap_or_default().into_iter())
+            .map(|s| s.session_id)
+            .collect();
+        let Some(at) = ids.iter().position(|s| *s == here.session) else {
+            bail!("Rex has no session {}", here.session);
+        };
+        let key_session = ids.remove(at);
+        ids.insert(0, key_session);
+        // Every block in a tab, as (session, block, window); the first dashboard found.
+        let mut placed: Vec<(String, String, String)> = Vec::new();
+        let mut found: Option<Place> = None;
+        for s in &ids {
+            let input = serde_json::json!({ "session_id": s });
+            let blocks: Blocks = self.ask(db, "session.list_blocks", input, deadline)?;
+            for b in blocks.blocks.unwrap_or_default() {
+                let (Some(block), Some(window)) = (b.block_id, b.window_id) else {
+                    continue;
+                };
+                if b.placement.as_deref() != Some("placed") {
+                    continue;
+                }
+                if found.is_none()
+                    && b.creator_name.as_deref() == Some(TERMINAL_CREATOR)
+                    && self.is_dashboard(db, s, &block, deadline)?
+                {
+                    found = Some(Place {
+                        session_id: s.clone(),
+                        window_id: window.clone(),
+                    });
+                }
+                placed.push((s.clone(), block, window));
+            }
+        }
+        let Some((_, _, window)) =
+            (placed.iter()).find(|(s, b, _)| *s == here.session && *b == here.block)
+        else {
+            bail!(
+                "Rex has no block {} in a tab of session {}",
+                here.block,
+                here.session
+            );
+        };
+        let pressed = Place {
+            session_id: here.session.clone(),
+            window_id: window.clone(),
+        };
+        if found.as_ref() == Some(&pressed) {
+            let to = match read_back(back) {
+                Ok(Some(to)) => to,
+                Ok(None) => {
+                    return Ok(Shown::Stay(
+                        "no place to go back to: the key has not been pressed outside the \
+                         dashboard"
+                            .into(),
+                    ));
+                }
+                Err(why) => return Ok(Shown::Stay(why)),
+            };
+            let there = (placed.iter()).any(|(s, _, w)| *s == to.session_id && *w == to.window_id);
+            return Ok(if there {
+                Shown::Go(to)
+            } else {
+                Shown::Stay(format!(
+                    "the place the key was last pressed outside the dashboard (window {} in \
+                     session {}) is gone",
+                    to.window_id, to.session_id
+                ))
+            });
+        }
+        let json = serde_json::to_string(&pressed)?;
+        std::fs::write(back, format!("{json}\n"))
+            .with_context(|| format!("cannot write the back file {}", back.display()))?;
+        if let Some(dashboard) = found {
+            return Ok(Shown::Go(dashboard));
+        }
+        let input = serde_json::json!({
+            "session_id": here.session,
+            "window_label": DASHBOARD_LABEL,
+            "layout": dashboard_block(dashboard),
+        });
+        let made: NewWindow = self.ask(db, "session.new_window", input, deadline)?;
+        std::thread::sleep(NEW_TAB_SETTLE);
+        Ok(Shown::Go(Place {
+            session_id: here.session.clone(),
+            window_id: made.window_id,
+        }))
+    }
+
+    fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()> {
+        let deadline = Instant::now() + terminal_timeout();
+        let input = serde_json::json!({ "session_id": here.session });
+        let blocks: Blocks = self.ask(db, "session.list_blocks", input, deadline)?;
+        let window = (blocks.blocks.unwrap_or_default().into_iter())
+            .find(|b| b.block_id.as_deref() == Some(here.block.as_str()))
+            .and_then(|b| b.window_id);
+        let Some(window) = window else {
+            bail!(
+                "Rex has no block {} in a tab of session {}",
+                here.block,
+                here.session
+            );
+        };
+        let input = serde_json::json!({
+            "session_id": here.session,
+            "window_id": window,
+            "bounds": POPUP_BOUNDS,
+            "focus": true,
+            "layout": dashboard_block(dashboard),
+        });
+        let _: serde_json::Value = self.ask(db, "session.new_layer", input, deadline)?;
+        Ok(())
+    }
 }
 
 /// Test only: a fake `rex` and `claude` in a temp folder, and the Rex module over them.
 /// Rex's server is files: `sessions` lists one session id per line, `<session>.blocks` one
-/// block per line as "<block id> <creator>", and `<block>.json` is that block's
-/// `program_status` records (none when it is missing). `claude.json` is what `claude
+/// block per line as "<block id> <creator>", `<block>.window` the window it is in (none
+/// when it is missing), `<block>.label` its label (`shell` when missing), `<block>.json`
+/// that block's `program_status` records (none when it is missing) and `<block>.process`
+/// its `process` answer (no processes when missing). `session.new_window` makes
+/// `window:new` and `session.new_layer` `layer:pop`. `claude.json` is what `claude
 /// agents --json` prints. Each call's words go to `calls.log`, one call per line joined by
 /// `|`; a call whose method or session or block has a file `fail-<it>` exits 1 saying so.
 ///
@@ -457,11 +707,17 @@ session.list)
 session.list_blocks)
   printf '{"blocks":['; sep=
   [ -e "$d/$s.blocks" ] && while read -r id creator; do
-    printf '%s{"block_id":"%s","label":"shell","creator_name":"%s","placement":"placed"}' "$sep" "$id" "$creator"; sep=,
+    label=shell; [ -e "$d/$id.label" ] && label=$(cat "$d/$id.label")
+    window=; [ -e "$d/$id.window" ] && window=$(printf ',"window_id":"%s"' "$(cat "$d/$id.window")")
+    printf '%s{"block_id":"%s","label":"%s","creator_name":"%s","placement":"placed"%s}' "$sep" "$id" "$label" "$creator" "$window"; sep=,
   done < "$d/$s.blocks"
   echo ']}' ;;
 com.superlogical.terminal.program_status)
   if [ -e "$d/$b.json" ]; then cat "$d/$b.json"; else echo '{"records":[]}'; fi ;;
+com.superlogical.terminal.process)
+  if [ -e "$d/$b.process" ]; then cat "$d/$b.process"; else echo '{"home":"/somewhere"}'; fi ;;
+session.new_window) echo '{"window_id":"window:new","block_ids":["block:new"],"revision":7}' ;;
+session.new_layer) echo '{"layer_id":"layer:pop","block_ids":["block:pop"],"revision":8}' ;;
 *) echo "unexpected method: $m" >&2; exit 2 ;;
 esac
 "#;
@@ -570,6 +826,44 @@ echo '{"type":"result","is_error":false,"num_turns":3,"total_cost_usd":0.00593,"
                     );
                 }
             }
+        }
+
+        /// Rex's server from now on: `sessions`, each with its blocks in tabs as (block id,
+        /// window, `program_status` records joined as a JSON array's items), all terminal
+        /// blocks.
+        pub fn tabs(&self, sessions: &[(&str, &[(&str, &str, &str)])]) {
+            let ids: Vec<&str> = sessions.iter().map(|(s, _)| *s).collect();
+            self.write("sessions", &lines(&ids));
+            for (s, blocks) in sessions {
+                let rows: Vec<String> = (blocks.iter())
+                    .map(|(b, _, _)| format!("{b} {}", super::TERMINAL_CREATOR))
+                    .collect();
+                self.write(&format!("{s}.blocks"), &lines(&rows));
+                for (b, window, records) in blocks.iter() {
+                    self.write(&format!("{b}.window"), window);
+                    self.write(
+                        &format!("{b}.json"),
+                        &format!(r#"{{"records":[{records}]}}"#),
+                    );
+                }
+            }
+        }
+
+        /// `block`'s foreground process from now on: `pid`, named `name`.
+        pub fn foreground(&self, block: &str, pid: i64, name: &str) {
+            let p = serde_json::json!({ "pid": pid, "user_id": 501, "name": name });
+            let answer = serde_json::json!({ "foreground": p, "child": p });
+            self.write(&format!("{block}.process"), &answer.to_string());
+        }
+
+        /// A root record as the dashboard reports itself, written by `pid` named `name`.
+        pub fn dashboard_record(pid: i64, name: &str) -> String {
+            serde_json::json!({
+                "state": "idle", "app": "control-tower", "effective_app": "control-tower",
+                "owner": {"pid": pid, "name": name},
+                "updated_at": "2026-01-02T03:04:05Z",
+            })
+            .to_string()
         }
 
         /// `claude agents --json` from now on: each (name, pid) an interactive session.
@@ -1058,5 +1352,292 @@ mod tests {
             format!("{:#}", rex.undo(&db, &handle).unwrap_err()),
             "rex kill exited 3: Error: session target \"session:7\" not found"
         );
+    }
+
+    fn here(session: &str, block: &str) -> Here {
+        Here {
+            session: session.into(),
+            block: block.into(),
+        }
+    }
+
+    fn place(session: &str, window: &str) -> Place {
+        Place {
+            session_id: session.into(),
+            window_id: window.into(),
+        }
+    }
+
+    /// The dashboard's command the key is given to open.
+    fn dash() -> Vec<String> {
+        ["env", "TOWER_DB=/b/board.db", "/bin/tower", "ui"]
+            .map(String::from)
+            .to_vec()
+    }
+
+    fn back(f: &FakeRex) -> PathBuf {
+        f.dir.join("board.space-back")
+    }
+
+    /// The key pressed `at`.
+    fn space(f: &FakeRex, at: &Here) -> Result<Shown> {
+        f.module()
+            .space(&f.dir.join("board.db"), at, &back(f), &dash())
+    }
+
+    /// The input of each call to `method` so far, oldest first.
+    fn inputs(f: &FakeRex, method: &str) -> Vec<serde_json::Value> {
+        (f.calls().iter())
+            .filter_map(|c| {
+                let words: Vec<&str> = c.split('|').collect();
+                (words.get(3) == Some(&method)).then(|| serde_json::from_str(words[4]).unwrap())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_dashboard_is_the_tab_whose_live_tower_named_itself_not_one_labelled_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let stale = FakeRex::dashboard_record(51, "tower");
+        let claude = FakeRex::claude_record(52, "idle", None, None);
+        let reused = FakeRex::dashboard_record(53, "tower");
+        let live = FakeRex::dashboard_record(60, "tower");
+        f.tabs(&[
+            (
+                "session:a",
+                &[
+                    ("block:1", "window:1", ""),
+                    ("block:2", "window:2", ""),
+                    ("block:3", "window:3", &stale),
+                    ("block:4", "window:4", &claude),
+                    ("block:5", "window:5", &reused),
+                ],
+            ),
+            ("session:b", &[("block:6", "window:6", &live)]),
+        ]);
+        // A tab labelled as the dashboard, with no record, is not it.
+        f.write("block:2.label", "control-tower");
+        // The record outlived its dashboard: the shell is back in the foreground.
+        f.foreground("block:3", 99, "zsh");
+        f.foreground("block:4", 52, "claude");
+        // The dashboard's pid now names another program.
+        f.foreground("block:5", 53, "vim");
+        f.foreground("block:6", 60, "tower");
+        assert_eq!(
+            space(&f, &here("session:a", "block:1")).unwrap(),
+            Shown::Go(place("session:b", "window:6"))
+        );
+        // Where the key was pressed is kept for the way back.
+        assert_eq!(
+            std::fs::read_to_string(back(&f)).unwrap(),
+            "{\"session_id\":\"session:a\",\"window_id\":\"window:1\"}\n"
+        );
+        // Only blocks with the dashboard's record are asked for their processes; nothing
+        // is opened.
+        let asked: Vec<serde_json::Value> = (inputs(&f, PROCESS).into_iter())
+            .map(|i| i["block_id"].clone())
+            .collect();
+        assert_eq!(asked, ["block:3", "block:5", "block:6"]);
+        assert!(inputs(&f, "session.new_window").is_empty());
+    }
+
+    #[test]
+    fn the_keys_own_session_is_looked_in_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let one = FakeRex::dashboard_record(60, "tower");
+        let two = FakeRex::dashboard_record(61, "tower");
+        f.tabs(&[
+            (
+                "session:a",
+                &[("block:1", "window:1", ""), ("block:2", "window:2", &one)],
+            ),
+            (
+                "session:b",
+                &[("block:5", "window:5", ""), ("block:6", "window:6", &two)],
+            ),
+        ]);
+        f.foreground("block:2", 60, "tower");
+        f.foreground("block:6", 61, "tower");
+        assert_eq!(
+            space(&f, &here("session:b", "block:5")).unwrap(),
+            Shown::Go(place("session:b", "window:6"))
+        );
+        assert_eq!(
+            space(&f, &here("session:a", "block:1")).unwrap(),
+            Shown::Go(place("session:a", "window:2"))
+        );
+    }
+
+    #[test]
+    fn from_the_dashboards_tab_the_key_goes_back_to_where_it_was_last_pressed() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let live = FakeRex::dashboard_record(60, "tower");
+        let server = |first: &str, window: &str| {
+            f.tabs(&[
+                ("session:a", &[(first, window, "")]),
+                (
+                    "session:b",
+                    &[("block:6", "window:6", &live), ("block:7", "window:6", "")],
+                ),
+            ]);
+            f.foreground("block:6", 60, "tower");
+        };
+        server("block:1", "window:1");
+        // Never pressed outside the dashboard: nothing moves.
+        let Shown::Stay(why) = space(&f, &here("session:b", "block:6")).unwrap() else {
+            panic!("the key moved with no place to go back to");
+        };
+        assert_eq!(
+            why,
+            "no place to go back to: the key has not been pressed outside the dashboard"
+        );
+        assert!(!back(&f).exists());
+        let dashboard = Shown::Go(place("session:b", "window:6"));
+        assert_eq!(space(&f, &here("session:a", "block:1")).unwrap(), dashboard);
+        // From the dashboard, or a pane beside it in its tab, back; and again.
+        let pressed = Shown::Go(place("session:a", "window:1"));
+        assert_eq!(space(&f, &here("session:b", "block:6")).unwrap(), pressed);
+        assert_eq!(space(&f, &here("session:b", "block:7")).unwrap(), pressed);
+        // The tab it was pressed in is closed: nothing moves, saying why.
+        server("block:8", "window:8");
+        let Shown::Stay(why) = space(&f, &here("session:b", "block:6")).unwrap() else {
+            panic!("the key went to a tab Rex no longer has");
+        };
+        assert_eq!(
+            why,
+            "the place the key was last pressed outside the dashboard (window window:1 in \
+             session session:a) is gone"
+        );
+        // A back file that is not a place: nothing moves, naming it.
+        f.write("board.space-back", "window:1");
+        let Shown::Stay(why) = space(&f, &here("session:b", "block:6")).unwrap() else {
+            panic!("the key read a place from a broken back file");
+        };
+        let named = format!("the back file {} is not a place (", back(&f).display());
+        assert!(why.starts_with(&named), "{why}");
+    }
+
+    #[test]
+    fn with_no_dashboard_the_key_opens_one_in_its_own_session_and_shows_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let stale = FakeRex::dashboard_record(51, "tower");
+        f.tabs(&[
+            ("session:a", &[("block:1", "window:1", "")]),
+            ("session:b", &[("block:6", "window:6", &stale)]),
+        ]);
+        f.foreground("block:6", 99, "zsh");
+        assert_eq!(
+            space(&f, &here("session:a", "block:1")).unwrap(),
+            Shown::Go(place("session:a", "window:new"))
+        );
+        assert_eq!(
+            inputs(&f, "session.new_window"),
+            [serde_json::json!({
+                "session_id": "session:a",
+                "window_label": "control-tower",
+                "layout": {"block": {
+                    "flavor": "com.superlogical.terminal.shell",
+                    "label": "control-tower",
+                    "options": {"command": dash()},
+                }},
+            })]
+        );
+        assert_eq!(
+            std::fs::read_to_string(back(&f)).unwrap(),
+            "{\"session_id\":\"session:a\",\"window_id\":\"window:1\"}\n"
+        );
+    }
+
+    #[test]
+    fn the_key_fails_saying_why_when_rex_cannot_say_where_it_was_pressed() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let live = FakeRex::dashboard_record(60, "tower");
+        f.tabs(&[(
+            "session:a",
+            &[("block:1", "window:1", ""), ("block:6", "window:6", &live)],
+        )]);
+        f.foreground("block:6", 60, "tower");
+        let err = |at: &Here| format!("{:#}", space(&f, at).unwrap_err());
+        assert_eq!(
+            err(&here("session:z", "block:1")),
+            "Rex has no session session:z"
+        );
+        assert_eq!(
+            err(&here("session:a", "block:9")),
+            "Rex has no block block:9 in a tab of session session:a"
+        );
+        // A call that fails fails the key with Rex's reason.
+        f.write("fail-block:6", "Error: block not found");
+        assert_eq!(
+            err(&here("session:a", "block:1")),
+            format!("rex api call {PROGRAM_STATUS} exited 1: Error: block not found")
+        );
+        // None of these wrote a back file or opened a tab.
+        assert!(!back(&f).exists());
+        assert!(inputs(&f, "session.new_window").is_empty());
+    }
+
+    #[test]
+    fn the_popup_opens_over_the_keys_tab_at_85_percent_focused() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        f.tabs(&[(
+            "session:a",
+            &[("block:1", "window:1", ""), ("block:2", "window:2", "")],
+        )]);
+        let popup = [
+            "env",
+            "TOWER_UI_MODE=popup",
+            "TOWER_DB=/b/board.db",
+            "/bin/tower",
+            "ui",
+        ]
+        .map(String::from);
+        let db = f.dir.join("board.db");
+        f.module()
+            .popup(&db, &here("session:a", "block:2"), &popup)
+            .unwrap();
+        assert_eq!(
+            inputs(&f, "session.new_layer"),
+            [serde_json::json!({
+                "session_id": "session:a",
+                "window_id": "window:2",
+                "bounds": [0.075, 0.075, 0.85, 0.85],
+                "focus": true,
+                "layout": {"block": {
+                    "flavor": "com.superlogical.terminal.shell",
+                    "label": "control-tower",
+                    "options": {"command": popup},
+                }},
+            })]
+        );
+        // A block Rex does not have: no popup, saying why.
+        let err = f.module().popup(&db, &here("session:a", "block:9"), &popup);
+        assert_eq!(
+            format!("{:#}", err.unwrap_err()),
+            "Rex has no block block:9 in a tab of session session:a"
+        );
+        assert_eq!(inputs(&f, "session.new_layer").len(), 1);
+    }
+
+    #[test]
+    fn the_dashboard_names_itself_only_in_rex() {
+        let status = |v: Option<&str>| {
+            dashboard_status(|n| (n == "REX_BLOCK").then(|| v.map(OsString::from)).flatten())
+        };
+        assert_eq!(
+            status(Some("block:1")),
+            Some((
+                "\x1b]7501;state=idle:app=control-tower\x1b\\",
+                "\x1b]7501;state=clear\x1b\\"
+            ))
+        );
+        assert_eq!(status(Some("")), None);
+        assert_eq!(status(None), None);
     }
 }
