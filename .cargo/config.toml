@@ -1,4 +1,4 @@
-# Test knob: how long a debug tower waits for its terminal (rex, herdr), in seconds,
+# Test knob: how long a debug tower waits for its terminal (rex), in seconds,
 # instead of 15. Read only by debug builds (terminal::terminal_timeout); a release build,
 # so brew, never reads it, and so `cargo test --release` keeps the 15 s too.
 # Every process cargo starts here gets it: test binaries, the tower processes they start,

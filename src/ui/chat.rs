@@ -292,7 +292,7 @@ pub enum Row {
         marks: Vec<Range<usize>>,
         first: bool,
     },
-    /// A line of "delivery failed to X · details" or "dev-1 left herdr while on #1 ·
+    /// A line of "delivery failed to X · details" or "dev-1 left Rex while on #1 ·
     /// details", its link "hide details" while its full text shows under it, wrapped as the
     /// copy's centred event box wraps it (`failure_pieces`): `said`, the piece of what it
     /// says on this line, and `link`, the piece of its link; `first` on its first line.

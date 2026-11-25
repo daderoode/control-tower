@@ -9,7 +9,6 @@ use control_tower::board::{
     ThreadId, Ticket, ago, ordered_threads, refuse_owner,
 };
 use control_tower::deliver::check_asker;
-use control_tower::register::{Registered, brew_dir, register};
 use control_tower::store::{
     MilestoneFields, Moved, Removed, RepoDetails, SCHEMA_VERSION, Store, TaskFields, TaskRemoved,
     board_path,
@@ -65,27 +64,14 @@ enum Command {
         #[arg(long)]
         progress: bool,
     },
-    /// Open the dashboard (q or Ctrl-C closes it; in the space `tower space` opens, q returns
-    /// to the workspace it came from). A brew-installed tower first links its
-    /// herdr plugin if herdr has no control-tower yet.
+    /// Open the dashboard (q or Ctrl-C closes it).
     Ui,
-    /// The herdr action `space`: focus the dashboard in its own herdr workspace, labelled
-    /// control-tower, creating the workspace with the dashboard when there is none. q there
-    /// returns to the workspace this was invoked from (HERDR_WORKSPACE_ID) and Ctrl-C closes
-    /// the dashboard. TOWER_HERDR names the herdr executable (default herdr).
-    Space,
-    /// The herdr action `popup`: open the dashboard in herdr's popup, 85% of the terminal
-    /// each way; Esc at its top level or q closes it.
-    Popup,
     /// Watch for stuck workers until SIGTERM or Ctrl-C: every 20 s, read the board and the
     /// Claude sessions running in Rex (a task's assignee is its worker's Claude session
     /// name), nudge a worker that stopped or went silent, and post system flags in the
     /// task's thread. Logs one line per action to stderr. TOWER_REX names the rex
     /// executable (default rex in $REX_BIN_DIR, else on the PATH); TOWER_CLAUDE names
     /// claude, which also relays posts and nudges to workers (claude -p -n control-tower).
-    /// A brew-installed tower also links its herdr plugin (TOWER_HERDR names herdr, default
-    /// herdr) if herdr has no control-tower yet, trying before each look until herdr
-    /// answers; it never relinks over another.
     Watch,
     /// Bring a board written by an older tower up to this tower's schema.
     Upgrade,
@@ -1283,32 +1269,7 @@ fn run(cli: Cli) -> Result<()> {
             };
             println!("posted {what}to {thread}, {}", replies(&t));
         }
-        Command::Ui => {
-            // A brew tower opened by hand links the herdr plugin if herdr has none; it says
-            // so only when it linked or could not, before the screen takes over.
-            let herdr = control_tower::terminal::herdr::path();
-            match register(&herdr, &path, brew_dir().as_deref()) {
-                Ok(done @ Registered::Linked(_)) => eprintln!("tower: {done}"),
-                Ok(_) => {}
-                Err(e) => eprintln!("tower: could not link the herdr plugin: {e:#}"),
-            }
-            control_tower::ui::run(&path)?
-        }
-        Command::Space => {
-            let herdr = control_tower::terminal::herdr::path();
-            // herdr gives an action its server's socket and the workspace it was invoked from.
-            let socket = std::env::var(control_tower::open::SOCKET_VAR).unwrap_or_default();
-            let workspace = std::env::var("HERDR_WORKSPACE_ID").ok();
-            let from = control_tower::open::Press {
-                socket: &socket,
-                workspace: workspace.as_deref().filter(|ws| !ws.is_empty()),
-            };
-            println!("{}", control_tower::open::space(&herdr, &path, from)?);
-        }
-        Command::Popup => {
-            let herdr = control_tower::terminal::herdr::path();
-            println!("{}", control_tower::open::popup(&herdr, &path)?);
-        }
+        Command::Ui => control_tower::ui::run(&path)?,
         Command::Watch => control_tower::watch::run(&path)?,
         Command::Upgrade => {
             // Opening for writing runs any migrations, and refuses a newer board.

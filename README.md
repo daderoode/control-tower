@@ -1,11 +1,11 @@
 # control-tower
 
-A taskboard for a team of Claude Code agents in herdr: what the work is, how far along it
-is, and where the owner is needed.
+A taskboard for a team of Claude Code agents in the terminal (Rex): what the work is, how
+far along it is, and where the owner is needed.
 
 It is one binary, `tower`. Agents change the board only through the `tower` commands,
 which check every write and refuse a bad one with a message and a non-zero exit. The
-dashboard, `tower ui`, shows the board in a herdr pane and refreshes on its own; the
+dashboard, `tower ui`, shows the board in a terminal tab and refreshes on its own; the
 owner's actions as `manager` (posting, marking an inbox item read) go through it, with the
 same checks, and the commands refuse them.
 
@@ -17,17 +17,6 @@ Needs a Rust toolchain (edition 2024). SQLite is built in.
 
 The binary is `target/release/tower`. A change to this repo is checked and built in CI, not
 on the machine it is written on: SDLC.md, Building and testing.
-
-### Testing against herdr
-
-`cargo test` needs no herdr. One test drives `tower space` and the dashboard in a real
-herdr, so it is ignored by default; with herdr on PATH, run it with
-
-    cargo test --test herdr -- --ignored
-
-It starts its own `herdr --session ct<pid> server` in `/tmp/ct<pid>` with every `HERDR_*`
-variable unset, a temp HOME and board and a fake `claude`, bounds every process with a time
-limit, and removes the folder afterwards. It never talks to the herdr you are working in.
 
 ## Run
 
@@ -155,8 +144,7 @@ then `tower repo remove`.
 
 The dashboard groups each milestone and its tasks under its lead's name in that colour, or
 says "no lead yet". It picks the colour depth from `COLORTERM`: 24-bit when it is
-`truecolor` or `24bit`, the 256-colour palette otherwise. Whether herdr's panes set
-`COLORTERM` is not yet verified; without it the dashboard uses the 256-colour palette.
+`truecolor` or `24bit`, the 256-colour palette otherwise.
 
     tower task stage 12 in-progress
     tower milestone done M1
@@ -430,7 +418,7 @@ shows in full. A short ack ("copy", "ok", "plan approved", up to 40 characters, 
 mentioning `@manager`) is a "↳ qa: copy" reply under the bubble it answers, wrapping when
 long. Tower's own messages are quiet centred lines, wrapped at 80 columns: nudges of one
 worker in a row as "dev-1 was nudged 3 times", the watch's flags in plain words (`dev-1
-left herdr while on #12`), a question tower asks you with its "needs you" tag, and a
+left Rex while on #12`), a question tower asks you with its "needs you" tag, and a
 delivery failure as "delivery failed to X · details". In the full board's conversation
 (not the previews), separators mark where how long ago the messages were changes ("now",
 "within the hour", "3h ago", "yesterday"). A question
@@ -497,7 +485,7 @@ not.
 The controls ("open repo ▶", "open milestone ▶", "open task ▶", "open full board ▶" and
 "◀ close") show their key, as in "(enter)", while there is room, and drop it, then go,
 in a narrow pane; a click on one presses its key, so the two always do the same. Clicks
-and the wheel need the terminal (and herdr) to pass the mouse to the pane.
+and the wheel need the terminal to pass the mouse to the dashboard.
 
 A click on a thread's box (its "N earlier messages" line included; "read more" opens the
 message in place instead), or `b` on the overview or a detail, opens the selection's repo's
@@ -532,7 +520,7 @@ back to where you came from. Right moves into the chat and selects its newest me
 (outlined), and the keys line offers it ("→ read its messages") only on a thread with a
 message to select, not one holding only tower's lines; then up and down move between
 messages, right opens or folds the selected one ("read more" or "show less", a delivery
-failure's or a "left herdr" line's details; Enter does too on a resolved thread) and left
+failure's or a "left Rex" line's details; Enter does too on a resolved thread) and left
 goes back to the thread list. A click on "read more", "show less" or "details" does the same
 for that message.
 
@@ -934,44 +922,25 @@ Give a dev build a test board in `TOWER_DB`.
 
 ## Install
 
-Needs herdr 0.9.5 or later, on macOS (Apple silicon). Releases are built for Apple silicon
+Needs Rex, the terminal the team runs in, on macOS (Apple silicon). Releases are built for Apple silicon
 only; on an Intel Mac `brew install` refuses with Homebrew's own message.
 
     brew install daderoode/tap/control-tower
     brew services start control-tower
 
-`brew install` puts `tower` on your PATH and writes the herdr plugin `control-tower` to
-`$(brew --prefix)/var/control-tower`, where it runs the installed `tower`. `brew services
-start` runs the stuck-worker watch, `tower watch`, as a launchd service: it starts at login,
-restarts if it stops, finds rex and herdr on the Homebrew PATH and logs to
+`brew install` puts `tower` on your PATH. `brew services start` runs the stuck-worker watch, `tower watch`, as a launchd service: it starts at login,
+restarts if it stops, finds rex on the Homebrew PATH and logs to
 `$(brew --prefix)/var/log/control-tower.log`. No terminal tab is needed for it. Rex keeps
 `rex` in `$REX_BIN_DIR`, not on the PATH, so the log says once which path it tried: link
 it into Homebrew's bin (`ln -s "$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with
-`REX_BIN_DIR` as a Rex tab has it); the next look finds it. herdr installed outside
-Homebrew's PATH is linked the same way (`ln -s /path/to/herdr "$(brew --prefix)/bin/herdr"`),
-then `brew services restart control-tower`. A watch run by hand takes their full paths in
-`TOWER_REX` and `TOWER_HERDR`.
-
-The plugin links itself: when herdr has no plugin `control-tower`, the watch (or `tower ui`)
-runs `herdr plugin link` on that directory and logs one line. If herdr is not running yet,
-the watch tries again before each look. It never relinks over a `control-tower` linked
-somewhere else, such as a source checkout: it logs that and leaves it. To switch from a
-checkout to the brew plugin:
-
-    herdr plugin unlink control-tower
-    herdr plugin link "$(brew --prefix)/var/control-tower"
-
-The plugin lives under `var` because herdr stores the resolved path, and `share` resolves
-into the versioned Cellar, which `brew upgrade` deletes. Each install or upgrade refreshes
-the plugin files there, so the link survives upgrades. Brew does not restart the service on
-`brew upgrade`; the watch notices its binary changed and restarts itself between looks,
-logging one line.
+`REX_BIN_DIR` as a Rex tab has it); the next look finds it. A watch run by hand takes its
+full path in `TOWER_REX`. Brew does not restart the service on `brew upgrade`; the watch
+notices its binary changed and restarts itself between looks, logging one line.
 
 The lead skill is a Claude Code plugin in `claude-plugin/`, `control-tower`; this repo is
 its marketplace, also `control-tower`. A lead starts it with `/control-tower:lead M1`.
 `brew install` puts the marketplace in the formula's share directory, and the watch
-registers it with Claude Code itself, as it links the herdr plugin (brew's own install step
-cannot write `~/.claude`). When Claude Code has no marketplace `control-tower`, the watch
+registers it with Claude Code itself (brew's own install step cannot write `~/.claude`). When Claude Code has no marketplace `control-tower`, the watch
 runs, once:
 
     claude plugin marketplace add "$(brew --prefix)/opt/control-tower/share/control-tower/claude"
@@ -997,43 +966,12 @@ switch it to the brew one. If the plugin is installed but disabled, it stays dis
 uninstall` leaves the marketplace pointing at nothing (`claude plugin list` shows the plugin
 failed to load); `claude plugin marketplace remove control-tower` clears it.
 
-The plugin has two herdr actions; bind them to keys in herdr's config
-(`~/.config/herdr/config.toml`), for example:
-
-    [[keys.command]]
-    key = "prefix+a"
-    type = "plugin_action"
-    command = "control-tower.space"
-    description = "control-tower in its own space"
-
-    [[keys.command]]
-    key = "prefix+A"
-    type = "plugin_action"
-    command = "control-tower.popup"
-    description = "control-tower over the work"
-
-- `space` (`tower space`) focuses the dashboard in a herdr workspace of its own, labelled
-  `control-tower`, the dashboard filling it. It finds the dashboard by its pane's label,
-  `control-tower`, and asks herdr whether that pane really is this plugin's dashboard (a
-  shell renamed `control-tower`, or the shell herdr restores after a restart, is not).
-  Without one it always creates a new workspace for it; it never takes over a workspace by
-  its label and closes no pane but the first shell of the workspace it just created.
-  In that workspace `q` takes you back to the workspace you pressed the key in and the
-  dashboard keeps running, so the next press shows the same dashboard; if that workspace has
-  gone since, `q` stays put. Ctrl-C closes the dashboard. `tower space` records the
-  workspace it was pressed in (herdr's `HERDR_WORKSPACE_ID`) beside the board, in
-  `board.space-from` next to `board.db`, one line per herdr server (by its socket,
-  `HERDR_SOCKET_PATH`), so two herdr sessions on one board each go back to their own
-  press. It tells the dashboard it opens that it is in its own space with
-  `TOWER_UI_MODE=space`.
-- `popup` (`tower popup`) opens the dashboard in herdr's popup, 85% of the terminal each way,
-  over whatever you are working on. It is compact: a narrower tree, three open threads at
-  most on the message board with their last two bubbles, then "… N more open threads, open
-  the full board ▶" and the RESOLVED row. Esc steps back inside the dashboard and closes
-  the popup when there is nothing to step back from; `q` closes it too, except on the full
-  board's open thread, where it is typed (Esc, then `q`). The keys line ends "esc back · q
-  close" wherever `q` closes. It knows it is a popup from `TOWER_UI_MODE=popup`, which `tower
-  popup` passes; any other value but empty or `space` is refused.
+The dashboard is a plain `tower ui` in a Rex tab. herdr is no longer supported: a team
+in herdr is not seen, and its plugin, with `tower space` and `tower popup`, is gone. If an
+older control-tower linked that plugin, remove what it left: `herdr plugin unlink
+control-tower`, then `rm -r "$(brew --prefix)/var/control-tower"`, and delete any key
+binding for its actions (`control-tower.space`, `control-tower.popup`) in herdr's config
+(`~/.config/herdr/config.toml`).
 
 Every `tower` command, the dashboard and the watch use the board at
 `~/.local/state/control-tower/board.db`; set `TOWER_DB` to another file in each of their
@@ -1044,10 +982,9 @@ environments to use another board (see "The board" above).
 Needs a Rust toolchain (edition 2024).
 
     cargo install --path .   # puts tower in ~/.cargo/bin
-    herdr plugin link .      # the dev plugin: builds with cargo, runs ./target/release/tower
     tower watch              # in a terminal of its own, while you work on it
 
-A `tower` built this way is not a brew install, so it links and registers nothing itself.
+A `tower` built this way is not a brew install, so it registers nothing itself.
 Stop the brew service (`brew services stop control-tower`) while a dev watch runs, so one
 watch writes the board.
 
@@ -1063,17 +1000,17 @@ plugin replaces the installed one for that session only.
 `.github/workflows/release.yml` publishes the binaries on the `daderoode/homebrew-tap` repo,
 next to the formula that installs them:
 
-1. Bump `version` in `Cargo.toml`, `herdr-plugin.toml` and
-   `claude-plugin/.claude-plugin/plugin.json` to the same new version, rename `## [Unreleased]`
+1. Bump `version` in `Cargo.toml` and `claude-plugin/.claude-plugin/plugin.json` to the
+   same new version, rename `## [Unreleased]`
    in `CHANGELOG.md` to `## [<version>] - <date>` with a new empty `## [Unreleased]` above
    it, and merge to master.
 2. Pull master after the merge, tag that commit with a signed, annotated tag, and push it:
    `git tag -s v<version> -m "control-tower <version>" && git push origin v<version>`.
 
-On the tag the workflow checks that the tag matches all three versions, builds `tower` for
+On the tag the workflow checks that the tag matches both versions, builds `tower` for
 `aarch64-apple-darwin` only (no Intel build), creates the release
 `control-tower-v<version>` on `daderoode/homebrew-tap` with
-`tower-v<version>-<target>.tar.gz` attached (the binary, `herdr-plugin.toml` and, under
+`tower-v<version>-<target>.tar.gz` attached (the binary and, under
 `claude/`, the lead skill's marketplace: `.claude-plugin/` and `claude-plugin/`), and
 commits `Formula/control-tower.rb` there, rendered from
 `packaging/control-tower.rb.in` by `packaging/render-formula.sh`. Edit the template here,

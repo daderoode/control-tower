@@ -1,6 +1,5 @@
 //! Test only: an executable written so that Linux runs it. Both the lib's tests and
-//! the integration tests use this one file (`tests/cli.rs` and `tests/herdr.rs` include it by
-//! path).
+//! the integration tests use this one file (`tests/cli.rs` includes it by path).
 //!
 //! On Linux, running a file fails with "Text file busy" (ETXTBSY) while any process holds
 //! it open for writing. A file a test writes itself is held open so, for a moment, by every

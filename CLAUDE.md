@@ -1,6 +1,6 @@
 # control-tower
 
-A taskboard for a team of Claude Code agents in herdr: what the work is, how far
+A taskboard for a team of Claude Code agents in Rex: what the work is, how far
 along it is, and where the owner is needed.
 
 - Spec: `control-tower spec.md`, which the owner keeps outside this repo.

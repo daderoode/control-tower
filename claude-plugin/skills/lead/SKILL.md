@@ -270,11 +270,10 @@ implement, test or review.
    too the standing rules you recorded (principle 7): your memory and the standing context.
 3. **The repo first:** the work's git repo is yours, and a new project gets its repo (step 1)
    before any worker starts. Workers start under you (see Workers), so each one shows under
-   its lead: in Rex as tabs in your own Rex session, never in a separate session; in herdr
-   as herdr worktrees, never in a separate plain workspace. Then read the repo's SDLC (for
-   example `SDLC.md`), if it has one, and follow it for anything it covers: steps, gates,
-   merge rules, releases. Where it says nothing, the default lifecycle (see Workers)
-   applies. How you work (the board, threads, workers, the gate, @manager) is always this
+   its lead: in Rex as tabs in your own Rex session, never in a separate session. Then
+   read the repo's SDLC (for example `SDLC.md`), if it has one, and follow it for anything
+   it covers: steps, gates, merge rules, releases. Where it says nothing, the default
+   lifecycle (see Workers) applies. How you work (the board, threads, workers, the gate, @manager) is always this
    skill's.
 4. **The backlog:** then the repo's issues. First write the time into the forge waiter's
    `since` file, so the waiter later reports anything that changes while you work through
@@ -319,11 +318,6 @@ implement, test or review.
        gh issue view <#I> --json title,body --jq '"# " + .title + "\n\n" + .body' > "$f"
 
    Then open it, with focus, by the terminal you run in:
-   - in herdr (`$HERDR_PANE_ID` is set):
-
-         p=$(herdr pane split --current --direction right --cwd "$PWD" --focus | jq -r .result.pane.pane_id)
-         herdr pane run "$p" "nvim '$f'"
-
    - in Rex (`$REX_SESSION` is set), a block to the right of yours (`rex` is in
      `$REX_BIN_DIR` when it is not on PATH):
 
@@ -469,17 +463,6 @@ and `tower repo show <R>` lists threads by title.
         rex split -s "$REX_SESSION" -b <the implementer's block> --split right \
           --focus=false -c "$d" --json -- claude -n <name> "<brief>"
 
-  - **In herdr**, as a herdr worktree space:
-
-        herdr worktree create --workspace "$HERDR_WORKSPACE_ID" --branch <branch> \
-          --base <default branch> --label "<task slug>" --no-focus
-        herdr agent start <name> --kind claude --pane <pane id from the create>
-        herdr agent prompt <pane id> "<brief>"
-
-    That is how an implementer starts. A tester or Stage 1 reviewer works as a pane in the
-    implementer's workspace, with no worktree of its own:
-    `herdr pane split <the implementer's pane id> --direction right`, then `herdr agent
-    start` and `herdr agent prompt` in the new pane.
   - **Only in a trusted folder.** A worker at Claude's folder-trust dialog is not listed by
     `claude agents --json`, so the watch cannot see it: it raises nothing and later reads as
     gone. Start a worker only in a folder Claude trusts, itself or a folder above it: the
@@ -524,16 +507,14 @@ and `tower repo show <R>` lists threads by title.
   are re-checked (a "changes needed" verdict is not the end of the step: the same worker
   re-checks the fix). Close only what you started, by the ids its start printed, never by
   a label or name. Close by what the worker is:
-  - a tester or reviewer working beside the implementer: in Rex, `rex block close -s
-    "$REX_SESSION" <its block>`; in herdr, `herdr pane close <its pane id>`. Either leaves
-    the worktree alone;
+  - a tester or reviewer working beside the implementer: `rex block close -s
+    "$REX_SESSION" <its block>`, which leaves the worktree alone;
   - the implementer, with its worktree, once its PR is delivered (merged, or handed to
     the owner or the named reviewer to merge): the tester and both reviewers work beside
     it, a fix from any step is made in its worktree, and closing its tab closes every block
-    in it, so it stays until then although its own step ended at Implement. In Rex,
+    in it, so it stays until then although its own step ended at Implement:
     `rex window close -s "$REX_SESSION" <its window>`, then `git worktree remove <its
-    worktree's absolute path>`; in herdr, `herdr worktree remove --workspace <its workspace
-    id from the create>`.
+    worktree's absolute path>`.
 
   A later fix on the same branch gets a new worker.
 - **The gate:** a task has an assignee and its task thread before it leaves Waiting (to In
@@ -666,9 +647,8 @@ and `tower repo show <R>` lists threads by title.
   start a sub-lead for it, as a worker nested under you, briefed with that piece. It reports
   on the repo's board like a worker, in the piece's task thread; it does not register as a
   lead. Label starting one as your decision on the board. Its brief gives it your terminal's
-  place for the workers it starts: in Rex your Rex session (`$REX_SESSION`), so they open as
-  tabs there; in herdr your workspace id (`$HERDR_WORKSPACE_ID`), as it runs in a linked
-  worktree, which herdr refuses as the source of `worktree create`.
+  place for the workers it starts: your Rex session (`$REX_SESSION`), so they open as tabs
+  there.
 
 ## The message board
 

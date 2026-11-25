@@ -1,7 +1,7 @@
 //! The message board summary under an overview, as UI v0.1.7 draws it: a box per open
 //! thread, each a compact chat preview (`chat`): its last bubbles, each with its last two
 //! messages folded to two lines, after a line counting the messages before them. In its own
-//! space an open thread shows three bubbles; in herdr's popup two and three open threads at
+//! space an open thread shows three bubbles; in the popup two and three open threads at
 //! most, then "… N more open threads, open the full board ▶" (`Limits`). Resolved threads
 //! fold into one row, "RESOLVED 3 ▸", as on the full board (UI v0.1.13): a click
 //! unfolds it to one line per thread (✓, name, age), and a click on a line opens that thread

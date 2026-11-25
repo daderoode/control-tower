@@ -1,7 +1,7 @@
 //! Runs a bounded command as a separate process: an argument vector, never a shell; the
 //! board's path passed as `TOWER_DB`; optional text on stdin; stdout and stderr drained
 //! while it runs, so a large output cannot block it; and a bounded wait, after which it is
-//! killed. The watch runs its `herdr` commands through it; the owner's own writes from the
+//! killed. The watch runs its terminal commands through it; the owner's own writes from the
 //! dashboard go through `writer` instead.
 
 use std::io::{Read, Write};

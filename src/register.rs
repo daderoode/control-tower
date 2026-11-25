@@ -1,16 +1,14 @@
-//! The herdr plugin registers itself: a brew-installed `tower` links the plugin
-//! directory the formula writes, `<brew prefix>/var/control-tower`, into herdr when herdr
-//! has no plugin `control-tower` yet, so no one runs `herdr plugin link` by hand.
+//! The lead skill registers itself: brew's post_install cannot write ~/.claude, so the
+//! brew-installed watch adds the skill's marketplace to Claude Code, through `claude_path`,
+//! when Claude Code has none (`decide_skill`, `skill_dir_of` and `register_skill`, below). A
+//! `tower` that is not a brew install (a `cargo build`) registers nothing. The marketplace
+//! is added at the formula's `opt` share path. `claude plugin marketplace add` silently
+//! repoints a marketplace of the same name, so it is run only when there is none, or when it
+//! is the GitHub source the 0.1.3 README added: anything else, such as a dev checkout, is
+//! reported and left alone.
 //!
-//! It never relinks over a `control-tower` linked somewhere else, such as a dev checkout:
-//! that is reported and left alone. A `tower` that is not a brew install (a `cargo build`)
-//! has no plugin directory and asks herdr nothing.
-//!
-//! The decision (`decide`) and the brew directory (`brew_dir_of`) are pure; `register`
-//! asks herdr through `TOWER_HERDR` and carries the decision out.
-//!
-//! The lead skill registers itself the same way, with Claude Code through
-//! `claude_path`: `decide_skill`, `skill_dir_of` and `register_skill`, below.
+//! `installed` says whether the running `tower` is the brew install, and `claude` runs a
+//! bounded `claude` for the watch, the hooks and the terminal module.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -22,75 +20,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use crate::terminal::herdr::run as herdr;
 use crate::ui::runner::{Outcome, Run, run_now};
 
-/// The plugin id in `herdr-plugin.toml`.
+/// The formula's name, and the lead skill's marketplace's in Claude Code.
 pub const PLUGIN_ID: &str = "control-tower";
-
-/// What to do about herdr's `control-tower` link, given the brew plugin directory.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Decision {
-    /// herdr links it at the brew directory already.
-    Already,
-    /// herdr links it somewhere else (a dev checkout): leave it.
-    Elsewhere(PathBuf),
-    /// herdr has no `control-tower`: link the brew directory.
-    Link,
-}
-
-/// What `register` found or did, as its log line says.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Registered {
-    /// This `tower` is not a brew install: nothing to link.
-    NotBrew,
-    Already(PathBuf),
-    Elsewhere {
-        linked: PathBuf,
-        brew: PathBuf,
-    },
-    Linked(PathBuf),
-}
-
-impl fmt::Display for Registered {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Registered::NotBrew => write!(
-                f,
-                "not linking the herdr plugin: this tower is not a brew install"
-            ),
-            Registered::Already(dir) => {
-                write!(f, "herdr plugin {PLUGIN_ID} is linked at {}", dir.display())
-            }
-            Registered::Elsewhere { linked, brew } => write!(
-                f,
-                "herdr plugin {PLUGIN_ID} is linked at {}, not the brew {}; left as it is",
-                linked.display(),
-                brew.display()
-            ),
-            Registered::Linked(dir) => {
-                write!(f, "linked herdr plugin {PLUGIN_ID} at {}", dir.display())
-            }
-        }
-    }
-}
-
-/// `linked` is where herdr has `control-tower` now, if anywhere; `brew` the brew plugin
-/// directory. Both resolved, so equal places compare equal.
-pub fn decide(linked: Option<&Path>, brew: &Path) -> Decision {
-    match linked {
-        None => Decision::Link,
-        Some(l) if l == brew => Decision::Already,
-        Some(l) => Decision::Elsewhere(l.to_path_buf()),
-    }
-}
-
-/// The brew plugin directory of a `tower` at `exe` (resolved, so inside the Cellar):
-/// `<prefix>/Cellar/control-tower/<version>/bin/tower` gives `<prefix>/var/control-tower`.
-/// `None` for any other place.
-pub fn brew_dir_of(exe: &Path) -> Option<PathBuf> {
-    Some(brew_prefix_of(exe)?.join("var").join(PLUGIN_ID))
-}
 
 /// The brew prefix of a `tower` at `exe` (resolved): `<prefix>` of
 /// `<prefix>/Cellar/control-tower/<version>/bin/tower`, `None` for any other place.
@@ -110,79 +43,8 @@ fn brew_prefix_of(exe: &Path) -> Option<PathBuf> {
 /// Only that one creates or upgrades the default board.
 pub fn installed() -> bool {
     (std::env::current_exe().and_then(|e| e.canonicalize()))
-        .is_ok_and(|e| brew_dir_of(&e).is_some())
+        .is_ok_and(|e| brew_prefix_of(&e).is_some())
 }
-
-/// The brew plugin directory of the running `tower`, if it is a brew install and the
-/// formula wrote the directory.
-pub fn brew_dir() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
-    brew_dir_of(&exe).filter(|d| d.join("herdr-plugin.toml").is_file())
-}
-
-#[derive(Deserialize)]
-struct ListReply {
-    result: PluginList,
-}
-
-#[derive(Deserialize)]
-struct PluginList {
-    plugins: Vec<RawPlugin>,
-}
-
-#[derive(Deserialize)]
-struct RawPlugin {
-    plugin_id: String,
-    plugin_root: PathBuf,
-}
-
-/// Where `herdr plugin list --json` has `control-tower`, if anywhere.
-pub fn parse_linked(json: &str) -> Result<Option<PathBuf>> {
-    let reply: ListReply =
-        serde_json::from_str(json).context("herdr plugin list said something unexpected")?;
-    Ok((reply.result.plugins.into_iter())
-        .find(|p| p.plugin_id == PLUGIN_ID)
-        .map(|p| p.plugin_root))
-}
-
-/// The same place resolved, or as given when it cannot be (gone, say).
-fn resolved(p: &Path) -> PathBuf {
-    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
-}
-
-/// Links `brew` (the brew plugin directory, `None` for a `tower` that is not a brew
-/// install) into the herdr at `exe` when herdr has no `control-tower`. Each herdr call is
-/// bounded. Fails, changing nothing, when herdr cannot be asked or refuses the link.
-pub fn register(exe: &Path, db: &Path, brew: Option<&Path>) -> Result<Registered> {
-    let Some(brew) = brew else {
-        return Ok(Registered::NotBrew);
-    };
-    let brew = resolved(brew);
-    let list = herdr(
-        exe,
-        db,
-        &["plugin", "list", "--plugin", PLUGIN_ID, "--json"],
-    )?;
-    let linked = parse_linked(&list)?.map(|l| resolved(&l));
-    Ok(match decide(linked.as_deref(), &brew) {
-        Decision::Already => Registered::Already(brew),
-        Decision::Elsewhere(linked) => Registered::Elsewhere { linked, brew },
-        Decision::Link => {
-            let dir = brew
-                .to_str()
-                .context("the brew plugin directory is not UTF-8")?;
-            herdr(exe, db, &["plugin", "link", dir])?;
-            Registered::Linked(brew)
-        }
-    })
-}
-
-// The lead skill registers itself too: brew's post_install cannot write ~/.claude, so
-// the brew-installed watch adds the skill's marketplace to Claude Code, at the formula's
-// `opt` share path, and installs its plugin, when Claude Code has no `control-tower`
-// marketplace. `claude plugin marketplace add` silently repoints a marketplace of the same
-// name, so it is run only when there is none, or when it is the GitHub source the 0.1.3
-// README added: anything else, such as a dev checkout, is reported and left alone.
 
 /// The skill's plugin, as `claude plugin list` names it.
 pub const SKILL_PLUGIN: &str = "control-tower@control-tower";
@@ -585,30 +447,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn links_only_when_herdr_has_no_control_tower() {
-        let brew = Path::new("/opt/homebrew/var/control-tower");
-        assert_eq!(decide(None, brew), Decision::Link);
-        assert_eq!(decide(Some(brew), brew), Decision::Already);
-        let dev = Path::new("/Users/me/control-tower");
+    fn finds_the_brew_prefix_only_for_a_cellar_tower() {
         assert_eq!(
-            decide(Some(dev), brew),
-            Decision::Elsewhere(dev.to_path_buf())
-        );
-    }
-
-    #[test]
-    fn finds_the_brew_plugin_dir_only_for_a_cellar_tower() {
-        assert_eq!(
-            brew_dir_of(Path::new(
+            brew_prefix_of(Path::new(
                 "/opt/homebrew/Cellar/control-tower/0.2.0/bin/tower"
             )),
-            Some(PathBuf::from("/opt/homebrew/var/control-tower"))
+            Some(PathBuf::from("/opt/homebrew"))
         );
         assert_eq!(
-            brew_dir_of(Path::new(
+            brew_prefix_of(Path::new(
                 "/usr/local/Cellar/control-tower/0.2.0_1/bin/tower"
             )),
-            Some(PathBuf::from("/usr/local/var/control-tower"))
+            Some(PathBuf::from("/usr/local"))
         );
         for not in [
             "/Users/me/control-tower/target/release/tower",
@@ -618,108 +468,8 @@ mod tests {
             "/tower",
             "tower",
         ] {
-            assert_eq!(brew_dir_of(Path::new(not)), None, "{not}");
+            assert_eq!(brew_prefix_of(Path::new(not)), None, "{not}");
         }
-    }
-
-    #[test]
-    fn parses_herdrs_plugin_list() {
-        let json = r#"{"id":"cli:plugin","result":{"plugins":[
-            {"plugin_id":"clock","plugin_root":"/x/herdr-clock","name":"herdr-clock","enabled":true},
-            {"plugin_id":"control-tower","plugin_root":"/x/control-tower","enabled":true}],
-            "type":"plugin_list"}}"#;
-        assert_eq!(
-            parse_linked(json).unwrap(),
-            Some(PathBuf::from("/x/control-tower"))
-        );
-        let none = r#"{"id":"cli:plugin","result":{"plugins":[],"type":"plugin_list"}}"#;
-        assert_eq!(parse_linked(none).unwrap(), None);
-        assert!(parse_linked(r#"{"error":"no server"}"#).is_err());
-    }
-
-    /// A fake herdr in a temp dir: `plugin list` prints `plugins.json`, `plugin link`
-    /// appends its path to `links.log`, or fails when `refuse` exists.
-    fn fake_herdr() -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let exe = dir.path().join("herdr");
-        crate::test_exe::executable(
-            &exe,
-            "#!/bin/sh\nd=$(dirname \"$0\")\ncase \"$1 $2\" in\n\
-             \"plugin list\") cat \"$d/plugins.json\" ;;\n\
-             \"plugin link\") [ -e \"$d/refuse\" ] && { echo 'no server' >&2; exit 1; }\n\
-             echo \"$3\" >> \"$d/links.log\" ;;\n\
-             *) echo \"unexpected: $*\" >&2; exit 2 ;;\nesac\n",
-        );
-        (dir, exe)
-    }
-
-    fn plugins(dir: &Path, root: Option<&Path>) {
-        let list = root.map_or(String::new(), |r| {
-            format!(
-                r#"{{"plugin_id":"control-tower","plugin_root":"{}"}}"#,
-                r.display()
-            )
-        });
-        let json = format!(r#"{{"result":{{"plugins":[{list}],"type":"plugin_list"}}}}"#);
-        std::fs::write(dir.join("plugins.json"), json).unwrap();
-    }
-
-    fn links(dir: &Path) -> String {
-        std::fs::read_to_string(dir.join("links.log")).unwrap_or_default()
-    }
-
-    #[test]
-    fn links_the_brew_dir_through_herdr_once_and_never_over_a_dev_link() {
-        let (dir, exe) = fake_herdr();
-        let db = dir.path().join("board.db");
-        let brew = dir.path().join("var/control-tower");
-        std::fs::create_dir_all(&brew).unwrap();
-        let brew = brew.canonicalize().unwrap();
-
-        // Not a brew install: herdr is not asked (there is no plugins.json to print).
-        assert_eq!(register(&exe, &db, None).unwrap(), Registered::NotBrew);
-
-        plugins(dir.path(), None);
-        assert_eq!(
-            register(&exe, &db, Some(&brew)).unwrap(),
-            Registered::Linked(brew.clone())
-        );
-        assert_eq!(links(dir.path()), format!("{}\n", brew.display()));
-
-        plugins(dir.path(), Some(&brew));
-        assert_eq!(
-            register(&exe, &db, Some(&brew)).unwrap(),
-            Registered::Already(brew.clone())
-        );
-        let dev = dir.path().join("checkout");
-        plugins(dir.path(), Some(&dev));
-        let got = register(&exe, &db, Some(&brew)).unwrap();
-        assert_eq!(
-            got,
-            Registered::Elsewhere {
-                linked: dev.clone(),
-                brew: brew.clone()
-            }
-        );
-        assert!(got.to_string().contains("left as it is"), "{got}");
-        // Only the first call linked.
-        assert_eq!(links(dir.path()).lines().count(), 1);
-    }
-
-    #[test]
-    fn a_herdr_that_fails_or_refuses_is_an_error_that_links_nothing() {
-        let (dir, exe) = fake_herdr();
-        let db = dir.path().join("board.db");
-        let brew = dir.path().to_path_buf();
-        // No plugins.json: the list prints nothing JSON.
-        assert!(register(&exe, &db, Some(&brew)).is_err());
-        plugins(dir.path(), None);
-        std::fs::write(dir.path().join("refuse"), "").unwrap();
-        let err = register(&exe, &db, Some(&brew)).unwrap_err();
-        assert!(format!("{err:#}").contains("no server"), "{err:#}");
-        assert_eq!(links(dir.path()), "");
-        let missing = dir.path().join("no-herdr");
-        assert!(register(&missing, &db, Some(&brew)).is_err());
     }
 
     #[test]

@@ -13,7 +13,7 @@ terms; where two words are easy to mix up, the entry says which is which.
   in it. Splits milestones into tasks, assigns tasks to workers, moves tasks between stages
   and sets each milestone's Done mark. Coordinates and never does the work itself.
 - **Worker**: an agent on a lead's team (implementer, tester, reviewer), a visible session
-  nested under its lead in herdr. Posts progress and can set its own task to Done.
+  nested under its lead in the terminal, as a tab in the lead's Rex session. Posts progress and can set its own task to Done.
 - **Team**: a lead and its workers. In a milestone's or task's detail, the team is the
   assignees of the milestone's tasks and everyone who posted on its repo's message board,
   leaving out the lead, `manager`, `system` and "you".
@@ -98,13 +98,7 @@ terms; where two words are easy to mix up, the entry says which is which.
 
 ## The dashboard
 
-- **Dashboard**: `tower ui`, a read-only view of the board in a herdr pane.
-- **Own space**: the herdr workspace labelled `control-tower` that the dashboard fills,
-  opened (and created when missing) by the herdr action `space` (`tower space`).
-- **Popup**: the dashboard in herdr's popup over the work, 85% of the terminal each way,
-  opened by the herdr action `popup` (`tower popup`). Compact: a narrower tree, three threads at most, the
-  last three messages of an open one. Esc at its top level or `q` closes it. Not a herdr
-  pane: it has no pane id.
+- **Dashboard**: `tower ui`, a read-only view of the board in a terminal tab.
 - **Tree**: the left pane: each repo's row (its name, badges and "N blocked")
   with its lead's name under it, then its milestones with their tasks, then its standalone
   tasks; a rule between repos. Milestones and standalone tasks in no repo show in a last

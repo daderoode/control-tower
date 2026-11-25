@@ -4,15 +4,12 @@
 //! new place for a lead (`start_lead`, undone by `undo`); its display name names the
 //! terminal in the core's texts and logs. A module is built in: `module` gives the one this
 //! build has, Rex (`rex`), so another slots in here without touching the core. Rex's prompt
-//! reaches a worker's Claude session through the relay (`relay`). What is left of herdr
-//! (`herdr`: its path, bounded run and shell line, for its plugin, `tower space` and `tower
-//! popup`) goes with #114.
+//! reaches a worker's Claude session through the relay (`relay`).
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
 //! blocked kind where the terminal gives it). A value the core does not know is
 //! `Status::Unknown`: present, with nothing to judge by.
 
-pub mod herdr;
 pub mod relay;
 pub mod rex;
 
@@ -222,7 +219,7 @@ pub(crate) fn terminal_timeout() -> Duration {
     TERMINAL_TIMEOUT
 }
 
-/// Where an executable (rex, herdr, claude) runs from: a name with a `/` as it is, else the
+/// Where an executable (rex, claude) runs from: a name with a `/` as it is, else the
 /// first executable file by that name in `path` (a PATH value). `None` when there is none.
 pub fn find_exe(exe: &Path, path: Option<&OsStr>) -> Option<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
@@ -259,9 +256,9 @@ mod tests {
         let (first, second) = (dir.path().join("first"), dir.path().join("second"));
         std::fs::create_dir(&first).unwrap();
         std::fs::create_dir(&second).unwrap();
-        let exe = first.join("herdr");
+        let exe = first.join("rex");
         std::fs::write(&exe, "#!/bin/sh\n").unwrap();
-        let later = second.join("herdr");
+        let later = second.join("rex");
         crate::test_exe::executable(&later, "#!/bin/sh\n");
         let path = std::env::join_paths([
             "/nowhere",
@@ -270,32 +267,29 @@ mod tests {
         ])
         .unwrap();
         // The first is not executable yet: skipped for the next on the PATH.
-        assert_eq!(
-            find_exe(Path::new("herdr"), Some(&path)),
-            Some(later.clone())
-        );
+        assert_eq!(find_exe(Path::new("rex"), Some(&path)), Some(later.clone()));
         std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
         // Both are: the PATH's order decides.
-        assert_eq!(find_exe(Path::new("herdr"), Some(&path)), Some(exe.clone()));
+        assert_eq!(find_exe(Path::new("rex"), Some(&path)), Some(exe.clone()));
         // A path with a / as it is, PATH or not.
         assert_eq!(find_exe(&exe, None), Some(exe.clone()));
         // A bare name and no PATH: none.
-        assert_eq!(find_exe(Path::new("herdr"), None), None);
+        assert_eq!(find_exe(Path::new("rex"), None), None);
         // A missing path with a /: none, even with that name on the PATH.
-        let gone = dir.path().join("gone/herdr");
+        let gone = dir.path().join("gone/rex");
         assert_eq!(find_exe(&gone, Some(&path)), None);
         // What was tried, as the not-found lines say it.
         assert_eq!(
-            not_found("herdr", Path::new("herdr"), Some(OsStr::new("/a:/b"))),
-            "herdr not found: tried herdr on PATH /a:/b"
+            not_found("rex", Path::new("rex"), Some(OsStr::new("/a:/b"))),
+            "rex not found: tried rex on PATH /a:/b"
         );
         assert_eq!(
-            not_found("herdr", Path::new("herdr"), None),
-            "herdr not found: tried herdr on PATH (no PATH)"
+            not_found("rex", Path::new("rex"), None),
+            "rex not found: tried rex on PATH (no PATH)"
         );
         assert_eq!(
-            not_found("herdr", &gone, None),
-            format!("herdr not found: tried {}", gone.display())
+            not_found("rex", &gone, None),
+            format!("rex not found: tried {}", gone.display())
         );
     }
 }

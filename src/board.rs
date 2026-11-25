@@ -1523,7 +1523,7 @@ pub fn owner_mentions(text: &str) -> Vec<std::ops::Range<usize>> {
 /// `mentioned` reads, so a quoted `@manager` (code span, fenced block, `>` line) is none.
 /// - Needs you: a message that starts with `question:` and mentions `@manager`, the lead's
 ///   tag for what waits on the owner. Tower's own post
-///   about a worker on a herdr prompt is one.
+///   about a worker on a prompt in the terminal is one.
 /// - Awareness ("for your awareness"): any other message that mentions `@manager`:
 ///   answers, reports, decisions, delivery failures (`DELIVERY_FAILURE`).
 /// - Blocked: a message that starts with `blocked:`, a worker saying it is stuck.

@@ -47,10 +47,9 @@ jobs:
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          PLUGIN_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("herdr-plugin.toml", "rb"))["version"])')
           CLAUDE_VERSION=$(jq -r '.version' claude-plugin/.claude-plugin/plugin.json)
-          if [ "$TAG_VERSION" != "$CARGO_VERSION" ] || [ "$TAG_VERSION" != "$PLUGIN_VERSION" ] || [ "$TAG_VERSION" != "$CLAUDE_VERSION" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml ($CARGO_VERSION), herdr-plugin.toml ($PLUGIN_VERSION) and claude-plugin/.claude-plugin/plugin.json ($CLAUDE_VERSION)"
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ] || [ "$TAG_VERSION" != "$CLAUDE_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml ($CARGO_VERSION) and claude-plugin/.claude-plugin/plugin.json ($CLAUDE_VERSION)"
             exit 1
           fi
       - name: Build release binary
@@ -59,9 +58,9 @@ jobs:
         run: |
           ARCHIVE=tower-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
           mkdir -p stage/claude
-          cp target/${{ matrix.target }}/release/tower herdr-plugin.toml stage/
+          cp target/${{ matrix.target }}/release/tower stage/
           cp -R .claude-plugin claude-plugin stage/claude/
-          tar -czf "$ARCHIVE" -C stage tower herdr-plugin.toml claude
+          tar -czf "$ARCHIVE" -C stage tower claude
           shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

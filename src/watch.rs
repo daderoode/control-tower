@@ -763,11 +763,6 @@ pub fn run(db: &Path) -> Result<()> {
         terminal.exe().display(),
         TICK.as_secs()
     ));
-    // Linking the herdr plugin is tried before each look until herdr answers, so a herdr
-    // not running yet at login is linked once it is; a failure never stops the watch.
-    let brew = crate::register::brew_dir();
-    let herdr = crate::terminal::herdr::path();
-    let mut registered = false;
     let mut skill = crate::register::Skill::new(
         claude.clone(),
         crate::register::skill_dir(),
@@ -799,18 +794,6 @@ pub fn run(db: &Path) -> Result<()> {
                 said_missing = true;
             }
             Some(_) => {}
-        }
-        // herdr's own extra, outside the terminal module, until #114 removes it.
-        if !registered {
-            match crate::register::register(&herdr, db, brew.as_deref()) {
-                Ok(done) => {
-                    log(&done.to_string());
-                    registered = true;
-                }
-                Err(e) => log(&format!(
-                    "could not link the herdr plugin, trying again next look: {e:#}"
-                )),
-            }
         }
         let now = chrono::Utc::now().timestamp();
         watch.leads(&claude, now).iter().for_each(|l| log(l));
