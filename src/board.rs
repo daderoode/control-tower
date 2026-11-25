@@ -410,6 +410,11 @@ impl Repo {
 }
 
 impl Board {
+    /// Every repo's lead, in repo order.
+    pub fn leads(&self) -> impl Iterator<Item = &Lead> {
+        self.repos.iter().filter_map(|r| r.lead.as_ref())
+    }
+
     /// The task `id`, under a milestone or standalone, if it is on the board.
     pub fn task(&self, id: TaskId) -> Option<&Task> {
         (self.milestones.iter().flat_map(|m| &m.tasks))
@@ -917,10 +922,11 @@ pub struct MilestoneDetails {
 impl Milestone {
     /// Its team as its detail shows it: the assignees of its tasks, in task order, then the
     /// authors of its threads (those linked to it or its tasks), in thread order, as
-    /// `team` says.
-    pub fn team(&self) -> Vec<&str> {
+    /// `team` says, leaving out its lead and every lead on `board`.
+    pub fn team(&self, board: &Board) -> Vec<&str> {
+        let leads: Vec<&Lead> = self.lead.iter().chain(board.leads()).collect();
         team(
-            self.lead.as_ref(),
+            &leads,
             self.tasks.iter(),
             self.threads.iter().filter(|t| self.links(t)),
         )
@@ -978,10 +984,11 @@ impl Milestone {
 }
 
 /// A team: the assignees of `tasks`, in order, then the authors of `threads`, in order,
-/// each once ignoring ASCII case. The lead, the owner (`manager`), tower's own `system` and
+/// each once ignoring ASCII case. `leads` (the board's own and other repos' leads, who
+/// post lead to lead, by session or name), the owner (`manager`), tower's own `system` and
 /// "you" are not on it.
 pub fn team<'a>(
-    lead: Option<&Lead>,
+    leads: &[&Lead],
     tasks: impl Iterator<Item = &'a Task>,
     threads: impl Iterator<Item = &'a Thread>,
 ) -> Vec<&'a str> {
@@ -989,7 +996,9 @@ pub fn team<'a>(
     let authors = threads.flat_map(|t| &t.authors).map(String::as_str);
     let mut team: Vec<&str> = Vec::new();
     for name in assignees.chain(authors) {
-        let left_out = matches!(Role::of(name, lead), Role::Lead | Role::System)
+        let lead = (leads.iter()).any(|l| matches!(Role::of(name, Some(l)), Role::Lead));
+        let left_out = lead
+            || Role::of(name, None) == Role::System
             || ["manager", "you"]
                 .iter()
                 .any(|n| name.eq_ignore_ascii_case(n));
@@ -2176,7 +2185,8 @@ mod tests {
         });
         m.tasks[0].details.assignee = Some("dev-two".into());
         m.tasks[2].details.assignee = Some("dev-1".into());
-        assert_eq!(m.team(), ["dev-two", "dev-1"]);
+        let board = Board::default();
+        assert_eq!(m.team(&board), ["dev-two", "dev-1"]);
         let mut a = thread(&[]);
         a.authors = ["Cat-Lead", "senior", "manager", "System", "Dev-Two", "qa"]
             .map(String::from)
@@ -2192,9 +2202,52 @@ mod tests {
         c.authors = vec!["triage-bot".into()];
         m.threads = vec![a, b, c];
         // A name is on it once, as it first appears; the lead by session or name is not.
-        assert_eq!(m.team(), ["dev-two", "dev-1", "senior", "qa", "devon"]);
+        assert_eq!(
+            m.team(&board),
+            ["dev-two", "dev-1", "senior", "qa", "devon"]
+        );
         // No assignees and no threads: nobody.
-        assert!(milestone(&[], false).team().is_empty());
+        assert!(milestone(&[], false).team(&board).is_empty());
+    }
+
+    #[test]
+    fn another_repos_lead_posting_here_is_not_on_the_team_even_named_like_a_role() {
+        let mut m = milestone(&[Stage::Waiting], false);
+        m.lead = Some(Lead {
+            name: "kids-lead".into(),
+            session: "kids-lead".into(),
+            colour: None,
+        });
+        let mut t = thread(&[]);
+        t.authors = ["QA-Tools-Lead", "qa-12", "dev-portal-lead"]
+            .map(String::from)
+            .to_vec();
+        t.milestone = Some(MilestoneId(1));
+        m.threads = vec![t];
+        let repo = |id: i64, name: &str| Repo {
+            id: RepoId(id),
+            path: Some(format!("/src/{name}")),
+            link: None,
+            lead: Some(Lead {
+                name: format!("{name}-lead"),
+                session: format!("{name}-lead"),
+                colour: None,
+            }),
+            folded: false,
+            done_folded: true,
+            threads: Vec::new(),
+        };
+        let board = Board {
+            repos: vec![repo(1, "kids"), repo(2, "qa-tools"), repo(3, "dev-portal")],
+            ..Board::default()
+        };
+        // By session or name, ignoring case: the leads are off; the tester stays.
+        assert_eq!(m.team(&board), ["qa-12"]);
+        // Without the board's other leads, their names read as roles and join the team.
+        assert_eq!(
+            m.team(&Board::default()),
+            ["QA-Tools-Lead", "qa-12", "dev-portal-lead"]
+        );
     }
 
     #[test]

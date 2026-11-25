@@ -120,8 +120,9 @@ milestones (`M1`).
 message the lead by. Both are one line of plain text, up to 200 characters, and the
 session is ASCII letters, digits, `-`, `_`, `.` and single spaces between words (Claude
 session names can have them, like "Catalogue Lead": quote such a name in commands; a
-mention stops at a space, so the dashboard and the lead skill name a new lead
-`<repo>-lead`, like `catalogue-lead`, and leads already on the board keep their names);
+mention stops at a space, so the dashboard names a new lead `<repo>-lead`, like
+`catalogue-lead`, the lead skill suggests that name to a session that has none, and leads
+already on the board keep their names);
 both are compared ignoring the case of ASCII letters. `--colour`
 picks the lead's colour from blue, purple, orange, teal, pink and green (the first three
 are the signed design's); without it the lead gets the first colour no lead has yet.

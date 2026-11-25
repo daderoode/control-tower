@@ -17,7 +17,7 @@ terms; where two words are easy to mix up, the entry says which is which.
   session. Posts progress and can set its own task to Done.
 - **Team**: a lead and its workers. In a milestone's or task's detail, the team is the
   assignees of the milestone's tasks and everyone who posted on its repo's message board,
-  leaving out the lead, `manager`, `system` and "you".
+  leaving out its lead, other repos' leads posting there, `manager`, `system` and "you".
 - **Assignee**: who is on a task, by name. A task without one shows "unassigned".
 
 ## The board

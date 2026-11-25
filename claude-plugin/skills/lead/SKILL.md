@@ -210,7 +210,7 @@ implement, test or review.
    Then arm your board waiter and attach your session, in that order:
    1. Run `tower lead unread <R>`, then `tower lead wait <R>` with the Bash tool's
       `run_in_background`. `unread` prints one line per post on your board by anyone else
-      you have not read yet, the watch's flags among them, as `[T3 #12] dev-2: <first
+      you have not read yet, the watch's flags among them, as `[T3 #12] dev-12-ui: <first
       words>`: thread, task, author and the post's first words, never the whole post; read
       the thread each names with `tower thread show T` and answer on the board (see The
       message board, the owner's pane). `wait` is your board waiter: it runs, silent, until
@@ -710,7 +710,7 @@ name (see Workers), like `dev-119-deliver`.
   backticks when you mean to reach it.
 - **What workers post:** a short plan before building, a progress line at each step, then
   "done" with the test output and the reviewer's verdict. A progress line is a progress post,
-  which becomes the task's doing line: `tower post T --by dev-2 --progress "<step>"`.
+  which becomes the task's doing line: `tower post T --by dev-12-ui --progress "<step>"`.
   A plain post never does.
 - **Acknowledge in words:** `tower post T --by "<you>" "copy"`, never emoji.
 - **Resolve with evidence:** `tower thread resolve T --by "<you>" "<evidence>"` (principle 6).
