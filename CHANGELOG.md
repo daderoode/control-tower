@@ -33,15 +33,18 @@ tag's date, and a new empty Unreleased goes above it.
   nonce made for each send, so a post quoting them goes whole, and tower's own hooks do
   nothing in the relay (`TOWER_RELAY`), so it is never taken for a lead, whatever a lead is
   named. A worker at a prompt is sent nothing, and the send fails naming the prompt.
-  Delivered means SendMessage answered as sent; a send to any other session fails naming
-  who got it; a relay stopped at its 60 second limit or a send with no answer is logged as
-  unsure and never resent (a nudge so is recorded as not confirmed, never refused); a relay
-  that sends nothing fails, what it said escaped on one line. Each send logs one `relay to
-  <name>:` line: exit, duration, cost, turns, the tool's answer, whether the text went
-  verbatim and what went if not, and the text. A round of delivery stops starting sends
-  after 10 seconds but never cuts one short, so no second recipient's post is lost. Each
-  send is a paid model call (about $0.003 to $0.006) and the text is copied by a model, so
-  it may not arrive verbatim (#111).
+  Delivered means SendMessage answered as sent. A send to any other session always posts
+  its own item for the owner naming who got it, for posts, tower's replies and nudges
+  alike, even with a failure episode open or from a relay stopped at its limit, whose
+  output until then is read too. A relay stopped at its 60 second limit, or a send with no
+  answer, is logged as unsure and never resent, and a nudge that may have arrived is
+  recorded as not confirmed, never as refused. A relay that sends nothing fails, what it
+  said escaped on one line. Each send logs one `relay to <name>:` line: exit, duration,
+  cost, turns, the tool's answer, whether the text went verbatim and what went if not, and
+  the text. A round of delivery stops starting sends after 10 seconds but never cuts one
+  short, so no second recipient's post is lost. Each send is a paid model call (about
+  $0.003 to $0.006) and the text is copied by a model, so it may not arrive verbatim
+  (#111).
 - **"Lead not listening" asks no terminal.** The watch judges whether a lead's session is
   alive and working by `claude agents --json`, and whether it finished a turn without
   re-arming by the lead's hooks, which now count on the board each turn the lead's attached

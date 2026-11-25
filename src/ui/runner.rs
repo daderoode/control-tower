@@ -7,7 +7,8 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::thread::JoinHandle;
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 /// How a run went.
@@ -19,8 +20,13 @@ pub enum Outcome {
         stdout: String,
         stderr: String,
     },
-    /// It ran past the wait and was killed.
-    TimedOut(Duration),
+    /// It ran past the wait (`after`) and was killed: what it wrote until then, as far as
+    /// its readers drained it within `DRAIN_AFTER_KILL`.
+    TimedOut {
+        after: Duration,
+        stdout: String,
+        stderr: String,
+    },
     /// It could not be started or waited for, or the thread running it died.
     Failed(String),
 }
@@ -71,8 +77,13 @@ pub fn run_now(run: &Run) -> Outcome {
             stdout: joined(stdout),
             stderr: joined(stderr),
         },
-        // The readers are left behind: a process the child started may hold the pipes.
-        Ok(None) => Outcome::TimedOut(run.timeout),
+        // A process the child started may hold the pipes: the readers are given a moment,
+        // then left behind, with what they have.
+        Ok(None) => Outcome::TimedOut {
+            after: run.timeout,
+            stdout: joined_within(stdout, DRAIN_AFTER_KILL),
+            stderr: joined_within(stderr, DRAIN_AFTER_KILL),
+        },
         Err(e) => Outcome::Failed(format!("cannot wait for {}: {e}", run.exe.display())),
     }
 }
@@ -94,18 +105,54 @@ fn wait(child: &mut Child, timeout: Duration) -> std::io::Result<Option<Option<i
     }
 }
 
-fn drain(pipe: Option<impl Read + Send + 'static>) -> Option<JoinHandle<String>> {
+/// How long a run stopped at its limit waits for its readers to reach the end of its pipes,
+/// before it takes what they have.
+const DRAIN_AFTER_KILL: Duration = Duration::from_secs(1);
+
+/// A pipe's reader on its own thread: what it has read so far, and word when it is done.
+struct Reader {
+    got: Arc<Mutex<Vec<u8>>>,
+    done: Receiver<()>,
+}
+
+fn drain(pipe: Option<impl Read + Send + 'static>) -> Option<Reader> {
     pipe.map(|mut p| {
+        let got = Arc::new(Mutex::new(Vec::new()));
+        let (tell, done) = std::sync::mpsc::channel();
+        let into = Arc::clone(&got);
         std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = p.read_to_end(&mut bytes);
-            String::from_utf8_lossy(&bytes).into_owned()
-        })
+            let mut chunk = [0u8; 8192];
+            while let Ok(n @ 1..) = p.read(&mut chunk) {
+                into.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .extend_from_slice(&chunk[..n]);
+            }
+            let _ = tell.send(());
+        });
+        Reader { got, done }
     })
 }
 
-fn joined(reader: Option<JoinHandle<String>>) -> String {
-    reader.and_then(|r| r.join().ok()).unwrap_or_default()
+/// What `reader` read, once it reached the end of its pipe.
+fn joined(reader: Option<Reader>) -> String {
+    taken(reader, |done| {
+        let _ = done.recv();
+    })
+}
+
+/// What `reader` read by the end of its pipe or `bound`, whichever comes first.
+fn joined_within(reader: Option<Reader>, bound: Duration) -> String {
+    taken(reader, |done| {
+        let _ = done.recv_timeout(bound);
+    })
+}
+
+fn taken(reader: Option<Reader>, wait: impl FnOnce(&Receiver<()>)) -> String {
+    reader.map_or_else(String::new, |r| {
+        wait(&r.done);
+        let got = r.got.lock().unwrap_or_else(PoisonError::into_inner);
+        String::from_utf8_lossy(&got).into_owned()
+    })
 }
 
 #[cfg(test)]
@@ -165,7 +212,37 @@ mod tests {
         let started = Instant::now();
         let out = run(exe, &[], None, Duration::from_millis(300));
         assert!(started.elapsed() < wait / 2, "{:?}", started.elapsed());
-        assert_eq!(out, Outcome::TimedOut(Duration::from_millis(300)));
+        let stopped = Outcome::TimedOut {
+            after: Duration::from_millis(300),
+            stdout: String::new(),
+            stderr: String::new(),
+        };
+        assert_eq!(out, stopped);
+    }
+
+    #[test]
+    fn a_run_stopped_at_its_limit_keeps_what_it_wrote_even_with_its_pipes_held() {
+        // It writes, starts a process that holds both pipes open past the run, and sleeps.
+        // The run is stopped at 300 ms and still has what was written, and its readers
+        // waited at most DRAIN_AFTER_KILL for the held pipes.
+        let wait = crate::watch::TEST_WAIT;
+        let dir = tempfile::tempdir().unwrap();
+        let exe = fake(
+            dir.path(),
+            &format!(
+                "printf 'one\\ntwo'; printf oops >&2; (sleep 5) & exec sleep {}",
+                (wait * 2).as_secs()
+            ),
+        );
+        let started = Instant::now();
+        let out = run(exe, &[], None, Duration::from_millis(300));
+        assert!(started.elapsed() < wait / 2, "{:?}", started.elapsed());
+        let stopped = Outcome::TimedOut {
+            after: Duration::from_millis(300),
+            stdout: "one\ntwo".into(),
+            stderr: "oops".into(),
+        };
+        assert_eq!(out, stopped);
     }
 
     #[test]

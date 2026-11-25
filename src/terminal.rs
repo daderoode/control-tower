@@ -111,6 +111,9 @@ pub enum Sent {
     Unsure(String),
     /// It did not arrive, for this reason.
     Failed(String),
+    /// It went to someone else, as this says, naming who got it: worse than a lost send, so
+    /// always told to the owner, and never resent.
+    Misrouted(String),
 }
 
 /// What a prompt did: how the send went, and the one line the module has on how it made it

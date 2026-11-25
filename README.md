@@ -614,19 +614,19 @@ terminal is open or not: every 20 seconds it reads the board and the terminal's 
 workers, logs one line per action to stderr, and stops cleanly on SIGTERM or Ctrl-C.
 
 The terminal is Rex, reached through its one module (the terminal module). A look lists
-every session on the local Rex server and every block in each, and asks each terminal
-block for its program status, reading only the root record (a session's background shells
-and subagents report as child records, so a worker waiting on a background job reads as
-what it is). A block whose root record is Claude Code's, with the process that reported
-it, is joined by that process id to `claude agents --json`: the worker's name is that
-Claude session's name and its status the record's state (`idle`, `working`, `done`,
-`blocked` with what it waits on). Blocks running no Claude, and Claude sessions Claude
-does not list, are no one. Claude does not list a session still at its "trust this folder"
-dialog, so a worker started in a folder Claude has not trusted is not seen (no need-you
-item for that dialog, and orphaned after three looks if its task is in progress) until
-the folder is trusted: start workers in a trusted folder; a state the watch does not know
-is unknown, never idle. The look has a 15 second limit, and one call that fails (Rex not running, a block that cannot
-be read, `claude` failing) skips the whole look, says so, and looks again 20 seconds
+every session on the local Rex server and every block in each, and asks each terminal block
+for its program status, reading only the root record (a session's background shells and
+subagents report as child records, so a worker waiting on a background job reads as what it
+is). A block whose root record is Claude Code's, with the process that reported it, is
+joined by that process id to `claude agents --json`: the worker's name is that Claude
+session's name and its status the record's state (`idle`, `working`, `done`, `blocked` with
+what it waits on). Blocks running no Claude, and Claude sessions Claude does not list, are
+no one. Claude does not list a session still at its "trust this folder" dialog, so a worker
+started in a folder Claude has not trusted is not seen (no need-you item for that dialog,
+and orphaned after three looks if its task is in progress) until the folder is trusted:
+start workers in a trusted folder; a state the watch does not know is unknown, never idle.
+The look has a 15 second limit, and one call that fails (Rex not running, a block that
+cannot be read, `claude` failing) skips the whole look, says so, and looks again 20 seconds
 later: a Rex half read never reads as workers gone. The watch never starts a Rex server.
 `TOWER_REX` names the rex executable, else `rex` in `$REX_BIN_DIR` (where Rex keeps it),
 else `rex` on the PATH; `TOWER_CLAUDE` names `claude`. When rex cannot be found the log
@@ -653,17 +653,20 @@ unassigned task.
   question or credential prompt): a message starting `question: @manager` at once, naming
   that member and quoting what the prompt asks when Claude Code says ("It asks: approve
   Bash: ...", on one line, at most 200 characters), so it is a need-you item in the inbox
-  and on the alert line; two members waiting are two items. When the member leaves the prompt, a
-  plain note says "qa-2's prompt was answered."; the need-you item itself stays until the
-  owner clears it or its thread is resolved, as every need-you item does. The signals below are the assignee's alone.
+  and on the alert line; two members waiting are two items. When the member leaves the
+  prompt, a plain note says "qa-2's prompt was answered."; the need-you item itself stays
+  until the owner clears it or its thread is resolved, as every need-you item does. The
+  signals below are the assignee's alone.
 - **Says it is stuck** (its own `blocked:` post): nothing for the watch.
 - **Stopped without reporting** (the assignee idle or done, no post for 5 min) and **silent
   while working** (task in progress, assignee working, no post for 30 min): the worker is
   nudged through the relay (Live delivery), "no post on #N for M min, post your status",
   and the nudge is recorded as a plain message, "nudged dev-1: ...", saying so if Rex
-  refused delivery, or "not confirmed by Rex" when it may have arrived, with the relay's
-  line in the watch's log; with no post 2 minutes later, a message tells the lead. A task flagged blocked
-  is never nudged: its worker already said it is stuck, and the lead owns it.
+  refused delivery or "not confirmed by Rex" when it may have arrived (a nudge sent to
+  another session is recorded as an item for the owner naming who got it), with the relay's
+  line in the watch's log; with no post 2 minutes later, a message tells the lead. A task
+  flagged blocked is never nudged: its worker already said it is stuck, and the lead owns
+  it.
 - **Orphaned** (task in progress, no live Claude session in Rex by its assignee's name for
   three looks in a row): a message to the lead, saying it is "gone from Rex" and ending
   with how to clear it ("if it was closed: tower task unassign N, or set the next
@@ -671,20 +674,20 @@ unassigned task.
 
 A post is any message in the task's threads but the watch's own; a task with none counts
 from when the watch first saw it with that assignee, kept on the board so a restart does
-not reset it. Claude does not keep session names unique, so several live sessions can
-share a worker's name (names are compared ignoring case): they are read as one worker. A
-prompt is raised when any of them is blocked, quoting the first that is, and the worker's
-status is the busiest of theirs (blocked over working over unknown over idle or done), so
-a stale twin never hides a prompt or draws a "stopped" nudge while the other works.
-Changing a task's assignee ends the old assignee's nudge and orphan episodes and starts the
-clock afresh; a prompt goes on while the old
-assignee is still on the team. Renaming a worker's Claude session away from the assignee
-makes it look gone (orphaned after three looks), so rename the assignee with it. Each flag is
-raised once, and again only after its episode ends (the prompt answered or the member off
-the team, a post after the nudge, the worker back, the task Done, or for a nudge or orphan
-flag, reassigned). If Rex cannot be read, the watch skips that look and says so, rather
-than taking every worker for gone. `system` messages show their author in slate
-grey, a colour no role or lead has; no one else can post as `system`.
+not reset it. Claude does not keep session names unique, so several live sessions can share
+a worker's name (names are compared ignoring case): they are read as one worker. A prompt
+is raised when any of them is blocked, quoting the first that is, and the worker's status
+is the busiest of theirs (blocked over working over unknown over idle or done), so a stale
+twin never hides a prompt or draws a "stopped" nudge while the other works. Changing a
+task's assignee ends the old assignee's nudge and orphan episodes and starts the clock
+afresh; a prompt goes on while the old assignee is still on the team. Renaming a worker's
+Claude session away from the assignee makes it look gone (orphaned after three looks), so
+rename the assignee with it. Each flag is raised once, and again only after its episode
+ends (the prompt answered or the member off the team, a post after the nudge, the worker
+back, the task Done, or for a nudge or orphan flag, reassigned). If Rex cannot be read, the
+watch skips that look and says so, rather than taking every worker for gone. `system`
+messages show their author in slate grey, a colour no role or lead has; no one else can
+post as `system`.
 
 A board written by an older `tower` is upgraded by `tower upgrade` (or by any other
 `tower` command that writes); until then `tower ui` says so instead of showing the tree.
@@ -749,13 +752,17 @@ Haiku), and the text is copied by a model, so it may not arrive verbatim.
 A worker at a prompt (any of its Claude sessions blocked in Rex, looked up afresh just
 before the send) is sent nothing: the send fails "at a permission prompt (approve Bash:
 ...)", naming the kind and what it asks. How a send went is read from the relay's own
-events, never from what the model says: a SendMessage to the worker that its tool answered
-as sent is delivered; one to any other session fails, naming who got it (what the relay or
-its tool said goes into the reason escaped on one line, as in its log line); one with no
-answer, or a relay stopped at its 60 second limit, may have arrived, so it is logged and
-never resent; one refused (no session by that name, two sharing it), or none at all, fails.
-A worker running with permissions bypassed holds a cross-session message for its own user's
-approval (Claude Code's rule), which the relay cannot see: that send reads as delivered.
+events, never from what the model says, and from a relay stopped at its 60 second limit the
+events it printed until then are read too. A SendMessage to any other session is a
+misroute: it always posts its own item for the owner naming who got it, whatever failure
+episode is open, for a post, tower's reply to an author or a nudge, and is never resent.
+Else a relay stopped at its limit may have arrived, so it is logged as unsure and never
+resent; a SendMessage to the worker that its tool answered as sent is delivered; one with
+no answer is unsure; one refused (as for a name no session has), or none at all, fails.
+What the relay or its tool said goes into the reason escaped on one line, as in its log
+line. A worker running with permissions bypassed holds a cross-session message for its own
+user's approval (Claude Code's rule), which the relay cannot see: that send reads as
+delivered.
 
 Every send logs one line starting `relay to <name>:`: how the relay ended, how long it
 took, its cost and turns, each SendMessage it made with the tool's answer and whether the
@@ -776,19 +783,17 @@ since it posted) is only logged, never an item for the owner. A reply is never w
 tower's own posts, nor on a thread resolved meanwhile (the log says so).
 
 Any other send that fails (a worker at a prompt, a worker the board knew that Rex no longer
-has, a relay that sent nothing or sent to another session) opens a failure episode for that
-recipient
-and posts an item for the owner's awareness (not need-you), a `system` message starting
-"@manager could not deliver to" in the thread of the
-first post it carried (or a new "Delivery failed" thread when that one is resolved). A
-round posts one item per board, naming each recipient newly failing there and why, so a
-post naming several gone workers is one item. A recipient Rex has no worker for that is
-the assignee of a task not done on that board has its line end with how to clear it ("if it
-was closed: tower task unassign N, or set the next worker"). While an episode is open,
-further failures to that recipient are only logged; a send that gets through ends it, and
-one still failing after an hour is told again with a new item. A send that may have
-arrived (the relay stopped at its limit, or a SendMessage with no answer) is logged only,
-and never resent.
+has, a relay that sent nothing) opens a failure episode for that recipient and posts an
+item for the owner's awareness (not need-you), a `system` message starting "@manager could
+not deliver to" in the thread of the first post it carried (or a new "Delivery failed"
+thread when that one is resolved). A round posts one item per board, naming each recipient
+newly failing there and why, so a post naming several gone workers is one item. A recipient
+Rex has no worker for that is the assignee of a task not done on that board has its line
+end with how to clear it ("if it was closed: tower task unassign N, or set the next
+worker"). While an episode is open, further failures to that recipient are only logged; a
+send that gets through ends it, and one still failing after an hour is told again with a
+new item. A send that may have arrived (the relay stopped at its limit, or a SendMessage
+with no answer) is logged only, and never resent.
 
 ### How posts reach a lead
 

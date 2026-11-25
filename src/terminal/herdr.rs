@@ -60,7 +60,7 @@ pub fn run(exe: &Path, db: &Path, args: &[&str]) -> Result<String> {
             how(code),
             said(stdout, stderr).trim()
         ),
-        Outcome::TimedOut(after) => bail!(
+        Outcome::TimedOut { after, .. } => bail!(
             "herdr {command} did not finish in {} s and was stopped",
             after.as_secs()
         ),

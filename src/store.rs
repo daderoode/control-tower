@@ -600,7 +600,7 @@ impl FromSql for Stage {
 /// `Store::mark_read`'s work in `tx`, at `at`: `None` when `message` is not on the board,
 /// else whether it was unread and is read now. Refuses one that does not mention the owner.
 fn mark_read_in(
-    tx: &rusqlite::Transaction,
+    tx: &Connection,
     message: i64,
     at: i64,
     cannot_write: &str,
@@ -1464,6 +1464,43 @@ pub enum FlagChange<'a> {
     LeadTold(Signal, &'a str),
     /// Forget the worker's flag whose episode ended.
     Clear(Signal, &'a str),
+}
+/// Posts the delivery item `text` as `system` in `thread` at `at`, or, when that thread is
+/// resolved, in a new "Delivery failed" thread on the same board linked to the same task.
+/// Returns the thread posted in.
+fn failure_item(
+    tx: &Connection,
+    thread: ThreadId,
+    text: &str,
+    at: i64,
+    cannot_write: &str,
+) -> Result<ThreadId> {
+    let (repo, milestone, task, resolved): (RepoId, Option<i64>, Option<i64>, bool) = tx
+        .query_row(
+            "SELECT b.repo_id, t.milestone_id, t.task_id, t.resolved_at IS NOT NULL \
+             FROM thread t JOIN thread_board b ON b.id = t.id WHERE t.id = ?1",
+            params![thread.0],
+            |r| Ok((board_repo(r, 0, thread.0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .context(cannot_write.to_string())?
+        .with_context(|| format!("there is no thread {thread} on the board"))?;
+    let thread = if resolved {
+        let task = task.map(TaskId);
+        new_thread(tx, repo, milestone, task, "Delivery failed", cannot_write)?
+    } else {
+        thread
+    };
+    append(
+        tx,
+        thread,
+        SYSTEM_AUTHOR,
+        text,
+        Kind::Plain,
+        at,
+        cannot_write,
+    )?;
+    Ok(thread)
 }
 
 /// Opens a thread titled `title` on `repo`'s board, about `milestone` or linked to `task`
@@ -3716,34 +3753,26 @@ impl Store {
             return Ok(None);
         }
         let text = check_message("message", &text(&opened))?;
-        let (repo, milestone, task, resolved): (RepoId, Option<i64>, Option<i64>, bool) = tx
-            .query_row(
-                "SELECT b.repo_id, t.milestone_id, t.task_id, t.resolved_at IS NOT NULL \
-                 FROM thread t JOIN thread_board b ON b.id = t.id WHERE t.id = ?1",
-                params![thread.0],
-                |r| Ok((board_repo(r, 0, thread.0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .optional()
-            .context(cannot_write.clone())?
-            .with_context(|| format!("there is no thread {thread} on the board"))?;
-        let thread = if resolved {
-            let task = task.map(TaskId);
-            let title = "Delivery failed";
-            new_thread(&tx, repo, milestone, task, title, &cannot_write)?
-        } else {
-            thread
-        };
-        append(
-            &tx,
-            thread,
-            SYSTEM_AUTHOR,
-            &text,
-            Kind::Plain,
-            at,
-            &cannot_write,
-        )?;
+        let thread = failure_item(&tx, thread, &text, at, &cannot_write)?;
         tx.commit().context(cannot_write)?;
         Ok(Some((thread, opened)))
+    }
+
+    /// Posts `text`, an item for the owner's awareness about a send that went to someone
+    /// else (`board::DELIVERY_FAILURE`), as `system` in `thread` at `at`, or, when that thread
+    /// is resolved, in a new thread on the same board linked to the same task, as
+    /// `delivery_failed` does but always: no failure episode can hold it back, since a
+    /// misroute is worse than a lost send. Returns the thread posted in.
+    pub fn misrouted(&mut self, thread: ThreadId, at: i64, text: &str) -> Result<ThreadId> {
+        let text = check_message("message", text)?;
+        let cannot_write = self.cannot_write();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context(cannot_write.clone())?;
+        let thread = failure_item(&tx, thread, &text, at, &cannot_write)?;
+        tx.commit().context(cannot_write)?;
+        Ok(thread)
     }
 
     /// Posts tower's reply `text` as `system` in `thread`, at `at`: for a post's author, when

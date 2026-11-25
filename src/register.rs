@@ -418,7 +418,7 @@ pub fn claude_within(
             let how = code.map_or("was ended by a signal".into(), |c| format!("exited {c}"));
             bail!("claude {command} {how}: {}", said.trim())
         }
-        Outcome::TimedOut(after) => bail!(
+        Outcome::TimedOut { after, .. } => bail!(
             "claude {command} did not finish in {} s and was stopped",
             after.as_secs()
         ),

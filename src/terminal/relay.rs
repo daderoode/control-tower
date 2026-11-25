@@ -16,13 +16,14 @@
 //!
 //! How the send went is read from the relay's own stream of events (`--output-format
 //! stream-json`), never from what the model says it did (`verdict`):
-//! - a SendMessage to any other name that was not refused: Failed, naming who got it (a post
-//!   reaching the wrong session is worse than a lost one);
+//! - a SendMessage to any other name that was not refused: Misrouted, naming who got it (a
+//!   post reaching the wrong session is worse than a lost one), even from a relay stopped at
+//!   its time limit, whose output until then is read like any other;
+//! - else a relay stopped at its time limit: Unsure, never resent;
 //! - else a SendMessage to the worker that its tool answered `success`: Delivered;
-//! - else one with no answer, or an answer that cannot be read (the relay stopped or
-//!   crashed mid-send), or a relay stopped at its time limit: Unsure, never resent;
-//! - else one refused (no session by that name, two sharing it): Failed, with the tool's
-//!   reason;
+//! - else one with no answer, or an answer that cannot be read (the relay crashed
+//!   mid-send): Unsure, never resent;
+//! - else one refused (as for a name no session has): Failed, with the tool's reason;
 //! - else (no SendMessage at all, or a relay that cannot run): Failed.
 //!
 //! What the relay or its tool said goes into the reason escaped, on one line, as in the
@@ -229,7 +230,9 @@ fn same(a: &str, b: &str) -> bool {
 /// How the relay asked to send `text` to `to` went, as it ended (`outcome`) after `took`.
 fn verdict(to: &str, text: &str, outcome: Outcome, took: Duration) -> Prompted {
     let secs = took.as_secs_f64();
-    let (how, stream, stderr) = match outcome {
+    // A relay stopped at its limit: what it printed until then is read like any other, so a
+    // send to the wrong session before it hung is still seen, and the trace has it all.
+    let (how, stream, stderr, stopped) = match outcome {
         Outcome::Failed(why) => {
             let trace = format!("relay to {to}: could not run ({why}); text: {text:?}");
             return Prompted {
@@ -237,16 +240,13 @@ fn verdict(to: &str, text: &str, outcome: Outcome, took: Duration) -> Prompted {
                 trace: Some(trace),
             };
         }
-        Outcome::TimedOut(after) => {
-            let why = format!(
-                "the relay did not finish in {} s and was stopped",
-                after.as_secs()
-            );
-            let trace = format!("relay to {to}: stopped after {secs:.1} s; text: {text:?}");
-            return Prompted {
-                sent: Sent::Unsure(why),
-                trace: Some(trace),
-            };
+        Outcome::TimedOut {
+            after,
+            stdout,
+            stderr,
+        } => {
+            let how = format!("stopped at its {} s limit", after.as_secs());
+            (how, read(&stdout), stderr, Some(after))
         }
         Outcome::Exited {
             code,
@@ -254,7 +254,7 @@ fn verdict(to: &str, text: &str, outcome: Outcome, took: Duration) -> Prompted {
             stderr,
         } => {
             let how = code.map_or("ended by a signal".into(), |c| format!("exit {c}"));
-            (how, read(&stdout), stderr)
+            (how, read(&stdout), stderr, None)
         }
     };
     let ends = || match (stream.result.as_ref()).and_then(|r| r["result"].as_str()) {
@@ -269,9 +269,15 @@ fn verdict(to: &str, text: &str, outcome: Outcome, took: Duration) -> Prompted {
     let mine = || stream.calls.iter().filter(|c| same(&c.to, to));
     let sent = if !wrong.is_empty() {
         let wrong: Vec<String> = wrong.iter().map(|w| format!("{w:?}")).collect();
-        Sent::Failed(format!(
+        Sent::Misrouted(format!(
             "the relay sent it to {}, not to {to}",
             wrong.join(" and ")
+        ))
+    } else if let Some(after) = stopped {
+        // Whatever it sent to the worker, it was cut off: it may or may not have arrived.
+        Sent::Unsure(format!(
+            "the relay did not finish in {} s and was stopped",
+            after.as_secs()
         ))
     } else if mine().any(|c| matches!(c.answer, Some(Answer::Sent(_)))) {
         Sent::Delivered
@@ -448,13 +454,13 @@ mod tests {
         let got = sent(exited(0, stream(&calls, &[("t1", OK), ("t2", OK)], true)));
         assert_eq!(
             got.sent,
-            Sent::Failed("the relay sent it to \"qa-2\", not to dev-1".into())
+            Sent::Misrouted("the relay sent it to \"qa-2\", not to dev-1".into())
         );
         // Unanswered, it may have gone: still a failure naming it.
         let got = sent(exited(0, stream(&[("t2", "qa-2", TEXT)], &[], true)));
         assert_eq!(
             got.sent,
-            Sent::Failed("the relay sent it to \"qa-2\", not to dev-1".into())
+            Sent::Misrouted("the relay sent it to \"qa-2\", not to dev-1".into())
         );
         // One the tool refused went nowhere: only the right one counts.
         let calls = [("t2", "qa-9", TEXT), ("t1", "dev-1", TEXT)];
@@ -467,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn a_send_with_no_or_an_unclear_answer_is_unsure_and_a_timeout_too() {
+    fn a_send_with_no_or_an_unclear_answer_is_unsure() {
         let got = sent(exited(1, stream(&[("t1", "dev-1", TEXT)], &[], false)));
         assert_eq!(
             got.sent,
@@ -481,14 +487,60 @@ mod tests {
             got.sent,
             Sent::Unsure("the relay's send had an unclear answer: \"ok?\"".into())
         );
-        let got = sent(Outcome::TimedOut(Duration::from_secs(60)));
+    }
+
+    fn stopped(stdout: String) -> Outcome {
+        Outcome::TimedOut {
+            after: Duration::from_secs(60),
+            stdout,
+            stderr: "still waiting\n".into(),
+        }
+    }
+
+    #[test]
+    fn a_relay_stopped_at_its_limit_is_unsure_and_traced_from_what_it_printed() {
+        let got = sent(stopped(String::new()));
         assert_eq!(
             got.sent,
             Sent::Unsure("the relay did not finish in 60 s and was stopped".into())
         );
         assert_eq!(
             got.trace.unwrap(),
-            format!("relay to dev-1: stopped after 9.5 s; text: {TEXT:?}")
+            format!(
+                "relay to dev-1: stopped at its 60 s limit, 9.5 s, no result; no SendMessage; \
+                 stderr: \"still waiting\"; text: {TEXT:?}"
+            )
+        );
+        // Even a send its tool answered: it was cut off after, so still unsure, and the
+        // trace shows the send.
+        let got = sent(stopped(stream(
+            &[("t1", "dev-1", TEXT)],
+            &[("t1", OK)],
+            false,
+        )));
+        assert!(matches!(got.sent, Sent::Unsure(_)), "{got:?}");
+        let trace = got.trace.unwrap();
+        assert!(
+            trace.contains("; SendMessage to \"dev-1\": sent (\"in that session's inbox\")"),
+            "{trace}"
+        );
+    }
+
+    #[test]
+    fn a_send_to_anyone_else_before_the_relay_hung_is_still_misrouted() {
+        let got = sent(stopped(stream(
+            &[("t2", "qa-2", TEXT)],
+            &[("t2", OK)],
+            false,
+        )));
+        assert_eq!(
+            got.sent,
+            Sent::Misrouted("the relay sent it to \"qa-2\", not to dev-1".into())
+        );
+        assert!(
+            got.trace
+                .unwrap()
+                .starts_with("relay to dev-1: stopped at its 60 s limit")
         );
     }
 

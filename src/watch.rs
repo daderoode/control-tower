@@ -30,7 +30,8 @@
 //!   Both nudge the worker directly (the terminal's prompt; in Rex, a message from
 //!   `@control-tower` through the relay, never to a worker at a prompt) and record the nudge
 //!   as a plain `system` message in the task's thread (saying so when the terminal refused
-//!   delivery), the relay's trace in the watch's log;
+//!   delivery, or could not confirm it; a nudge sent to someone else is recorded as an item
+//!   for the owner naming who got it), the relay's trace in the watch's log;
 //!   if no post comes within `ANSWER_WITHIN`, a `system` message tells the lead.
 //! - Orphaned: the task is In progress and the terminal's worker list, not empty, has had no
 //!   live Claude session by the worker's name for `ORPHANED_AFTER` looks in a row. A
@@ -67,7 +68,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-use crate::board::{OWNER_AUTHOR, OWNER_HANDLE, QUESTION, Stage, TaskId, closed_worker_hint};
+use crate::board::{
+    DELIVERY_FAILURE, OWNER_AUTHOR, OWNER_HANDLE, QUESTION, Stage, TaskId, closed_worker_hint,
+};
 use crate::store::{FlagChange, Store};
 use crate::terminal::{Agent, SEND_TIMEOUT, Sent, Status, Terminal, terminal_timeout};
 
@@ -612,6 +615,11 @@ impl Watch {
                         terminal.name(),
                         quoted(why)
                     ),
+                    // Sent to someone else: the record is the owner's item, naming who.
+                    Sent::Misrouted(why) => format!(
+                        "{DELIVERY_FAILURE}{agent}: {} (the nudge: {text})",
+                        quoted(why)
+                    ),
                 };
                 store.watch_step(flag.task, FlagChange::None, Some(&record), now)?;
                 let traced = |line: String| match &trace {
@@ -620,7 +628,9 @@ impl Watch {
                 };
                 match sent {
                     Sent::Delivered => Ok(traced(what)),
-                    Sent::Unsure(why) | Sent::Failed(why) => Err(anyhow::anyhow!(traced(why))),
+                    Sent::Unsure(why) | Sent::Failed(why) | Sent::Misrouted(why) => {
+                        Err(anyhow::anyhow!(traced(why)))
+                    }
                 }
             }
             Action::Raise { flag, text } => {
@@ -858,8 +868,8 @@ mod tests {
 
     /// The watch's terminal in most of these tests: Rex's look over the fake rex and claude
     /// in `rex/`, and a prompt that appends "name|text" to `prompts.log`, or refuses with the
-    /// text of `refuse` (or is unsure, with the text of `unsure`) when that file exists, with
-    /// no trace, so each test reads only the
+    /// text of `refuse` (or is unsure with that of `unsure`, or sends elsewhere as `misroute`
+    /// says) when that file exists, with no trace, so each test reads only the
     /// watch's own lines. Rex's own prompt, the relay, is in `a_nudge_reaches_a_rex_worker...`.
     struct Team {
         rex: crate::terminal::rex::Rex,
@@ -885,6 +895,9 @@ mod tests {
             }
             if let Ok(why) = std::fs::read_to_string(self.dir.join("unsure")) {
                 return Sent::Unsure(why).into();
+            }
+            if let Ok(why) = std::fs::read_to_string(self.dir.join("misroute")) {
+                return Sent::Misrouted(why).into();
             }
             let mut log = std::fs::OpenOptions::new()
                 .create(true)
@@ -1455,6 +1468,25 @@ mod tests {
         );
         assert!(system[1].starts_with("@cat-lead dev-1 on #1 has not posted"));
         assert_eq!(system.len(), 2);
+    }
+
+    #[test]
+    fn a_nudge_sent_to_someone_else_is_an_item_for_the_owner_naming_who_got_it() {
+        let mut f = Fixture::new();
+        let why = "the relay sent it to \"qa-9\", not to dev-1";
+        std::fs::write(f.dir.path().join("misroute"), why).unwrap();
+        assert_eq!(f.tick(6).len(), 1);
+        let item = format!(
+            "@manager could not deliver to dev-1: {why} (the nudge: no post on #1 for 6 min, \
+             post your status)"
+        );
+        assert_eq!(f.system(1), [item.clone()]);
+        let board = f.store().load().unwrap();
+        let aware: Vec<&str> = (board.inbox.awareness.iter())
+            .map(|a| a.message.text.as_str())
+            .collect();
+        assert_eq!(aware, [item.as_str()]);
+        assert!(board.inbox.need_you.is_empty());
     }
 
     #[test]

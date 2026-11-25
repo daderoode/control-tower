@@ -34,13 +34,15 @@
 //! item for the owner, no reply to a reply.
 //!
 //! Any other send that fails (a worker at a prompt, a worker the board knew that the
-//! terminal no longer has, a relay that sent nothing or sent to someone else) opens a
+//! terminal no longer has, a relay that sent nothing) opens a
 //! failure episode for its recipient, which posts one `@manager` item for the owner's
 //! awareness (`Store::delivery_failed`); while it is open further failures are only logged,
 //! and a send that gets through ends it; one open longer than `EPISODE_EXPIRES` is told
 //! again. The item is a `system` post, so it goes to no worker: it cannot start a storm. A
 //! send that may have arrived (stopped at its limit, no answer) is logged only, never
-//! resent and no item.
+//! resent and no item. A send that went to someone else (`Sent::Misrouted`) always posts its
+//! own item naming who got it, open episode or not (`Store::misrouted`), tower's replies
+//! too: it is worse than a lost send.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -514,6 +516,16 @@ impl Deliver {
                 },
                 Sent::Unsure(why) => {
                     format!("sent {n} post(s) to {who}, not confirmed ({why}); not resent")
+                }
+                // Sent to someone else, a reply of tower's too: always the owner's own item,
+                // whatever failure episode is open for the recipient.
+                Sent::Misrouted(why) => {
+                    let said = format!("could not deliver {n} post(s) to {who}: {why}");
+                    let text = failure_text(&[&failure_line(&batch.to, &why, &[])]);
+                    match store.misrouted(posts[0].thread, now, &text) {
+                        Ok(t) => format!("{said}; told the owner in {t}"),
+                        Err(e) => format!("{said}; failed to tell the owner: {e:#}"),
+                    }
                 }
                 // Tower's reply to an author that is gone by now (closed after its post):
                 // advice no one else needs, so it is logged, never the owner's item.
@@ -1081,6 +1093,84 @@ mod tests {
                  Its posts stay on the board."
             ]
         );
+    }
+
+    /// senior-55's case on PR #121: a misroute went through the recipient's failure episode,
+    /// so with one open it was only logged, and a misrouted reply was "logged only".
+    #[test]
+    fn a_misroute_is_always_its_own_item_even_with_an_episode_open_and_for_a_reply() {
+        let f = Fixture::new();
+        // qa-1 at a prompt: its episode opens, with an item.
+        f.asking(&[
+            ("dev-1", "idle", None),
+            ("dev-2", "idle", None),
+            ("qa-1", "blocked", None),
+            ("qa-3", "idle", None),
+        ]);
+        f.post("dev-2", "@qa-1 one");
+        assert!(f.drain()[0].ends_with("; told the owner in T1"));
+        assert_eq!(f.items().len(), 1);
+        // Back from its prompt, its next post goes to qa-3: told, episode open or not.
+        f.agents(&["dev-1", "dev-2", "qa-1", "qa-3"]);
+        f.touch("relay-to-qa-1", "qa-3");
+        f.post("dev-2", "@qa-1 two");
+        assert_eq!(
+            f.drain(),
+            [
+                "could not deliver 1 post(s) to qa-1: the relay sent it to \"qa-3\", not to qa-1; \
+                 told the owner in T1"
+            ]
+        );
+        // And again: a misroute is never only logged.
+        f.post("dev-2", "@qa-1 three");
+        assert!(f.drain()[0].ends_with("; told the owner in T1"));
+        let items = f.items();
+        assert_eq!(items.len(), 3, "{items:?}");
+        assert_eq!(
+            items[1],
+            "@manager could not deliver to qa-1: the relay sent it to \"qa-3\", not to qa-1. Its \
+             posts stay on the board."
+        );
+        // Tower's reply to an author, sent elsewhere: an item too, never "logged only".
+        f.touch("relay-to-dev-2", "qa-3");
+        f.post("dev-2", "write @name for a worker");
+        f.drain();
+        let log = f.drain();
+        assert_eq!(
+            log,
+            [
+                "could not deliver 1 post(s) to dev-2: the relay sent it to \"qa-3\", not to dev-2; \
+                 told the owner in T1"
+            ]
+        );
+        assert_eq!(f.items().len(), 4);
+    }
+
+    /// senior-55's case on PR #121: a relay stopped at its limit lost its whole stream, so a
+    /// send to another session before it hung read as unsure, with no item.
+    #[test]
+    fn a_misroute_before_the_relay_hung_is_an_item_and_the_trace_shows_it() {
+        let mut f = Fixture::new();
+        f.deliver.send_limit = Duration::from_secs(2);
+        f.touch("relay-to-qa-1", "qa-2");
+        f.touch("relay-hang-qa-1", "");
+        f.post("dev-2", "@qa-1 please look");
+        let log = f.drain_traced(1_000);
+        assert!(
+            log[0].starts_with("relay to qa-1: stopped at its "),
+            "{log:?}"
+        );
+        assert!(
+            log[0].contains("; SendMessage to \"qa-2\": sent (\"in that session's inbox\")"),
+            "{log:?}"
+        );
+        assert_eq!(
+            log[1],
+            "could not deliver 1 post(s) to qa-1: the relay sent it to \"qa-2\", not to qa-1; \
+             told the owner in T1"
+        );
+        assert_eq!(f.items().len(), 1, "{:?}", f.items());
+        assert!(!f.dir.path().join("ended").exists());
     }
 
     #[test]

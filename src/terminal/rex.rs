@@ -151,7 +151,7 @@ impl Rex {
                 };
                 return Err(Unread::Failed(format!("{command} {how}: {}", said.trim())));
             }
-            Outcome::TimedOut(_) => return Err(out_of_time(limit)),
+            Outcome::TimedOut { .. } => return Err(out_of_time(limit)),
             Outcome::Failed(why) => return Err(Unread::Failed(why)),
         };
         serde_json::from_str(&stdout).map_err(|e| {
@@ -193,7 +193,7 @@ fn stdout(command: &str, outcome: Outcome) -> Result<String> {
             };
             bail!("rex {command} {how}: {}", said.trim())
         }
-        Outcome::TimedOut(after) => bail!(
+        Outcome::TimedOut { after, .. } => bail!(
             "rex {command} did not finish in {} s and was stopped",
             after.as_secs()
         ),
@@ -391,7 +391,7 @@ impl Terminal for Rex {
             )
         };
         let outcome = self.run(db, &args);
-        let timed_out = matches!(outcome, Outcome::TimedOut(_));
+        let timed_out = matches!(outcome, Outcome::TimedOut { .. });
         let reply =
             stdout("new", outcome).map_err(|e| if timed_out { e.context(left()) } else { e })?;
         let created: Created = serde_json::from_str(&reply)
@@ -413,16 +413,18 @@ impl Terminal for Rex {
 /// agents --json` prints. Each call's words go to `calls.log`, one call per line joined by
 /// `|`; a call whose method or session or block has a file `fail-<it>` exits 1 saying so.
 ///
-/// The fake claude is the relay too (`claude -p`): it reads the instruction on stdin and
-/// sends the text between its two marker lines (the first line shaped as one, and its
-/// closing twin) to the name it gives, writes the relay's `TOWER_RELAY` to `relay.env`, printing the stream a relay
-/// prints, and appends each send it makes as "name|text" (newlines as `\n`) to
-/// `prompts.log`. For a recipient `<to>`: `relay-refuse-<to>` has its SendMessage refused
-/// with that file's text; `relay-quiet-<to>` makes the send, then crashes before its
-/// answer; `relay-none-<to>` sends nothing and says that file's text; `relay-to-<to>`
-/// sends to the name in it instead; `relay-changed-<to>` sends its text instead. With
-/// `hold`, it touches `started` and holds until `release` (or `TEST_WAIT`) first, and
-/// touches `ended` after; with `slow`, it sleeps that file's seconds first.
+/// The fake claude is the relay too (`claude -p`): it reads the instruction on stdin
+/// and sends the text between its two marker lines (the first line shaped as one, and
+/// its closing twin) to the name it gives, printing the stream a relay prints; it
+/// writes the relay's `TOWER_RELAY` to `relay.env`, and appends each send it makes as
+/// "name|text" (newlines as `\n`) to `prompts.log`. For a recipient `<to>`:
+/// `relay-refuse-<to>` has its SendMessage refused with that file's text;
+/// `relay-quiet-<to>` makes the send, then crashes before its answer; `relay-none-<to>`
+/// sends nothing and says that file's text; `relay-to-<to>` sends to the name in it
+/// instead; `relay-changed-<to>` sends its text instead; `relay-hang-<to>` touches
+/// `started` once the send is answered, then holds until `release` (or `TEST_WAIT`) and
+/// touches `ended`. With `hold`, it does the same before it sends; with `slow`, it
+/// sleeps that file's seconds first.
 #[cfg(test)]
 pub(crate) mod fake {
     use std::path::{Path, PathBuf};
@@ -495,6 +497,7 @@ else
 fi
 r=$(printf '{"success":%s,"message":"%s"}' "$ok" "$(json "$said")")
 printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"%s"}]}]}}\n' "$(json "$r")"
+[ -e "$d/relay-hang-$to" ] && { : > "$d/started"; HOLD; : > "$d/ended"; }
 echo '{"type":"result","is_error":false,"num_turns":3,"total_cost_usd":0.00593,"result":"Sent it once.","permission_denials":[]}'
 "#;
 
@@ -796,7 +799,7 @@ mod tests {
         f.write("relay-to-dev-1", "qa-7");
         assert_eq!(
             prompt(&f, "dev-1", "x").sent,
-            Sent::Failed("the relay sent it to \"qa-7\", not to dev-1".into())
+            Sent::Misrouted("the relay sent it to \"qa-7\", not to dev-1".into())
         );
         std::fs::remove_file(dir.path().join("relay-to-dev-1")).unwrap();
         f.write("relay-none-dev-1", "I could not find that session.");
