@@ -102,8 +102,8 @@ other, and the dev waits for it as Build once says.
   - QA runs the hand-off: no build and no worktree of its own. In its throwaway
     environment it puts the hand-off folder first on PATH, so the hooks and the herdr
     plugin, which call `tower` by name, run the hand-off.
-  - The dev's worktree stays until Test, Stage 1 and every fix re-check are closed: fixes
-    are made in it.
+  - The dev's worktree stays until the PR is delivered: fixes from every stage, Stage 2
+    included, are made in it.
   - Stage 1 reviews the PR diff and its CI result. If a finding can only be proven by
     running code, the reviewer says so and proves it with the hand-off binary, for that
     finding only. `cargo check` proves only that it compiles. A finding that needs a
