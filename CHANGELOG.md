@@ -9,6 +9,16 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A watch catching up after a stop no longer tells the owner about every closed worker.**
+  The first watch after a long stop sent the owner one item naming every worker the old posts
+  were for, all long closed (129 on 0.6.0's first start). A failure to a worker Rex no longer
+  has is now the owner's item only while the worker is the assignee of a task not done or a
+  post in the send is less than an hour old; an older one is logged only, opens no episode,
+  and the post stays on the board. A send to a worker Rex lists goes however old the post
+  is (#128).
+
 ## [0.6.0] - 2026-11-25
 
 ### Changed

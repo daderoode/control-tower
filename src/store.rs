@@ -1129,7 +1129,7 @@ fn lead_boards(conn: &Connection) -> rusqlite::Result<Vec<LeadBoard>> {
 /// for the owner, in id order. None for a repo with no lead.
 fn unread(conn: &Connection, repo: RepoId) -> rusqlite::Result<Vec<Post>> {
     conn.prepare(
-        "SELECT m.id, m.thread_id, b.repo_id, t.task_id, m.author, m.text \
+        "SELECT m.id, m.thread_id, b.repo_id, t.task_id, m.author, m.text, m.posted_at \
          FROM lead l JOIN thread_board b ON b.repo_id = l.repo_id \
          JOIN thread t ON t.id = b.id JOIN message m ON m.thread_id = t.id \
          WHERE l.repo_id = ?1 AND m.id > l.told_upto \
@@ -1144,6 +1144,7 @@ fn unread(conn: &Connection, repo: RepoId) -> rusqlite::Result<Vec<Post>> {
             task: r.get::<_, Option<i64>>(3)?.map(TaskId),
             author: r.get(4)?,
             text: r.get(5)?,
+            posted_at: r.get(6)?,
         })
     })?
     .collect()
@@ -3622,7 +3623,7 @@ impl Store {
             .context("the board has no delivery cursor")?;
         let posts: Vec<Post> = tx
             .prepare(
-                "SELECT m.id, m.thread_id, b.repo_id, t.task_id, m.author, m.text \
+                "SELECT m.id, m.thread_id, b.repo_id, t.task_id, m.author, m.text, m.posted_at \
                  FROM message m JOIN thread t ON t.id = m.thread_id \
                  JOIN thread_board b ON b.id = t.id WHERE m.id > ?1 ORDER BY m.id",
             )?
@@ -3634,6 +3635,7 @@ impl Store {
                     task: r.get::<_, Option<i64>>(3)?.map(TaskId),
                     author: r.get(4)?,
                     text: r.get(5)?,
+                    posted_at: r.get(6)?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;

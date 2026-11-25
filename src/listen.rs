@@ -872,6 +872,7 @@ mod tests {
             task: None,
             author: author.into(),
             text: text.into(),
+            posted_at: 0,
         }
     }
 
