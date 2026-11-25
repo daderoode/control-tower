@@ -654,11 +654,12 @@ fn name_room(w: usize) -> usize {
 }
 
 /// Thread `t`'s name, and its own title, on at most two list lines `w` wide, styled
-/// (the name bold, its own title dim), without the mark and age. It wraps as the copy's
-/// `.clamp2` does (`wrap_line`); past two lines the second ends in "…" after its last whole
-/// piece, as the copy's clamp ends it (`clamp_end`), but is never cut into the own title:
-/// then, as in a one-line row, the name is cut first and its own title keeps all but
-/// `NAME_KEEPS` columns of the second line, each cut after its last whole piece too.
+/// (the name bold, its own title dim), without the mark and age. It wraps as the signed
+/// design's (UI v0.1.13) `.clamp2` does (`wrap_line`); past two lines the second ends in
+/// "…" after its last whole piece, as the design's clamp ends it (`clamp_end`), but is
+/// never cut into the own title: then, as in a one-line row, the name is cut first and its
+/// own title keeps all but `NAME_KEEPS` columns of the second line, each cut after its last
+/// whole piece too.
 fn name_rows(talk: &Talk, t: &Thread, w: usize, depth: Depth) -> Vec<Vec<Span<'static>>> {
     let room = name_room(w).max(1);
     let name = talk.name(t);
@@ -952,7 +953,7 @@ pub fn composer_lines(
     // The question the owner is answering, from the "Needs you" strip.
     let replying = reply.map(|m| {
         let colour = talk.people().colour(&m.author, depth);
-        // Its spaces folded, as the copy's `nowrap` quote draws them.
+        // Its spaces folded, as the signed design's (UI v0.1.13) `nowrap` quote draws them.
         let first = message_board::fold_spaces(m.text.lines().next().unwrap_or_default());
         let mut head = vec![
             Span::styled(" replying to ", dim(depth)),

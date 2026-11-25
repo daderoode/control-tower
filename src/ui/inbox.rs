@@ -35,7 +35,8 @@ const MESSAGE_MIN: usize = 12;
 /// The widest an age gets on the alert line ("999d"), reserved so the layout, which has no
 /// time, lays the line out as the drawing does.
 const AGE_COLUMNS: usize = 4;
-/// The most lines an inbox item's message takes, as the copy's `.txt clamp2` clamps it.
+/// The most lines an inbox item's message takes, as the signed design's (UI v0.1.13) `.txt
+/// clamp2` clamps it.
 const MESSAGE_LINES: usize = 2;
 
 /// The alert line's background, the signed design's #1d1517, on a 24-bit terminal; none on the
@@ -98,10 +99,10 @@ struct Said {
 impl Said {
     /// What `a` says on lines `room` columns wide: its message, its marks the owner's
     /// mentions, or for a delivery failure its short form, "@manager delivery failed to X"
-    /// (its full text is in its thread), its mark the "@manager". As the copy's row (`.txt
-    /// clamp2`, `white-space: normal`) draws either: its line breaks and tabs are spaces,
-    /// each run of spaces one, wrapped as the copy's `.clamp2` wraps it (`wrap_line`) and
-    /// clamped to `MESSAGE_LINES` lines.
+    /// (its full text is in its thread), its mark the "@manager". As the signed design's
+    /// (UI v0.1.13) row (`.txt clamp2`, `white-space: normal`) draws either: its line
+    /// breaks and tabs are spaces, each run of spaces one, wrapped as the design's
+    /// `.clamp2` wraps it (`wrap_line`) and clamped to `MESSAGE_LINES` lines.
     fn of(a: &Alert, room: usize) -> Said {
         let text = &a.message.text;
         let failure = a.message.author.eq_ignore_ascii_case(SYSTEM_AUTHOR)
@@ -141,7 +142,7 @@ impl Said {
 
     /// Its lines, styled, each at most `room` columns: the last ends in "…" where the
     /// message goes on, right after its last word, or in place of its last character when
-    /// the line is full, as the copy's clamp ends it.
+    /// the line is full, as the signed design's (UI v0.1.13) clamp ends it.
     fn lines(&self, awareness: bool, room: usize, depth: Depth) -> Vec<Vec<Span<'static>>> {
         let n = self.lines.len();
         (self.lines.iter().enumerate())
@@ -559,9 +560,9 @@ mod tests {
 
     #[test]
     fn a_delivery_failures_row_wraps_onto_two_lines_as_the_copys_clamp_does() {
-        // As headless Chrome draws the copy's failure row (`.txt clamp2`, #51): its short
-        // form wraps at its words onto a second line, clamped there like any row's, where
-        // it had been one line cut at the row's edge.
+        // As headless Chrome draws the signed design's (UI v0.1.13) failure row (`.txt
+        // clamp2`, #51): its short form wraps at its words onto a second line, clamped
+        // there like any row's, where it had been one line cut at the row's edge.
         let text = "@manager could not deliver to Garden Shed Lead, the lead's pane is gone";
         let red = bold().fg(bad(Depth::TrueColor));
         let plain = Style::new();
@@ -596,8 +597,9 @@ mod tests {
 
     #[test]
     fn an_inbox_rows_words_break_where_the_copys_clamp_breaks_them() {
-        // As headless Chrome draws the copy's `.txt clamp2` (`overflow-wrap: anywhere`): a
-        // word too wide for a line starts on a line of its own, and a word breaks after a `-`.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.txt clamp2`
+        // (`overflow-wrap: anywhere`): a word too wide for a line starts on a line of its
+        // own, and a word breaks after a `-`.
         let link = "decision: @manager see https://example.invalid/shed/plans/roof/very/long/\
                     path/that/never/ends/and/keeps/going for the plan";
         assert_eq!(

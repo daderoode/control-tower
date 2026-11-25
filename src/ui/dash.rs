@@ -1555,7 +1555,8 @@ impl Dash {
         self.top_mut().board.fold = b.fold;
         match input {
             // A message selected (by a click on its "read more" with the row selected) takes
-            // the keys first, as in the copy and as the keys line says.
+            // the keys first, as in the signed design (UI v0.1.13) and as the keys line
+            // says.
             Input::Right if b.fold.on_row && message.is_none() => self.set_unfolded(true),
             Input::Left if b.fold.on_row && message.is_none() => self.set_unfolded(false),
             Input::Left if message.is_none() && b.on_resolved_thread() => self.set_unfolded(false),

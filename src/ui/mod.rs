@@ -416,11 +416,12 @@ fn render_scrolled(frame: &mut Frame, lines: Vec<Line<'static>>, scroll: usize, 
 
 /// `text` as a paragraph, the one way a pane's lines are drawn: each span's leading marks
 /// (`attaches`, such as a Hebrew point) moved onto the end of the last span before it with
-/// text, so each draws in the cell before it, as the copy draws a point after a space at a
-/// line's start or after a mention or a tag. ratatui draws no grapheme of no width and a
-/// grapheme never crosses spans, so a span starting with a mark would lose it. Marks with no
-/// span with text before them in their line (in its first span, or after only empty ones)
-/// have no cell before them and stay as they are. Only a line with such a span is changed.
+/// text, so each draws in the cell before it, as the signed design (UI v0.1.14) draws a
+/// point after a space at a line's start or after a mention or a tag. ratatui draws no
+/// grapheme of no width and a grapheme never crosses spans, so a span starting with a mark
+/// would lose it. Marks with no span with text before them in their line (in its first
+/// span, or after only empty ones) have no cell before them and stay as they are. Only a
+/// line with such a span is changed.
 ///
 /// A line keeps its width because a moved mark joins a cell whose width it does not change:
 /// every span before message text today ends in a space, the bubble's bar, the last letter
@@ -560,13 +561,14 @@ fn keys_line(view: &View, l: &Layout, dash: &Dash, w: usize, depth: Depth) -> Li
         }
     } else if let Some(b) = &l.board {
         // On an open thread the keys write: q is typed, and Ctrl-C quits, named only
-        // where the copy's hints leave room.
+        // where the signed design's (UI v0.1.13) hints leave room.
         let writing = b.writes_to().is_some();
         // In the chat the keys move between messages; in the list, between threads.
         if dash.board_message().is_some() {
             hints.extend([
                 (1, "↑↓ message"),
-                // Kept with the writing hints at 120 columns, as the copy has them.
+                // Kept with the writing hints at 120 columns, as the signed design
+                // (UI v0.1.13) has them.
                 (2, "→ read more or less"),
                 (2, "← threads"),
             ]);

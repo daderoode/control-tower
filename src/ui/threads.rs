@@ -92,10 +92,12 @@ pub fn stands(
     let mut s = vec![Span::styled(lead_in.to_string(), dim(depth))];
     // Tower's own word in the chat's words for it, with no "system:" label, and in the text
     // colour as a person's plain words: only the lead-in is dim. A question for the owner
-    // keeps its "question:", as the copy does: no "needs you" tag here says it.
+    // keeps its "question:", as the signed design (UI v0.1.13) does: no "needs you" tag
+    // here says it.
     if is_tower(&who) {
         let said = event_words(&text, talk.lead);
-        // Its spaces folded, as the copy's `nowrap` line draws its event text.
+        // Its spaces folded, as the signed design's (UI v0.1.13) `nowrap` line draws its
+        // event text.
         let first = fold_spaces(said.lines().next().unwrap_or_default());
         s.push(Span::raw(first));
         return Some(fit(s, w));
@@ -105,9 +107,9 @@ pub fn stands(
         s.push(Span::styled(who, Style::new().fg(colour)));
         s.push(Span::raw(": "));
     }
-    // Its spaces folded, as the copy's `nowrap` line draws them; a leading tag toned as in
-    // its bubble, by the whole message's tone, and only where the text itself starts with
-    // it (`may_tone_tag`).
+    // Its spaces folded, as the signed design's (UI v0.1.13) `nowrap` line draws them; a
+    // leading tag toned as in its bubble, by the whole message's tone, and only where the
+    // text itself starts with it (`may_tone_tag`).
     let awareness = tone == Tone::Awareness;
     s.extend(highlight(
         &fold_spaces(&text),
@@ -196,7 +198,7 @@ fn need_line(talk: &Talk, a: &Alert, w: usize, now: i64, depth: Depth) -> Line<'
         Span::styled(m.author.clone(), bold().fg(colour)),
         Span::raw(" "),
     ];
-    // Its spaces folded, as the copy's `nowrap` row draws them.
+    // Its spaces folded, as the signed design's (UI v0.1.13) `nowrap` row draws them.
     let first = fold_spaces(m.text.lines().next().unwrap_or_default());
     left.extend(highlight(&first, true, false, depth));
     // The thread's name gives way before the question does, down to a third of the line.

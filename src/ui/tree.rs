@@ -415,9 +415,10 @@ fn blocked_mark(t: &Task, depth: Depth) -> Vec<Span<'static>> {
 
 /// `text` on one line of `first` columns, or two: the first takes whole words while they
 /// fit (a word longer than the line is broken only when it is the first), never ending
-/// after words that are only ideographic spaces the copy carries to the next line
-/// (`ends_carried`), and the rest goes on a second line of `second` columns, starting with
-/// any such run, clamped there as the copy's `.clamp2` ends its last line (`clamp`).
+/// after words that are only ideographic spaces the signed design (UI v0.1.13) carries to
+/// the next line (`ends_carried`), and the rest goes on a second line of `second` columns,
+/// starting with any such run, clamped there as the design's `.clamp2` ends its last line
+/// (`clamp`).
 fn two_lines(text: &str, first: usize, second: usize) -> (String, Option<String>) {
     if text.width() <= first {
         return (text.to_string(), None);
@@ -437,7 +438,8 @@ fn two_lines(text: &str, first: usize, second: usize) -> (String, Option<String>
         return (head, lines.next().map(|rest| clamp_line(&rest, second)));
     }
     // A run of ideographic spaces starting the rest goes to the second line with it, as the
-    // copy's folded text carries it, unless the head ends with one, which it hangs with.
+    // signed design's (UI v0.1.13) folded text carries it, unless the head ends with one,
+    // which it hangs with.
     let head = text[..end].trim_end_matches(' ');
     let rest = text[end..].trim_start_matches(' ');
     let rest = if head.ends_with(IDEOGRAPHIC_SPACE) {
@@ -450,8 +452,9 @@ fn two_lines(text: &str, first: usize, second: usize) -> (String, Option<String>
 }
 
 /// Whether `head` ends with words that are only ideographic spaces, one or more, after a
-/// word that does not end with one, which the copy's folded text does not end a line with:
-/// it carries them to the next line with what follows them (`message_board::wrap_line`).
+/// word that does not end with one, which the signed design's (UI v0.1.13) folded text does
+/// not end a line with: it carries them to the next line with what follows them
+/// (`message_board::wrap_line`).
 fn ends_carried(head: &str) -> bool {
     let mut head = head.trim_end_matches(' ');
     let mut runs = 0;
@@ -465,7 +468,8 @@ fn ends_carried(head: &str) -> bool {
     }
 }
 
-/// `rest` on one line `w` wide, as the copy's `.clamp2` ends its last line (`clamp`).
+/// `rest` on one line `w` wide, as the signed design's (UI v0.1.13) `.clamp2` ends its last
+/// line (`clamp`).
 fn clamp_line(rest: &str, w: usize) -> String {
     clamp(rest, w.max(1), 1)
         .into_iter()
@@ -769,9 +773,10 @@ mod tests {
 
     #[test]
     fn a_title_s_second_line_starts_with_the_run_of_ideographic_spaces_it_carries() {
-        // As headless Chrome draws the copy's `.clamp2` title: a run of U+3000 starting a
-        // word after a space goes to the next line with it, and a word that is only a run
-        // goes with the word after it; after a word ending with a run, it hangs.
+        // As headless Chrome draws the signed design's (UI v0.1.13) `.clamp2` title: a run
+        // of U+3000 starting a word after a space goes to the next line with it, and a word
+        // that is only a run goes with the word after it; after a word ending with a run,
+        // it hangs.
         let text = "表示確認 　全角空白 　　行末 　折り返し 测试 　中文";
         assert_eq!(
             two_lines(text, 30, 30),

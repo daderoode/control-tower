@@ -574,7 +574,7 @@ fn card(
     }
     let mut line = fit(s, w);
     if selected {
-        // On the selected background, not bold, as the copy has it.
+        // On the selected background, not bold, as the signed design (UI v0.1.13) has it.
         let bg = Style::new().bg(selected_bg(depth));
         for span in &mut line.spans {
             span.style = bg.patch(span.style);
