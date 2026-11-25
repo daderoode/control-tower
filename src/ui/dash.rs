@@ -1140,7 +1140,7 @@ impl Dash {
                     self.notice = Some((why, true));
                     return None;
                 }
-                // Its workspace opens on the repo's main checkout, so it must be known.
+                // Its lead's place opens on the repo's main checkout, so it must be known.
                 if let Some(r) = repo.filter(|r| r.path.is_none()) {
                     self.notice = Some((super::writer::no_checkout(r), true));
                     return None;

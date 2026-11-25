@@ -40,21 +40,22 @@ pub enum Write {
         folded: bool,
     },
     /// Start a lead on `line`, the owner's goal in one line, on `repo` when given, with the
-    /// terminal module's executable at `terminal`, from `home` (`HOME`, `None` when it is
-    /// not set). The dashboard reads `home` from its environment
-    /// (`Write::start_lead_from_env`), so the write itself never does. The lead gets the
-    /// board this write is made on.
+    /// terminal module's executable at `terminal`, found on `exe_path` (`PATH`, `None` when
+    /// it is not set), from `home` (`HOME`, `None` when it is not set). The dashboard reads
+    /// both from its environment (`Write::start_lead_from_env`), so the write itself never
+    /// does. The lead gets the board this write is made on.
     StartLead {
         line: String,
         repo: Option<RepoId>,
         terminal: PathBuf,
+        exe_path: Option<OsString>,
         home: Option<String>,
     },
 }
 
 impl Write {
     /// The start of a lead on `line`, on `repo` when given, with the terminal module's
-    /// executable at `terminal`, from `HOME` as `env` has it (the dashboard's:
+    /// executable at `terminal`, from `PATH` and `HOME` as `env` has them (the dashboard's:
     /// `std::env::var_os`). A `HOME` that is not UTF-8 counts as not set.
     pub fn start_lead_from_env(
         line: String,
@@ -66,6 +67,7 @@ impl Write {
             line,
             repo,
             terminal,
+            exe_path: env("PATH"),
             home: env("HOME").and_then(|h| h.into_string().ok()),
         }
     }
@@ -123,10 +125,15 @@ fn make(path: &Path, write: &Write) -> Result<String> {
             line,
             repo,
             terminal,
+            exe_path,
             home,
         } => {
             let home = (home.as_deref()).context("cannot start a lead: HOME is not set")?;
-            let at = Start { repo: *repo, home };
+            let at = Start {
+                repo: *repo,
+                home,
+                exe_path: exe_path.as_deref(),
+            };
             let terminal = crate::terminal::lead_module(terminal.clone());
             start_lead(&mut store, path, &*terminal, line, at)?
         }
@@ -190,10 +197,11 @@ pub fn lead_command(name: &str, m: MilestoneId) -> Vec<String> {
 }
 
 /// Where a lead starts: on `repo`, when given, in its main checkout, else in no repo yet,
-/// in `home`.
+/// in `home`; and `exe_path`, the `PATH` the terminal module's executable is found on.
 pub struct Start<'a> {
     pub repo: Option<RepoId>,
     pub home: &'a str,
+    pub exe_path: Option<&'a std::ffi::OsStr>,
 }
 
 /// Starts a lead on the owner's `line`. On the repo `at` names: adds the milestone (title
@@ -203,13 +211,14 @@ pub struct Start<'a> {
 /// lead on the repo's main checkout, out of focus, with Claude in it under the registered
 /// name, running the lead skill, which finds itself registered and attaches. A repo that is
 /// gone or already has a lead, a directory to start in that is not one, or a terminal
-/// module whose executable cannot be found, is refused before anything is written. In no repo (`at.repo` `None`): only the milestone is added,
-/// in `home`, and the skill registers the lead once it has its repo. A start the terminal
-/// fails is undone on the board (`undone`), or, where it cannot be, says so; the module
-/// leaves no place of its own behind, or says it may have. The board `db`, made absolute,
-/// is set as `TOWER_DB` in the new place, so the lead uses the same board. A name a lead on
-/// the board has already (as its name or session, ignoring case), or a task's assignee,
-/// gets the milestone id after it (`Store::start_repo_lead`, `Store::start_lead_in_no_repo`).
+/// module whose executable cannot be found on `at.exe_path`, is refused before anything is
+/// written. In no repo (`at.repo` `None`): only the milestone is added, in `home`, and the
+/// skill registers the lead once it has its repo. A start the terminal fails is undone on
+/// the board (`undone`), or, where it cannot be, says so; the module leaves no place of its
+/// own behind, or says it may have. The board `db`, made absolute, is set as `TOWER_DB` in
+/// the new place, so the lead uses the same board. A name a lead on the board has already
+/// (as its name or session, ignoring case), or a task's assignee, gets the milestone id
+/// after it (`Store::start_repo_lead`, `Store::start_lead_in_no_repo`).
 pub fn start_lead(
     store: &mut Store,
     db: &Path,
@@ -220,7 +229,7 @@ pub fn start_lead(
     let line = line.trim();
     let title: String = line.chars().take(MAX_LINE_CHARS).collect();
     // Before any write, so a terminal that cannot be found uses up no milestone id.
-    if let Some(why) = terminal.missing(std::env::var_os("PATH").as_deref()) {
+    if let Some(why) = terminal.missing(at.exe_path) {
         anyhow::bail!("cannot start a lead: {why}");
     }
     let board = (std::path::absolute(db))
@@ -629,6 +638,7 @@ mod tests {
             line: line.into(),
             repo: None,
             terminal: rex.to_path_buf(),
+            exe_path: None,
             home: Some(home(path).into()),
         };
         write_now(path, &write)
@@ -689,6 +699,7 @@ mod tests {
             line: "Comics".into(),
             repo: None,
             terminal: exe.clone(),
+            exe_path: None,
             home: home.map(String::from),
         };
         // No home: refused before anything is written or Rex is asked.
@@ -720,6 +731,7 @@ mod tests {
         let at = Start {
             repo: None,
             home: home(&path),
+            exe_path: None,
         };
         let relative = Path::new("rel/board.db");
         start_lead(&mut store, relative, &*rex(&exe), "Atlases", at).unwrap();
@@ -741,18 +753,25 @@ mod tests {
             let env = move |name| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.clone());
             Write::start_lead_from_env("Comics".into(), Some(RepoId(2)), "/bin/rex".into(), env)
         };
-        let want = |home: Option<&str>| Write::StartLead {
+        let want = |path: Option<&str>, home: Option<&str>| Write::StartLead {
             line: "Comics".into(),
             repo: Some(RepoId(2)),
             terminal: "/bin/rex".into(),
+            exe_path: path.map(OsString::from),
             home: home.map(String::from),
         };
         let home = ("HOME", OsStr::new("/Users/o"));
-        assert_eq!(start(&[home]), want(Some("/Users/o")));
+        assert_eq!(start(&[home]), want(None, Some("/Users/o")));
+        // PATH as the dashboard has it, for finding the terminal's executable.
+        let path = ("PATH", OsStr::new("/opt/x/bin:/usr/bin"));
+        assert_eq!(
+            start(&[home, path]),
+            want(Some("/opt/x/bin:/usr/bin"), Some("/Users/o"))
+        );
         // HOME unset, or not UTF-8: no home, which refuses the start.
-        assert_eq!(start(&[]), want(None));
+        assert_eq!(start(&[]), want(None, None));
         let bad = ("HOME", OsStr::from_bytes(b"/Users/\xff"));
-        assert_eq!(start(&[bad]), want(None));
+        assert_eq!(start(&[bad]), want(None, None));
     }
 
     #[test]
@@ -763,6 +782,7 @@ mod tests {
         let at = || Start {
             repo: None,
             home: home(&path),
+            exe_path: None,
         };
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at()).unwrap();
         assert_eq!(said, "started Comics Lead for M2 in Rex");
@@ -793,6 +813,7 @@ mod tests {
         let at = |repo| Start {
             repo: Some(repo),
             home: home(&path),
+            exe_path: None,
         };
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at(free)).unwrap();
         let name = checkout.path().file_name().unwrap().to_str().unwrap();
@@ -851,6 +872,7 @@ mod tests {
         let at_home = || Start {
             repo: None,
             home: home(&path),
+            exe_path: None,
         };
         let said = start_lead(&mut store, &path, &*rex(&exe), "Comics", at_home()).unwrap();
         assert_eq!(said, "started Comics Lead M4 for M4 in Rex");
@@ -917,6 +939,7 @@ mod tests {
             line: "Comics".into(),
             repo: Some(r),
             terminal: exe.to_path_buf(),
+            exe_path: None,
             home: Some(home(&path).into()),
         };
         // Said as the dashboard says it, on every press: not the watch's "said once".
@@ -930,6 +953,18 @@ mod tests {
         let board = Store::open(&path).unwrap().load().unwrap();
         assert_eq!(board.milestones.len(), 1);
         assert!(board.repo(r).unwrap().lead.is_none());
+        assert!(calls(fake.path()).is_empty());
+        // A bare rex is looked for on the PATH the write carries, not this process's.
+        let mut bare = on_repo(Path::new("rex"));
+        if let Write::StartLead { exe_path, .. } = &mut bare {
+            *exe_path = Some("/nowhere".into());
+        }
+        let (msg, failed) = write_now(&path, &bare);
+        assert!(failed, "{msg}");
+        assert!(
+            msg.starts_with("cannot start a lead: rex not found: tried rex on PATH /nowhere; "),
+            "{msg}"
+        );
         assert!(calls(fake.path()).is_empty());
         // Once rex is found, the start takes the next id, as no failed press used one.
         let (said, failed) = write_now(&path, &on_repo(&exe));
@@ -950,6 +985,7 @@ mod tests {
         let at = || Start {
             repo: Some(r),
             home: home(&path),
+            exe_path: None,
         };
         std::fs::write(fake.path().join("fail-new"), "").unwrap();
         let err = start_lead(&mut store, &path, &*rex(&exe), "Comics", at()).unwrap_err();
@@ -980,6 +1016,7 @@ mod tests {
         let at = Start {
             repo: Some(r),
             home: home(&path),
+            exe_path: None,
         };
         let err = start_lead(&mut store, &path, &*rex(&exe), "Comics", at).unwrap_err();
         assert_eq!(
@@ -1006,6 +1043,7 @@ mod tests {
         let at = Start {
             repo: Some(r),
             home: home(&path),
+            exe_path: None,
         };
         let err = start_lead(&mut store, &path, &*rex(&exe), "Comics", at).unwrap_err();
         assert_eq!(

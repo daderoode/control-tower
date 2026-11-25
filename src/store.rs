@@ -411,7 +411,7 @@ const READ_BUSY_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The board's path: `TOWER_DB` if set, else `~/.local/state/control-tower/board.db`, made
 /// absolute against the working directory. Every process tower starts is handed this
-/// path, some in another directory (a lead's workspace opens on its repo's checkout), so a
+/// path, some in another directory (a lead's Rex session opens on its repo's checkout), so a
 /// relative one would name another file there.
 pub fn board_path() -> Result<PathBuf> {
     let path = match std::env::var_os("TOWER_DB") {

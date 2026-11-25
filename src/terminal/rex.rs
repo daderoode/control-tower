@@ -1,8 +1,8 @@
 //! The Rex module: the terminal module interface over the `rex` command line (`path`), on
-//! the local Rex server only. A lead starts in a new Rex session labelled with its name (`rex new`),
-//! which Rex does not show in the app, so focus stays where it is; the session runs the
-//! lead's command directly, each argument its own word, never through a shell string. The
-//! handle is the session's id, and undo kills it (`rex kill`).
+//! the local Rex server only. A lead starts in a new Rex session labelled with its name
+//! (`rex new`), which Rex does not show in the app, so focus stays where it is; the session
+//! runs the lead's command directly, each argument its own word, never through a shell
+//! string. The handle is the session's id, and undo kills it (`rex kill`).
 //!
 //! For now `n` is all this module does: the watch's look (`agents`) and delivery (`prompt`)
 //! still use herdr until #110 and #111 build them here.
@@ -182,14 +182,24 @@ mod tests {
         );
         let empty = ("TOWER_REX", OsStr::new(""));
         assert_eq!(path_with(&[empty, ("REX_BIN_DIR", dir)]), in_bin);
-        // Neither, or a REX_BIN_DIR that is empty or relative: rex on the PATH.
+        // Neither, or an empty REX_BIN_DIR: rex on the PATH.
         assert_eq!(path_with(&[]), PathBuf::from("rex"));
-        for d in ["", "bin"] {
-            assert_eq!(
-                path_with(&[("REX_BIN_DIR", OsStr::new(d))]),
-                PathBuf::from("rex")
-            );
-        }
+        let empty_dir = ("REX_BIN_DIR", OsStr::new(""));
+        assert_eq!(path_with(&[empty_dir]), PathBuf::from("rex"));
+        // A relative REX_BIN_DIR is none, even one that reaches that rex from here: it would
+        // name another file wherever the dashboard runs.
+        let cwd = std::env::current_dir().unwrap();
+        let up = "../".repeat(cwd.components().count() - 1);
+        let relative = format!(
+            "{up}{}",
+            bin.path().to_str().unwrap().trim_start_matches('/')
+        );
+        assert!(
+            Path::new(&relative).join("rex").is_file(),
+            "{relative} reaches the rex"
+        );
+        let relative_dir = ("REX_BIN_DIR", OsStr::new(&relative));
+        assert_eq!(path_with(&[relative_dir]), PathBuf::from("rex"));
         // The not-found line names what was tried and where Rex keeps it.
         let none = Rex::new("rex".into());
         assert_eq!(
