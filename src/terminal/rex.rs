@@ -684,6 +684,9 @@ pub(crate) mod fake {
     /// A session's blocks, each (block id, creator, its `program_status` records).
     pub type Blocks<'a> = [(&'a str, &'a str, &'a str)];
 
+    /// A session's blocks in tabs, each (block id, window, its `program_status` records).
+    pub type Tabs<'a> = [(&'a str, &'a str, &'a str)];
+
     pub struct FakeRex {
         pub dir: PathBuf,
     }
@@ -831,7 +834,7 @@ echo '{"type":"result","is_error":false,"num_turns":3,"total_cost_usd":0.00593,"
         /// Rex's server from now on: `sessions`, each with its blocks in tabs as (block id,
         /// window, `program_status` records joined as a JSON array's items), all terminal
         /// blocks.
-        pub fn tabs(&self, sessions: &[(&str, &[(&str, &str, &str)])]) {
+        pub fn tabs(&self, sessions: &[(&str, &Tabs)]) {
             let ids: Vec<&str> = sessions.iter().map(|(s, _)| *s).collect();
             self.write("sessions", &lines(&ids));
             for (s, blocks) in sessions {
