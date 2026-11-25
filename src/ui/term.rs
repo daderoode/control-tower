@@ -250,7 +250,7 @@ fn input_loop(
                 writes.fold.push(writer::spawn(path, fold));
             }
             Some(Request::StartLead { line, repo }) => {
-                let terminal = crate::terminal::herdr::path();
+                let terminal = crate::terminal::exe_from_env();
                 let start = Write::start_lead_from_env(line, repo, terminal, std::env::var_os);
                 writes.start = Some(writer::spawn(path, start))
             }
@@ -517,14 +517,14 @@ mod tests {
         assert_eq!(dash.notice, None);
         // The start finishes: the mark read and the post stay in flight.
         start_tx
-            .send(("started M2's lead in a new workspace".into(), false))
+            .send(("started M2's lead in Rex".into(), false))
             .unwrap();
         let done = writes.finish(&mut dash);
         assert_eq!((done.board, done.post), (true, false));
         assert!(writes.start.is_none() && writes.mark.is_some() && writes.post.is_some());
         assert_eq!(
             dash.notice,
-            Some(("started M2's lead in a new workspace".into(), false))
+            Some(("started M2's lead in Rex".into(), false))
         );
         assert!(dash.handing.is_some(), "the mark read still runs");
         // The mark read and a failed post finish at once: both show, in red.

@@ -145,10 +145,10 @@ terms; where two words are easy to mix up, the entry says which is which.
 - **New lead**: the dashboard's `n` (or "new lead (n) ▶" on the alert line) on a repo
   without a lead, or anything in it: the owner types a goal in one line and the dashboard
   adds the milestone in that repo and registers its lead, named "<first words> Lead", in
-  one write, then starts Claude under that name in a new herdr workspace on the repo's main
+  one write, then starts Claude under that name in a new Rex session on the repo's main
   checkout. Refused on a repo that has
   its lead or no main checkout on the board; with something in no repo selected, or nothing, the milestone is in no repo
-  yet and the workspace opens in the owner's home. Also `/control-tower:lead <goal in
+  yet and the session opens in the owner's home. Also `/control-tower:lead <goal in
   words>` from a session, which creates the milestone itself.
 
 ## The message board

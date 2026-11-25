@@ -701,7 +701,7 @@ pub fn run(db: &Path) -> Result<()> {
     // The lead check's claude agents --json does run in the look (`Watch::leads`), bounded by
     // CLAUDE_TIMEOUT, and so does the terminal's (Rex names its Claude sessions by it).
     let claude = crate::register::claude_path();
-    let terminal = crate::terminal::module(crate::terminal::exe_from_env(), claude.clone());
+    let terminal = crate::terminal::module(crate::terminal::exe_from_env());
     let mut watch = Watch::new(db, Arc::clone(&terminal), Arc::clone(&stop));
     let log = |line: &str| {
         let at = chrono::Local::now().format("%H:%M:%S");
@@ -1458,7 +1458,7 @@ mod tests {
     fn the_lead_check_asks_no_terminal_and_claude_only_for_a_lead_with_no_waiter() {
         let mut f = Fixture::new();
         // No rex answers: the workers' look is skipped, the lead check is not.
-        let none = crate::terminal::module(f.dir.path().join("no-rex"), "claude".into());
+        let none = crate::terminal::module(f.dir.path().join("no-rex"));
         f.watch = Watch::new(&f.db, none, Arc::default());
         assert!(f.watch.tick(f.t0).is_err());
         f.store()

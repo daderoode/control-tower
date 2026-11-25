@@ -2,10 +2,10 @@
 //! dashboard's `n`) reaches the terminal its workers run in. The core asks it for the live
 //! workers (`agents`), has it deliver a text to one by name (`prompt`), and has it open a
 //! new place for a lead (`start_lead`, undone by `undo`); its display name names the
-//! terminal in the core's texts and logs. A module is built in: `module` gives the one the
-//! watch's look uses, Rex (`rex`), so another slots in here without touching the core.
-//! Until #111 and #112 build Rex's prompt and lead start, delivery and the dashboard's `n`
-//! still reach herdr (`herdr`, `herdr_module`), which #114 removes.
+//! terminal in the core's texts and logs. A module is built in: `module` gives the one this
+//! build has, Rex (`rex`), so another slots in here without touching the core. Until #111
+//! builds Rex's prompt, delivery still reaches herdr (`herdr`, `herdr_module`), which #114
+//! removes.
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
 //! blocked kind where the terminal gives it). A value the core does not know is
@@ -111,14 +111,14 @@ pub enum Sent {
     Failed(String),
 }
 
-/// A lead to start: its place named `name`, opened in `dir`, with the board path `board`
-/// set as `TOWER_DB` there when given, running `command` (one word per argument, never a
+/// A lead to start: its place named `name`, opened in `dir`, with the board's absolute path
+/// `board` set as `TOWER_DB` there, running `command` (one word per argument, never a
 /// shell string).
 #[derive(Debug, Clone, Copy)]
 pub struct LeadStart<'a> {
     pub name: &'a str,
     pub dir: &'a str,
-    pub board: Option<&'a str>,
+    pub board: &'a str,
     pub command: &'a [String],
 }
 
@@ -134,7 +134,8 @@ pub trait Terminal: Send + Sync {
     /// Its executable, as the module was given it.
     fn exe(&self) -> &Path;
     /// The one line saying the executable cannot be found on `path` (a PATH value),
-    /// naming what was tried; `None` when it is found.
+    /// naming what was tried and how to name it; `None` when it is found. Whoever says it
+    /// adds how often (the watch: once, until it is found).
     fn missing(&self, path: Option<&OsStr>) -> Option<String>;
     /// The live named workers, within `timeout`.
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread>;
@@ -146,10 +147,10 @@ pub trait Terminal: Send + Sync {
     fn undo(&self, db: &Path, handle: &Handle) -> Result<String>;
 }
 
-/// The built-in terminal module, Rex, its executable at `rex`, asking `claude` (`claude
-/// agents --json`) for the names of the Claude sessions it finds.
-pub fn module(rex: PathBuf, claude: PathBuf) -> Arc<dyn Terminal> {
-    Arc::new(rex::Rex::new(rex, claude))
+/// The built-in terminal module, Rex, its executable at `exe`, asking the `claude` the
+/// environment names (`register::claude_path`) for the names of the Claude sessions it finds.
+pub fn module(exe: PathBuf) -> Arc<dyn Terminal> {
+    Arc::new(rex::Rex::new(exe, crate::register::claude_path()))
 }
 
 /// The built-in module's executable as the environment names it.
@@ -157,8 +158,8 @@ pub fn exe_from_env() -> PathBuf {
     rex::path()
 }
 
-/// herdr as a terminal module, its executable at `exe`: what delivery and the dashboard's
-/// `n` use until #111 and #112 build them on Rex.
+/// herdr as a terminal module, its executable at `exe`: what delivery uses until #111
+/// builds it on Rex.
 pub fn herdr_module(exe: PathBuf) -> Arc<dyn Terminal> {
     Arc::new(herdr::Herdr::new(exe))
 }

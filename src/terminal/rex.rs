@@ -11,19 +11,26 @@
 //! block, all within the look's time limit; any call that fails fails the whole look, so a
 //! Rex half read never reads as workers gone.
 //!
-//! For now the look is all this module does: delivery (`prompt`) and the dashboard's `n`
-//! (`start_lead`) still use herdr until #111 and #112 build them here.
+//!
+//! A lead starts in a new Rex session labelled with its name (`rex new`), which Rex does not
+//! show in the app, so focus stays where it is; the session runs the lead's command directly,
+//! each argument its own word, never through a shell string. The handle is the session's id,
+//! and undo kills it (`rex kill`).
+//!
+//! Delivery (`prompt`) still uses herdr until #111 builds it here.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use super::{Agent, Handle, LeadStart, Sent, Status, Terminal, Unread, find_exe, not_found};
+use super::{
+    Agent, Handle, LeadStart, Sent, Status, Terminal, Unread, find_exe, not_found, terminal_timeout,
+};
 use crate::ui::runner::{Outcome, Run, run_now};
 
 /// The creator of Rex's terminal blocks: only they have a `program_status`.
@@ -62,6 +69,17 @@ pub struct Rex {
 impl Rex {
     pub fn new(exe: PathBuf, claude: PathBuf) -> Rex {
         Rex { exe, claude }
+    }
+
+    /// Runs `rex <args>`, bounded by `terminal_timeout`.
+    fn run(&self, db: &Path, args: &[&str]) -> Outcome {
+        run_now(&Run {
+            exe: self.exe.clone(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            db: db.to_path_buf(),
+            stdin: None,
+            timeout: terminal_timeout(),
+        })
     }
 
     /// `rex api call <method> <input>` on the local server, bounded by what is left of the
@@ -131,6 +149,41 @@ fn out_of_time(limit: Duration) -> Unread {
         "Rex did not answer within {} s and the look was stopped",
         limit.as_secs()
     ))
+}
+
+/// What `rex <command>` ending in `outcome` gave: its stdout when it exited 0, else what
+/// went wrong.
+fn stdout(command: &str, outcome: Outcome) -> Result<String> {
+    match outcome {
+        Outcome::Exited {
+            code: Some(0),
+            stdout,
+            ..
+        } => Ok(stdout),
+        Outcome::Exited {
+            code,
+            stdout,
+            stderr,
+        } => {
+            let how = code.map_or("was ended by a signal".into(), |c| format!("exited {c}"));
+            let said = if stderr.trim().is_empty() {
+                stdout
+            } else {
+                stderr
+            };
+            bail!("rex {command} {how}: {}", said.trim())
+        }
+        Outcome::TimedOut(after) => bail!(
+            "rex {command} did not finish in {} s and was stopped",
+            after.as_secs()
+        ),
+        Outcome::Failed(why) => bail!("{why}"),
+    }
+}
+
+#[derive(Deserialize)]
+struct Created {
+    session_id: String,
 }
 
 #[derive(Deserialize)]
@@ -206,9 +259,8 @@ fn join(found: Vec<(i64, Status, Option<String>)>, listed: &[Listed]) -> Vec<Age
         .collect()
 }
 
-/// Not built yet: what delivery and `n` would be told, though they use herdr until #111 and
-/// #112.
-const NOT_YET: &str = "the Rex module does not reach workers or start leads in this build";
+/// Not built yet: what delivery would be told, though it uses herdr until #111.
+const NOT_YET: &str = "the Rex module does not reach workers in this build";
 
 impl Terminal for Rex {
     fn name(&self) -> &'static str {
@@ -224,8 +276,8 @@ impl Terminal for Rex {
             Some(_) => None,
             None => Some(format!(
                 "{}; Rex keeps it in REX_BIN_DIR, which Rex sets in its own tabs: link it into \
-                 Homebrew's bin (ln -s \"$REX_BIN_DIR/rex\" \"$(brew --prefix)/bin/rex\") and \
-                 run brew services restart control-tower, or set TOWER_REX to its full path",
+                 Homebrew's bin (ln -s \"$REX_BIN_DIR/rex\" \"$(brew --prefix)/bin/rex\"), or \
+                 set TOWER_REX to its full path",
                 not_found("rex", &self.exe, path)
             )),
         }
@@ -275,12 +327,33 @@ impl Terminal for Rex {
         Sent::Failed(NOT_YET.into())
     }
 
-    fn start_lead(&self, _db: &Path, _lead: &LeadStart) -> Result<Handle> {
-        bail!(NOT_YET)
+    fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle> {
+        let env = format!("TOWER_DB={}", lead.board);
+        let mut args = vec![
+            "new", lead.name, "-c", lead.dir, "--json", "--", "env", &env,
+        ];
+        args.extend(lead.command.iter().map(String::as_str));
+        // Rex may have made the session before it stopped, or before a reply this cannot
+        // read; with no id it cannot be killed here.
+        let left = || {
+            format!(
+                "a Rex session labelled {:?} may be left: rex ls, then rex kill its id",
+                lead.name
+            )
+        };
+        let outcome = self.run(db, &args);
+        let timed_out = matches!(outcome, Outcome::TimedOut(_));
+        let reply =
+            stdout("new", outcome).map_err(|e| if timed_out { e.context(left()) } else { e })?;
+        let created: Created = serde_json::from_str(&reply)
+            .with_context(|| format!("rex new said something unexpected: {}", reply.trim()))
+            .with_context(left)?;
+        Ok(Handle(created.session_id))
     }
 
-    fn undo(&self, _db: &Path, _handle: &Handle) -> Result<String> {
-        bail!(NOT_YET)
+    fn undo(&self, db: &Path, handle: &Handle) -> Result<String> {
+        stdout("kill", self.run(db, &["kill", &handle.0]))?;
+        Ok(format!("killed Rex session {}", handle.0))
     }
 }
 
@@ -646,15 +719,70 @@ mod tests {
         assert_eq!(path_with(&[]), PathBuf::from("rex"));
         let empty_dir = ("REX_BIN_DIR", OsStr::new(""));
         assert_eq!(path_with(&[empty_dir]), PathBuf::from("rex"));
+        // A relative REX_BIN_DIR is none, even one that reaches that rex from here: it would
+        // name another file wherever the dashboard runs.
+        let cwd = std::env::current_dir().unwrap();
+        let up = "../".repeat(cwd.components().count() - 1);
+        let relative = format!(
+            "{up}{}",
+            bin.path().to_str().unwrap().trim_start_matches('/')
+        );
+        assert!(
+            Path::new(&relative).join("rex").is_file(),
+            "{relative} reaches the rex"
+        );
+        let relative_dir = ("REX_BIN_DIR", OsStr::new(&relative));
+        assert_eq!(path_with(&[relative_dir]), PathBuf::from("rex"));
         // The not-found line names what was tried and how to link it.
         let none = Rex::new("rex".into(), "claude".into());
         assert_eq!(
             none.missing(Some(OsStr::new("/nowhere"))).unwrap(),
             "rex not found: tried rex on PATH /nowhere; Rex keeps it in REX_BIN_DIR, which Rex \
              sets in its own tabs: link it into Homebrew's bin (ln -s \"$REX_BIN_DIR/rex\" \
-             \"$(brew --prefix)/bin/rex\") and run brew services restart control-tower, or set \
-             TOWER_REX to its full path"
+             \"$(brew --prefix)/bin/rex\"), or set TOWER_REX to its full path"
         );
         assert_eq!(Rex::new(in_bin, "claude".into()).missing(None), None);
+    }
+
+    #[test]
+    fn a_started_lead_is_its_new_sessions_id_and_undo_kills_that_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("rex");
+        executable(
+            &exe,
+            "#!/bin/sh\nd=$(dirname \"$0\")\n(IFS='|'; echo \"$*\") >> \"$d/calls.log\"\n\
+             [ -e \"$d/fail\" ] && { echo 'Error: session target \"session:7\" not found' >&2; \
+             exit 3; }\n[ \"$1\" = new ] && echo '{\"session_id\":\"session:7\"}'\nexit 0\n",
+        );
+        let rex = Rex::new(exe, "claude".into());
+        let db = dir.path().join("board.db");
+        let command = ["claude", "-n", "Comics Lead", "/control-tower:lead M2"].map(String::from);
+        let lead = LeadStart {
+            name: "Comics Lead",
+            dir: "/srv/shop",
+            board: "/b/board.db",
+            command: &command,
+        };
+        let handle = rex.start_lead(&db, &lead).unwrap();
+        assert_eq!(handle, Handle("session:7".into()));
+        assert_eq!(
+            rex.undo(&db, &handle).unwrap(),
+            "killed Rex session session:7"
+        );
+        let log = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
+        assert_eq!(
+            log.lines().collect::<Vec<_>>(),
+            [
+                "new|Comics Lead|-c|/srv/shop|--json|--|env|TOWER_DB=/b/board.db|claude|-n|\
+                 Comics Lead|/control-tower:lead M2",
+                "kill|session:7",
+            ]
+        );
+        // A session Rex no longer has: undo says so.
+        std::fs::write(dir.path().join("fail"), "").unwrap();
+        assert_eq!(
+            format!("{:#}", rex.undo(&db, &handle).unwrap_err()),
+            "rex kill exited 3: Error: session target \"session:7\" not found"
+        );
     }
 }

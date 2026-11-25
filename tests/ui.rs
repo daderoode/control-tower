@@ -6323,7 +6323,7 @@ fn write(path: &std::path::Path, request: Request) -> (String, bool) {
             done_groups,
             folded,
         },
-        Request::StartLead { .. } => panic!("a start asks herdr: see the writer's tests"),
+        Request::StartLead { .. } => panic!("a start asks Rex: see the writer's tests"),
         Request::Quit => panic!("quitting writes nothing"),
         Request::Open(_) => panic!("opening a ticket writes nothing"),
     };
