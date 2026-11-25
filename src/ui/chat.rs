@@ -1209,7 +1209,7 @@ pub fn line(row: &Row, w: usize, ctx: &Ctx) -> Line<'static> {
             marks,
             first,
         } => {
-            // Tower's question to the owner (a worker on a herdr prompt) keeps its tag.
+            // Tower's question to the owner (a worker on a prompt in the terminal) keeps its tag.
             let m = &msgs[*msg];
             let mut spans = if *first { tags(m, depth) } else { Vec::new() };
             spans.extend(

@@ -453,8 +453,8 @@ keeps its bar and percentage and shows one line in place of its tasks: "4 tasks 
 with "!1" in amber for its blocked tasks (a zero count is left out). A click on a summary
 line unfolds it. Up and down skip what is folded away. Picking something folded another way,
 by its card or a line of a view, unfolds what hides it. Folds are kept on the board, so they
-last across restarts and the dashboard in its own space and in the popup show the same; when
-what is selected is folded from the other one, the folded row becomes the selection. Every
+last across restarts and two dashboards on one board show the same; when what is selected is
+folded from the other one, the folded row becomes the selection. Every
 repo and milestone starts unfolded, and every Done group folded. The "No repo yet" group
 does not fold.
 
@@ -530,7 +530,7 @@ thread shows, and shows it with "manager" in the accent colour, an accent bar do
 input's left edge and the cursor in it. Every letter goes into the message, `q` and `c`
 included; clicks in the conversation ("read more", "show less", "details") and scrolling
 keep it so. Up and down still move between threads or messages. Esc goes back, keeping what
-you wrote (each thread keeps its own draft): Esc, then `q`, to quit, in the popup too.
+you wrote (each thread keeps its own draft): Esc, then `q`, to quit.
 While there is a draft, left and right move the cursor in it, and typing, Backspace (the
 character before the cursor) and a paste act there; with no draft they do what they do on
 the board. Alt+Enter starts a new line, and a paste keeps its line breaks. The input grows

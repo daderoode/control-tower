@@ -2044,6 +2044,23 @@ fn a_lead_session_name_with_spaces_works_end_to_end() {
 }
 
 #[test]
+fn the_herdr_actions_space_and_popup_are_no_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("board.db");
+    for action in ["space", "popup"] {
+        let out = tower(&db, &[action]);
+        assert!(!out.status.success(), "tower {action} ran");
+        let err = text(&out.stderr);
+        assert!(
+            err.contains(&format!("unrecognized subcommand '{action}'")),
+            "{action}: {err}"
+        );
+    }
+    // Refused before the board is opened: nothing was written.
+    assert!(!db.exists());
+}
+
+#[test]
 fn task_stage_done_by_records_who_and_refuses_by_for_another_stage() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("board.db");

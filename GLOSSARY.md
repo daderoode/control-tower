@@ -151,9 +151,9 @@ terms; where two words are easy to mix up, the entry says which is which.
   the repo, so it outlives a lead replaced. A repo without a lead has none yet. The
   dashboard shows the whole board on a repo, and on a milestone or task only the threads
   linked to it (to a milestone or one of its tasks). An overview shows a summary under its
-  contents (in its own space every thread, an open one's last six messages and a resolved
-  one's last two; in the popup three threads, the last three and the evidence); the repo
-  and milestone details show their board's summary, the task detail its THREAD.
+  contents (every thread, an open one's last six messages and a resolved one's last two;
+  the dashboard runs in a terminal tab, and its own space and popup come back with #85);
+  the repo and milestone details show their board's summary, the task detail its THREAD.
 - **Board waiter**: `tower lead wait R2`, run by the lead as a background Bash command:
   it ends when a post on its board is unread, and its end wakes the lead, which
   reads them with `tower lead unread R2` (one line per post it has not been told of:
