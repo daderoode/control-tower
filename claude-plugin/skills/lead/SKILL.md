@@ -160,8 +160,10 @@ implement, test or review.
    milestone and standalone task in it. First find `<you>`: `claude agents --json` lists
    the live sessions; yours is the entry whose `sessionId` is `$CLAUDE_CODE_SESSION_ID`, and
    its `name` is `<you>`. If it has no name, tell the owner to type `/rename <lead name>`
-   (suggest the repo's name in lowercase with `-lead` after it, like `catalogue-lead`, as
-   the dashboard names the leads it starts), then use that name.
+   (suggest `<repo>-lead`, as the dashboard names the leads it starts: the repo's short
+   name, its main checkout's folder name in lowercase with each run of anything but
+   letters and digits one `-`, then `-lead`, like `catalogue-lead`, or `my-app-v2-lead` for
+   `My App.v2`), then use that name.
    Then find `<R>`:
    - from a repo id, it is that id. If `tower repo show <R>` says its path is not set, ask
      the owner once for its main checkout and `cd` there. Record the path with
@@ -202,8 +204,9 @@ implement, test or review.
    - no lead yet: `tower lead add <R> --name "<lead name>" --session "<you>"`.
 
    If `tower lead add` refuses the name as taken, add the repo id in lowercase
-   (`catalogue-lead-r4`), register with that, and tell the owner the
-   `/rename catalogue-lead-r4` to match.
+   (`catalogue-lead-r4`; a lead is per repo, so the repo id tells two same-named repos'
+   leads apart, where the dashboard adds the milestone id), register with that, and tell
+   the owner the `/rename catalogue-lead-r4` to match.
    Then arm your board waiter and attach your session, in that order:
    1. Run `tower lead unread <R>`, then `tower lead wait <R>` with the Bash tool's
       `run_in_background`. `unread` prints one line per post on your board by anyone else
@@ -548,7 +551,9 @@ and `tower repo show <R>` lists threads by title.
   the task is in. For task 119, a fix to how posts are delivered: `dev-119-deliver` builds
   it, `qa-119-deliver` tests it, `senior-119-deliver` reviews it; work on the dashboard
   would be `ui`, on the board's storage `store`. A task with no clear area takes the repo's
-  short name (`dev-119-checkpoint`). That one name is its Claude session name (`claude -n`),
+  short name, the same as in `<repo>-lead` (`dev-119-checkpoint`). A second worker in the
+  same role on one task (a re-test, a second reviewer) adds `-2`: `qa-119-deliver-2`, then
+  `-3`. That one name is its Claude session name (`claude -n`),
   the task's assignee, the name it posts under and its @mention handle; the role comes
   first, so the board shows it in its role's colour, and the task number keeps a reused
   name from being taken for a member of its earlier task.
