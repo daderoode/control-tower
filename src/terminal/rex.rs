@@ -11,13 +11,14 @@
 //! block, all within the look's time limit; any call that fails fails the whole look, so a
 //! Rex half read never reads as workers gone.
 //!
-//!
 //! A lead starts in a new Rex session labelled with its name (`rex new`), which Rex does not
 //! show in the app, so focus stays where it is; the session runs the lead's command directly,
 //! each argument its own word, never through a shell string. The handle is the session's id,
 //! and undo kills it (`rex kill`).
 //!
-//! Delivery (`prompt`) still uses herdr until #111 builds it here.
+//! `prompt` is not built until #111: it answers that it is not (`NOT_YET`). Delivery still
+//! reaches workers through herdr meanwhile, but the watch's nudges go through this module,
+//! so each is recorded as refused by Rex.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -259,7 +260,8 @@ fn join(found: Vec<(i64, Status, Option<String>)>, listed: &[Listed]) -> Vec<Age
         .collect()
 }
 
-/// Not built yet: what delivery would be told, though it uses herdr until #111.
+/// Not built yet: what `prompt` answers until #111, so the watch's nudges are recorded as
+/// refused (delivery uses herdr meanwhile).
 const NOT_YET: &str = "the Rex module does not reach workers in this build";
 
 impl Terminal for Rex {
@@ -687,6 +689,38 @@ mod tests {
         let got = rex.agents(&dir.path().join("board.db"), Duration::from_secs(1));
         assert_eq!(
             got,
+            Err(Unread::Failed(
+                "Rex did not answer within 1 s and the look was stopped".into()
+            ))
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    #[test]
+    fn the_time_limit_bounds_the_whole_look_not_each_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let idle = FakeRex::claude_record(41, "idle", None, None);
+        f.server(&[("session:a", &[("block:1", TERM, &idle)])]);
+        f.claude(&[("dev-1", 41)]);
+        // Each rex call takes 0.6 s: a look is three (sessions, blocks, the block's status),
+        // so each fits in 1 s but the three do not.
+        let slow = dir.path().join("slow-rex");
+        executable(
+            &slow,
+            "#!/bin/sh\nsleep 0.6\nexec \"$(dirname \"$0\")/rex\" \"$@\"\n",
+        );
+        let rex = Rex::new(slow, dir.path().join("claude"));
+        let db = dir.path().join("board.db");
+        let roomy = rex.agents(&db, crate::watch::TEST_WAIT).unwrap();
+        assert_eq!(roomy, [agent("dev-1", Status::Idle, None)]);
+        let began = Instant::now();
+        assert_eq!(
+            rex.agents(&db, Duration::from_secs(1)),
             Err(Unread::Failed(
                 "Rex did not answer within 1 s and the look was stopped".into()
             ))

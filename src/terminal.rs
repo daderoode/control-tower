@@ -221,3 +221,61 @@ pub(crate) fn not_found(name: &str, exe: &Path, path: Option<&OsStr>) -> String 
     };
     format!("{name} not found: tried {tried}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn finds_an_executable_by_path_or_on_path_in_order_and_says_what_it_tried() {
+        let dir = tempfile::tempdir().unwrap();
+        let (first, second) = (dir.path().join("first"), dir.path().join("second"));
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        let exe = first.join("herdr");
+        std::fs::write(&exe, "#!/bin/sh\n").unwrap();
+        let later = second.join("herdr");
+        crate::test_exe::executable(&later, "#!/bin/sh\n");
+        let path = std::env::join_paths([
+            "/nowhere",
+            first.to_str().unwrap(),
+            second.to_str().unwrap(),
+        ])
+        .unwrap();
+        // The first is not executable yet: skipped for the next on the PATH.
+        assert_eq!(
+            find_exe(Path::new("herdr"), Some(&path)),
+            Some(later.clone())
+        );
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Both are: the PATH's order decides.
+        assert_eq!(find_exe(Path::new("herdr"), Some(&path)), Some(exe.clone()));
+        // A path with a / as it is, PATH or not.
+        assert_eq!(find_exe(&exe, None), Some(exe.clone()));
+        // A bare name and no PATH: none.
+        assert_eq!(find_exe(Path::new("herdr"), None), None);
+        // A missing path with a /: none, even with that name on the PATH.
+        let gone = dir.path().join("gone/herdr");
+        assert_eq!(find_exe(&gone, Some(&path)), None);
+        // What was tried, as the not-found lines say it.
+        assert_eq!(
+            not_found("herdr", Path::new("herdr"), Some(OsStr::new("/a:/b"))),
+            "herdr not found: tried herdr on PATH /a:/b"
+        );
+        assert_eq!(
+            not_found("herdr", Path::new("herdr"), None),
+            "herdr not found: tried herdr on PATH (no PATH)"
+        );
+        assert_eq!(
+            not_found("herdr", &gone, None),
+            format!("herdr not found: tried {}", gone.display())
+        );
+        let said = herdr::missing(Path::new("herdr"), Some(OsStr::new("/a:/b")));
+        assert_eq!(
+            said,
+            "herdr not found: tried herdr on PATH /a:/b; set TOWER_HERDR to its full path if it \
+             is elsewhere"
+        );
+    }
+}
