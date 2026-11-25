@@ -58,7 +58,7 @@ The owner starts work without typing `tower`, in either of two ways:
   already uses, or a lead that has attached, stays), so `n` can simply be pressed again.
   When `rex new` is stopped, or replies without the new session's id, the keys line also
   says a session with that label may be left, to `rex kill`.
-  Every argument reaches Rex as its own word, never through a shell, and of the goal only
+  Every argument reaches Rex as its own word, never as a shell string, and of the goal only
   the lead name does (made of letters, digits, spaces, `-`, `_` and `.`, starting with a
   letter or digit). `TOWER_REX` names rex; else tower takes `rex` in `REX_BIN_DIR`, where
   Rex keeps it and which Rex sets in its own tabs, else `rex` on the PATH. A rex that cannot
