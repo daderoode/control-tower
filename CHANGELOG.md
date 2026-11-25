@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-25
+
 ### Changed
 
 - **The watch sees a team in Rex.** Each look reads every Rex session's terminal blocks and
