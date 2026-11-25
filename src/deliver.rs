@@ -34,13 +34,13 @@
 //! item for the owner, no reply to a reply.
 //!
 //! Any other send that fails (a worker at a prompt, a worker the board knew that the
-//! terminal no longer has, a relay that sent nothing) opens a
-//! failure episode for its recipient, which posts one `@manager` item for the owner's
-//! awareness (`Store::delivery_failed`); while it is open further failures are only logged,
-//! and a send that gets through ends it; one open longer than `EPISODE_EXPIRES` is told
-//! again. The item is a `system` post, so it goes to no worker: it cannot start a storm. A
-//! send that may have arrived (stopped at its limit, no answer) is logged only, never
-//! resent and no item. A send that went to someone else (`Sent::Misrouted`) always posts its
+//! terminal no longer has while it can still need the posts (below), a relay that sent
+//! nothing) opens a failure episode for its recipient, which posts one `@manager` item for
+//! the owner's awareness (`Store::delivery_failed`); while it is open further failures are
+//! only logged, and a send that gets through ends it; one open longer than `EPISODE_EXPIRES`
+//! is told again. The item is a `system` post, so it goes to no worker: it cannot start a
+//! storm. A send that may have arrived (stopped at its limit, no answer) is logged only,
+//! never resent and no item. A send that went to someone else (`Sent::Misrouted`) always posts its
 //! own item naming who got it, open episode or not (`Store::misrouted`), tower's replies
 //! too: it is worse than a lost send.
 //!
@@ -1456,8 +1456,11 @@ mod tests {
         assert_eq!(log.len(), 1, "{log:?}");
         assert!(log[0].ends_with("; no item for the owner"), "{log:?}");
         assert!(f.items().is_empty());
-        f.post_at("dev-2", "@qa-9 a new one", 20_000);
-        let log = f.drain_at(20_000);
+        // Inside `EPISODE_EXPIRES` of the old failure: an episode it opened would still be
+        // open, and this failure would be logged as told already.
+        let fresh = 10_000 + CATCH_UP + 60;
+        f.post_at("dev-2", "@qa-9 a new one", fresh);
+        let log = f.drain_at(fresh);
         assert_eq!(log.len(), 1, "{log:?}");
         assert!(log[0].contains("; told the owner in "), "{log:?}");
         assert_eq!(f.items().len(), 1);
