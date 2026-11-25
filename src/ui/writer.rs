@@ -134,7 +134,7 @@ fn make(path: &Path, write: &Write) -> Result<String> {
                 home,
                 exe_path: exe_path.as_deref(),
             };
-            let terminal = crate::terminal::lead_module(terminal.clone());
+            let terminal = crate::terminal::module(terminal.clone());
             start_lead(&mut store, path, &*terminal, line, at)?
         }
     })
@@ -609,7 +609,7 @@ mod tests {
 
     /// The module `n` starts a lead with, over the fake rex at `exe`.
     fn rex(exe: &Path) -> std::sync::Arc<dyn Terminal> {
-        crate::terminal::lead_module(exe.to_path_buf())
+        crate::terminal::module(exe.to_path_buf())
     }
 
     fn calls(dir: &Path) -> Vec<String> {
@@ -945,7 +945,8 @@ mod tests {
         // Said as the dashboard says it, on every press: not the watch's "said once".
         let want = format!(
             "cannot start a lead: rex not found: tried {}; Rex keeps it in REX_BIN_DIR, which \
-             Rex sets in its own tabs; set TOWER_REX to its full path if it is elsewhere",
+             Rex sets in its own tabs: link it into Homebrew's bin (ln -s \"$REX_BIN_DIR/rex\" \
+             \"$(brew --prefix)/bin/rex\"), or set TOWER_REX to its full path",
             none.display()
         );
         assert_eq!(write_now(&path, &on_repo(&none)), (want.clone(), true));

@@ -11,6 +11,21 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Changed
 
+- **The watch sees a team in Rex.** Each look reads every Rex session's terminal blocks and
+  their program status (the root record only, so a worker on a background job reads as what
+  it is), and names each Claude session it finds by `claude agents --json`; Rex blocks
+  running no Claude and Claude sessions Claude does not list never show, and a state the
+  watch does not know is unknown, never idle. A worker at a permission, question or
+  credential prompt is a need-you item at once, quoting what the prompt asks; the stopped,
+  silent and orphaned signals work as before, and an orphaned worker is "gone from Rex (no
+  live Claude session by that name)". Claude sessions sharing a worker's name are one
+  worker: a prompt on any of them is raised, and the busiest gives its status. A worker
+  still at Claude's folder-trust dialog is not seen until the folder is trusted. A Rex
+  that cannot be read, in whole or in part,
+  skips the look and says so; the watch never starts a Rex server. `TOWER_REX` names rex,
+  else `rex` in `REX_BIN_DIR`, else on the PATH; when it cannot be found the log says once
+  what it tried and how to link it into Homebrew's bin. Until #111 a nudge is recorded as
+  refused by Rex, and delivery still goes through herdr (#110).
 - **"Lead not listening" asks no terminal.** The watch judges whether a lead's session is
   alive and working by `claude agents --json`, and whether it finished a turn without
   re-arming by the lead's hooks, which now count on the board each turn the lead's attached

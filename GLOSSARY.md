@@ -79,14 +79,19 @@ terms; where two words are easy to mix up, the entry says which is which.
 - **Watch**: `tower watch`, the long-running process that spots stuck workers by the spec's
   fixed rules and flags them as `system` messages on the lead's board. It writes the board
   through `Store` like any `tower` command; the dashboard need not be open.
-- **Worker's agent**: the herdr agent whose name is a task's assignee (ignoring case). This
-  is the one link between the board and herdr.
+- **Terminal module**: the one place the core reaches the terminal its workers run in: it
+  lists the live workers, delivers a text to one by name and starts a lead. Built in; the
+  one module is Rex.
+- **Worker's agent**: the worker's live Claude session in Rex whose name is a task's
+  assignee (ignoring case): a Rex terminal block whose root program status record is
+  Claude Code's, joined by its process to `claude agents --json`, which gives the name. Its
+  status is that record's state. This is the one link between the board and the terminal.
 - **Signal**: one of the watch's stuck-worker rules: waiting on a prompt, stopped without
   reporting, silent while working, orphaned. A worker saying it is stuck is its own
   `blocked:` post, not a signal the watch raises.
-- **Nudge**: the watch prompting a stopped or silent worker directly through herdr to post
-  its status, recorded as a plain `system` message in the task's thread (saying so when
-  herdr refused delivery). Unanswered for 2 minutes, it becomes a flag to the lead. A task
+- **Nudge**: the watch prompting a stopped or silent worker directly through the terminal
+  to post its status, recorded as a plain `system` message in the task's thread (saying so
+  when the terminal refused delivery). Unanswered for 2 minutes, it becomes a flag to the lead. A task
   flagged blocked is never nudged: its worker said it is stuck and the lead owns it.
 - **Flag**: a signal raised on a task, remembered on the board until its **episode** ends
   (the condition clears, or a post answers a nudge), so it is never repeated every tick.

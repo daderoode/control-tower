@@ -77,12 +77,15 @@ enum Command {
     /// The herdr action `popup`: open the dashboard in herdr's popup, 85% of the terminal
     /// each way; Esc at its top level or q closes it.
     Popup,
-    /// Watch for stuck workers until SIGTERM or Ctrl-C: every 20 s, read the board and
-    /// herdr's agents (a task's assignee is its worker's herdr agent name), nudge a worker
-    /// that stopped or went silent, and post system flags in the task's thread. Logs one
-    /// line per action to stderr. TOWER_HERDR names the herdr executable (default herdr).
-    /// A brew-installed tower also links its herdr plugin if herdr has no control-tower
-    /// yet, trying before each look until herdr answers; it never relinks over another.
+    /// Watch for stuck workers until SIGTERM or Ctrl-C: every 20 s, read the board and the
+    /// Claude sessions running in Rex (a task's assignee is its worker's Claude session
+    /// name), nudge a worker that stopped or went silent, and post system flags in the
+    /// task's thread. Logs one line per action to stderr. TOWER_REX names the rex
+    /// executable (default rex in $REX_BIN_DIR, else on the PATH); TOWER_CLAUDE names
+    /// claude. Delivery of posts to workers still uses herdr until #111: TOWER_HERDR names
+    /// the herdr executable (default herdr). A brew-installed tower also links its herdr
+    /// plugin if herdr has no control-tower yet, trying before each look until herdr
+    /// answers; it never relinks over another.
     Watch,
     /// Bring a board written by an older tower up to this tower's schema.
     Upgrade,
