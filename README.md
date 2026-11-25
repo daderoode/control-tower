@@ -27,12 +27,15 @@ The owner starts work without typing `tower`, in either of two ways:
   characters) and press Enter; Esc cancels and an empty goal is refused. The input says
   where the lead starts: "new lead on search, its goal:". In one write the dashboard adds
   the milestone in that repo (title and goal from that line) and registers its lead on the
-  repo, named the goal's first words plus " Lead" ("Audiobooks Lead" for the goal
-  "Audiobooks of the bestsellers"; in the board's name characters; a name another lead has
-  gets the milestone id after it), as both its name and its session, so the repo's row shows
-  the lead at once and a second `n` on it is refused. Then it opens a new Rex session named
+  repo, named after the repo: its name in lowercase ASCII letters and digits, each run of
+  anything else one `-`, plus `-lead` (`checkpoint-lead` on repo `checkpoint`,
+  `my-app-v2-lead` on `My App.v2`); in no repo yet, or for a name with no letter or digit,
+  after the milestone (`m4-lead`); a name another lead or a task's assignee has gets the
+  milestone id after it (`checkpoint-lead-m4`). It is both its name and its session, one
+  word a mention reads whole (`@checkpoint-lead`). The repo's row shows the lead at once,
+  and a second `n` on it is refused. Then it opens a new Rex session named
   after the lead on the repo's main checkout, running `env TOWER_DB=<the dashboard's board,
-  absolute> claude -n "<lead name>" "/control-tower:lead <M>"`, so the lead uses the board
+  absolute> claude -n <lead name> "/control-tower:lead <M>"`, so the lead uses the board
   you are looking at. Rex does not show a new session in the app, so your focus stays where
   it is. The skill finds itself registered, arms its board waiter and attaches. A repo has
   one lead: on a repo that has one, or anything in it, `n` is refused, naming the repo and
@@ -41,7 +44,7 @@ The owner starts work without typing `tower`, in either of two ways:
   and so is one whose main checkout is no longer a directory.
   With something in no repo selected (or nothing), the milestone is added in no repo yet and
   the session opens in your home directory, where the lead asks you for its repo's main
-  checkout and registers itself. The keys line says "started Audiobooks Lead for M3 on
+  checkout and registers itself. The keys line says "started search-lead for M3 on
   search in Rex". When Rex fails, the keys line says why and the start is undone in one
   write: the milestone and the lead it registered are removed again (a milestone something
   already uses, or a lead that has attached, stays), so `n` can simply be pressed again.
@@ -116,7 +119,10 @@ milestones (`M1`).
 `--name` is what the dashboard shows; `--session` is the Claude session name workers
 message the lead by. Both are one line of plain text, up to 200 characters, and the
 session is ASCII letters, digits, `-`, `_`, `.` and single spaces between words (Claude
-session names can have them, like "Catalogue Lead": quote such a name in commands);
+session names can have them, like "Catalogue Lead": quote such a name in commands; a
+mention stops at a space, so the dashboard names a new lead `<repo>-lead`, like
+`catalogue-lead`, the lead skill suggests that name to a session that has none, and leads
+already on the board keep their names);
 both are compared ignoring the case of ASCII letters. `--colour`
 picks the lead's colour from blue, purple, orange, teal, pink and green (the first three
 are the signed design's); without it the lead gets the first colour no lead has yet.
@@ -622,7 +628,11 @@ says once what it tried and how to link it into Homebrew's bin.
 
 A worker is linked to its live Claude session in Rex by name: **a task's assignee is the
 Claude session name of the worker on it** (compared ignoring case; the lead names it with
-`claude -n <name>`). Only assigned tasks under a milestone with a lead, not Done, are
+`claude -n <name>`). The lead skill names each worker `<role>-<task>-<area>`, like
+`dev-119-db`, `qa-119-help` or `senior-119-api`: the role first, so the board shows it in
+its role's colour, then the task's id number and one short word for the part of the code.
+The same name is its board author and its @mention handle, and Claude shows it by that
+name too (in `claude agents`, and as "Message from @dev-119-db"). Only assigned tasks under a milestone with a lead, not Done, are
 watched, since every flag is a message on that lead's board, posted by `system` in the
 task's open thread (its newest), or in a new "Watch on #N" thread linked to it.
 

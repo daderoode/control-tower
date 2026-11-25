@@ -1285,8 +1285,9 @@ fn insert_milestone_in(
 
 /// The name, used as both name and session, of a lead the dashboard starts for milestone
 /// `m` on `repo` (in no repo yet, with `None`): `name`, or while `refuse_taken` refuses it
-/// (another lead has it, or a task's assignee is it), `name` with `m` after it, refused in
-/// turn if that is taken too. Outer and inner results as in `refuse_missing`.
+/// (another lead has it, or a task's assignee is it), `name` then "-" and `m` in lowercase
+/// (`checkpoint-lead-m4`), refused in turn if that is taken too. Outer and inner results as
+/// in `refuse_missing`.
 fn free_lead_name(
     conn: &Connection,
     repo: Option<RepoId>,
@@ -1300,7 +1301,7 @@ fn free_lead_name(
     if refuse_taken(conn, repo, Some(&name), Some(&name))?.is_ok() {
         return Ok(Ok(name));
     }
-    let name = match check_session(&format!("{name} {m}")) {
+    let name = match check_session(&format!("{name}-{}", m.to_string().to_ascii_lowercase())) {
         Ok(name) => name,
         Err(e) => return Ok(Err(e)),
     };
@@ -5965,26 +5966,27 @@ mod tests {
         let m = store.add_milestone("a", "g", Some(r1)).unwrap();
         store.add_task(m, "t").unwrap();
         // A lead is never a task's assignee, so the name is taken, ignoring case.
-        store.exec_sql("UPDATE task SET assignee = 'comics lead'");
+        store.exec_sql("UPDATE task SET assignee = 'Comics-Lead'");
         let (m2, lead) = store
-            .start_repo_lead("Comics", "g", r2, |_| "Comics Lead".into())
+            .start_repo_lead("Comics", "g", r2, |_| "comics-lead".into())
             .unwrap();
-        assert_eq!(lead.session, format!("Comics Lead {m2}"));
+        assert_eq!(m2, MilestoneId(2));
+        assert_eq!(lead.session, "comics-lead-m2");
         assert_eq!(lead.name, lead.session);
         // In no repo, by the same check: against an assignee, and against any repo's lead.
         let (m3, name) = store
-            .start_lead_in_no_repo("Atlases", "g", |_| "COMICS LEAD".into())
+            .start_lead_in_no_repo("Atlases", "g", |_| "COMICS-LEAD".into())
             .unwrap();
-        assert_eq!(name, format!("COMICS LEAD {m3}"));
+        assert_eq!((m3, name.as_str()), (MilestoneId(3), "COMICS-LEAD-m3"));
         let (m4, name) = store
-            .start_lead_in_no_repo("Atlases", "g", |_| format!("Comics Lead {m2}"))
+            .start_lead_in_no_repo("Atlases", "g", |_| "comics-lead-m2".into())
             .unwrap();
-        assert_eq!(name, format!("Comics Lead {m2} {m4}"));
+        assert_eq!((m4, name.as_str()), (MilestoneId(4), "comics-lead-m2-m4"));
         // A free name is kept as given, and so is the milestone, in no repo.
         let (m5, name) = store
-            .start_lead_in_no_repo("Atlases", "g", |_| "Atlases Lead".into())
+            .start_lead_in_no_repo("Atlases", "g", |_| "atlases-lead".into())
             .unwrap();
-        assert_eq!(name, "Atlases Lead");
+        assert_eq!(name, "atlases-lead");
         let board = store.load().unwrap();
         let added = board.milestones.iter().find(|x| x.id == m5).unwrap();
         assert_eq!((added.title.as_str(), added.repo), ("Atlases", None));

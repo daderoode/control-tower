@@ -114,17 +114,21 @@ impl People<'_> {
 
     /// The role word beside a name: "developer", "tester", "reviewer", "lead", or
     /// "<repo> lead" for another repo's lead; none for the owner, tower and anyone else.
+    /// Another repo's lead is looked up before the role, as `colour` does, since its name
+    /// may start like one (`qa-tools-lead`).
     fn role_word(&self, author: &str) -> Option<String> {
         if is_owner(author) {
             return None;
+        }
+        if let Some(r) = self.other_repo(author) {
+            return Some(format!("{r} lead"));
         }
         let word = match Role::of(author, self.lead) {
             Role::Lead => "lead",
             Role::Dev => "developer",
             Role::Qa => "tester",
             Role::Senior => "reviewer",
-            Role::System => return None,
-            Role::Other => return self.other_repo(author).map(|r| format!("{r} lead")),
+            Role::System | Role::Other => return None,
         };
         Some(word.into())
     }
@@ -2549,6 +2553,42 @@ mod tests {
             people.colour("kids-lead", Depth::Ansi256),
             accent(Depth::Ansi256)
         );
+    }
+
+    #[test]
+    fn another_repos_lead_named_like_a_role_reads_as_that_repos_lead() {
+        let own = lead();
+        let leads: Vec<(String, Lead)> = ["qa-tools", "dev-portal", "senior-care"]
+            .map(|repo| {
+                let name = format!("{repo}-lead");
+                let lead = Lead {
+                    name: name.clone(),
+                    session: name,
+                    colour: None,
+                };
+                (repo.to_string(), lead)
+            })
+            .to_vec();
+        let others: Vec<(String, &Lead)> = (leads.iter()).map(|(r, l)| (r.clone(), l)).collect();
+        let people = People {
+            lead: Some(&own),
+            others: &others,
+        };
+        let m = msgs(&[
+            ("qa-tools-lead", "one", 0),
+            ("dev-portal-lead", "two", 60),
+            ("senior-care-lead", "three", 120),
+            ("qa-12", "four", 180),
+        ]);
+        let text = drawn(&m, 100, 120, people).join("\n");
+        for want in [
+            "qa-tools-lead · qa-tools lead",
+            "dev-portal-lead · dev-portal lead",
+            "senior-care-lead · senior-care lead",
+            "qa-12 · tester",
+        ] {
+            assert!(text.contains(want), "{want}: {text}");
+        }
     }
 
     #[test]

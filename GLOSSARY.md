@@ -17,7 +17,7 @@ terms; where two words are easy to mix up, the entry says which is which.
   session. Posts progress and can set its own task to Done.
 - **Team**: a lead and its workers. In a milestone's or task's detail, the team is the
   assignees of the milestone's tasks and everyone who posted on its repo's message board,
-  leaving out the lead, `manager`, `system` and "you".
+  leaving out its lead, other repos' leads posting there, `manager`, `system` and "you".
 - **Assignee**: who is on a task, by name. A task without one shows "unassigned".
 
 ## The board
@@ -139,8 +139,9 @@ terms; where two words are easy to mix up, the entry says which is which.
   "ⓘ1" for awareness.
 - **New lead**: the dashboard's `n` (or "new lead (n) ▶" on the alert line) on a repo
   without a lead, or anything in it: the owner types a goal in one line and the dashboard
-  adds the milestone in that repo and registers its lead, named "<first words> Lead", in
-  one write, then starts Claude under that name in a new Rex session on the repo's main
+  adds the milestone in that repo and registers its lead, named `<repo>-lead` (the repo's
+  name in lowercase letters and digits joined by `-`, like `checkpoint-lead`; `m4-lead` in
+  no repo yet; a taken name gets `-m4` after it), in one write, then starts Claude under that name in a new Rex session on the repo's main
   checkout. Refused on a repo that has
   its lead or no main checkout on the board; with something in no repo selected, or nothing, the milestone is in no repo
   yet and the session opens in the owner's home. Also `/control-tower:lead <goal in
@@ -179,8 +180,8 @@ terms; where two words are easy to mix up, the entry says which is which.
   its latest message's.
 - **Message**: one post in a thread: an author, plain text up to 4000 characters (it may
   span lines) and the time it was posted. Messages are ordered by time, then id.
-- **Author**: the one-word name a message is posted by, like `dev-2`, `qa` or the lead's
-  session name. Its role colour comes from the name: the lead's, then `dev`, `senior` and
+- **Author**: the one-word name a message is posted by, like `dev-119-db` (a worker's
+  `<role>-<task>-<area>`), `qa` or the lead's session name. Its role colour comes from the name: the lead's, then `dev`, `senior` and
   `qa` alone or followed by `-` or a digit. `system` is kept for tower's own messages (the
   watch's flags), shown in a slate grey of its own.
 - **Resolved**: a thread closed with evidence, posted as its last message, recording who
