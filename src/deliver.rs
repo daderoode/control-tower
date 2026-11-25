@@ -1463,6 +1463,46 @@ mod tests {
         assert_eq!(f.items().len(), 1);
     }
 
+    /// A send to a closed worker is the owner's item when any of its posts is under
+    /// `CATCH_UP` old, though an older one rides with it.
+    #[test]
+    fn a_send_with_one_post_under_an_hour_old_is_an_item_though_another_is_older() {
+        let f = Fixture::new();
+        f.post("qa-9", "done");
+        f.post_at("dev-2", "@qa-9 an old one", 10_000);
+        f.post_at("dev-2", "@qa-9 a newer one", 10_001);
+        let log = f.drain_at(10_000 + CATCH_UP);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "could not deliver 2 post(s) to qa-9: Rex has no agent named qa-9; told the \
+                 owner in "
+            ),
+            "{log:?}"
+        );
+        assert_eq!(f.items().len(), 1);
+    }
+
+    /// A worker Rex lists whose send fails is the owner's item however old the post: only a
+    /// worker gone from Rex can be a closed one.
+    #[test]
+    fn a_listed_worker_whose_send_fails_is_an_item_however_old_the_post() {
+        let f = Fixture::new();
+        let asks = Some("approve Bash: rm notes.txt");
+        f.asking(&[("dev-1", "idle", None), ("qa-1", "blocked", asks)]);
+        f.post_at("dev-2", "@qa-1 an old one", 10_000);
+        let log = f.drain_at(10_000 + CATCH_UP);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "could not deliver 1 post(s) to qa-1: at a permission prompt (approve Bash: rm \
+                 notes.txt); told the owner in "
+            ),
+            "{log:?}"
+        );
+        assert_eq!(f.items().len(), 1);
+    }
+
     /// A gone assignee of a task not done is the owner's item however old the post, with how
     /// to clear it.
     #[test]

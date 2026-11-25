@@ -785,8 +785,8 @@ worker's, found by a watch catching up after a stop, and is only logged, opening
 not done and no post to it in the last hour; no item for the owner". A worker Rex lists is
 sent its posts however old they are. While an episode is open, further failures to that
 recipient are only logged; a send that gets through ends it, and one still failing after an
-hour is told again with a new item. A send that may have arrived (the relay stopped at its limit, or a SendMessage
-with no answer) is logged only, and never resent.
+hour is told again with a new item. A send that may have arrived (the relay stopped at its
+limit, or a SendMessage with no answer) is logged only, and never resent.
 
 ### How posts reach a lead
 
