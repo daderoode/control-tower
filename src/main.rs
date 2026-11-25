@@ -82,9 +82,9 @@ enum Command {
     /// name), nudge a worker that stopped or went silent, and post system flags in the
     /// task's thread. Logs one line per action to stderr. TOWER_REX names the rex
     /// executable (default rex in $REX_BIN_DIR, else on the PATH); TOWER_CLAUDE names
-    /// claude. Delivery of posts to workers still uses herdr until #111: TOWER_HERDR names
-    /// the herdr executable (default herdr). A brew-installed tower also links its herdr
-    /// plugin if herdr has no control-tower yet, trying before each look until herdr
+    /// claude, which also relays posts and nudges to workers (claude -p -n control-tower).
+    /// A brew-installed tower also links its herdr plugin (TOWER_HERDR names herdr, default
+    /// herdr) if herdr has no control-tower yet, trying before each look until herdr
     /// answers; it never relinks over another.
     Watch,
     /// Bring a board written by an older tower up to this tower's schema.
@@ -266,7 +266,8 @@ enum LeadCommand {
     /// runs no hook and is not counted. SessionStart: a session
     /// named as a lead's registered session is attached again (as tower lead attach would)
     /// and told how to resume leading, and, outside the team's terminal (Rex: no
-    /// REX_SESSION), what the board does not see from there. Any other session passes.
+    /// REX_SESSION), what the board does not see from there. Any other session passes, and
+    /// so does every hook in tower's own relay (TOWER_RELAY set), whatever its name.
     Hook,
 }
 
@@ -827,7 +828,14 @@ fn replies(t: &Thread) -> String {
 /// at all is quiet whatever the event (the event cannot be known then); bytes that are not
 /// UTF-8 are read lossily, and input that is not JSON, or JSON naming no `hook_event_name`,
 /// takes the Stop path, which refuses it with an error as it always has.
+///
+/// In tower's own relay (`relay::ENV` set) it does nothing at all, before reading anything:
+/// a relay is never attached as a lead, has no turn counted and is told of no posts,
+/// whatever a lead is named.
 fn lead_hook() -> Result<()> {
+    if std::env::var_os(control_tower::terminal::relay::ENV).is_some_and(|v| !v.is_empty()) {
+        return Ok(());
+    }
     let mut input = Vec::new();
     if let Err(e) = std::io::stdin().read_to_end(&mut input) {
         eprintln!("tower lead hook: cannot read the hook's input: {e}");

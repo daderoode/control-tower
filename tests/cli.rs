@@ -4120,6 +4120,114 @@ fn a_board_waiter_ends_on_an_unread_post_tells_nothing_and_unread_tells_it_once(
     assert!(!lock.exists());
 }
 
+/// qa-55's finding on PR #121: the relay, a Claude session named control-tower, ran tower's
+/// SessionStart hook on the board and took over a lead registered under that name. In the
+/// relay (TOWER_RELAY set) every hook does nothing.
+#[test]
+fn no_hook_in_the_relay_touches_the_board_even_for_a_lead_named_like_it() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("board.db");
+    // A fake claude listing the relay's session and the lead's, both named control-tower,
+    // leaving a mark that it was asked. Never the real claude.
+    let claude = dir.path().join("claude");
+    test_exe::executable(
+        &claude,
+        "#!/bin/sh\n[ \"$1 $2\" = \"agents --json\" ] || exit 2\n: > \"$(dirname \"$0\")/asked\"\n\
+         echo '[{\"sessionId\":\"sess-r\",\"name\":\"control-tower\",\"kind\":\"interactive\"},\
+         {\"sessionId\":\"sess-l\",\"name\":\"control-tower\",\"kind\":\"interactive\"}]'\n",
+    );
+    let asked = dir.path().join("asked");
+    let hook = |event: &str, session: &str, relay: bool| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
+        cmd.args(["lead", "hook"])
+            .env("TOWER_DB", &db)
+            .env("TOWER_CLAUDE", &claude)
+            .env("REX_SESSION", "session:7")
+            .env_remove("TOWER_RELAY");
+        if relay {
+            cmd.env("TOWER_RELAY", "1");
+        }
+        let mut child = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = serde_json::json!({
+            "session_id": session, "hook_event_name": event, "source": "startup",
+            "session_title": "control-tower", "cwd": "/anywhere", "error": "rate_limit"
+        });
+        (child.stdin.take().unwrap())
+            .write_all(input.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{event}: {}", text(&out.stderr));
+        out
+    };
+    let session = || ok(&db, &["milestone", "show", "M1"]);
+    ok(&db, &["milestone", "add", "MVP", "--goal", "g"]);
+    in_repo(&db, "M1");
+    ok(
+        &db,
+        &[
+            "lead",
+            "add",
+            "M1",
+            "--name",
+            "Tower",
+            "--session",
+            "control-tower",
+        ],
+    );
+    ok(
+        &db,
+        &[
+            "thread",
+            "new",
+            "--by",
+            "control-tower",
+            "M1",
+            "Reviews",
+            "opened",
+        ],
+    );
+    // The relay starting: nothing printed, claude never asked, the lead not attached.
+    let out = hook("SessionStart", "sess-r", true);
+    assert!(out.stdout.is_empty() && out.stderr.is_empty());
+    assert!(!asked.exists());
+    assert!(session().contains("  session    not attached (tower lead attach)\n"));
+    // The lead's own start attaches it, as the relay's start did before.
+    let out = hook("SessionStart", "sess-l", false);
+    assert!(!out.stdout.is_empty());
+    assert!(session().contains("  session    attached, Claude session sess-l\n"));
+    // A relay starting later never takes it over.
+    hook("SessionStart", "sess-r", true);
+    assert!(session().contains("  session    attached, Claude session sess-l\n"));
+    // With a post unread, a Stop or StopFailure in a relay, even under the lead's own
+    // session id, passes, counts no turn and tells nothing.
+    ok(
+        &db,
+        &["post", "--by", "dev-1", "T1", "status: for the lead"],
+    );
+    let turns = r1_turns(&db);
+    for event in ["Stop", "StopFailure"] {
+        let out = hook(event, "sess-l", true);
+        assert!(out.stdout.is_empty() && out.stderr.is_empty(), "{event}");
+    }
+    assert_eq!(r1_turns(&db), turns);
+    let r1 = control_tower::board::RepoId(1);
+    assert!(Store::open(&db).unwrap().has_unread(r1).unwrap(), "told");
+    // Outside a relay the same Stop is held for the post.
+    let out = hook("Stop", "sess-l", false);
+    assert!(
+        text(&out.stdout).contains("\"decision\":\"block\""),
+        "{}",
+        text(&out.stdout)
+    );
+}
+
 #[test]
 fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
     use std::io::Write;
