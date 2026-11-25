@@ -970,9 +970,12 @@ failed to load); `claude plugin marketplace remove control-tower` clears it.
 The dashboard is a plain `tower ui` in a Rex tab. herdr is no longer supported: a team
 in herdr is not seen, and its plugin, with `tower space` and `tower popup`, is gone. If an
 older control-tower linked that plugin, remove what it left: `herdr plugin unlink
-control-tower`, then `rm -r "$(brew --prefix)/var/control-tower"`, and delete any key
-binding for its actions (`control-tower.space`, `control-tower.popup`) in herdr's config
-(`~/.config/herdr/config.toml`).
+control-tower`, then `rm -r "$(brew --prefix)/var/control-tower"`, delete any key binding
+for its actions (`control-tower.space`, `control-tower.popup`) in herdr's config
+(`~/.config/herdr/config.toml`), and, if you used `tower space`, the file it kept beside
+the board, which nothing reads now:
+`rm -f ~/.local/state/control-tower/board.space-from` (for a board `TOWER_DB` names, that
+file's name with `.space-from` in place of `.db`).
 
 Every `tower` command, the dashboard and the watch use the board at
 `~/.local/state/control-tower/board.db`; set `TOWER_DB` to another file in each of their

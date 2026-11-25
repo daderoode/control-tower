@@ -96,9 +96,10 @@ tag's date, and a new empty Unreleased goes above it.
   `TOWER_HERDR` and `herdr-plugin.toml`; the formula installs no plugin files and needs
   Rex. `tower ui` in a Rex tab works as before, and the lead skill's Claude Code
   marketplace still registers itself. To clear what an older install left: `herdr plugin
-  unlink control-tower`, `rm -r "$(brew --prefix)/var/control-tower"`, and any key binding
-  for `control-tower.space` or `control-tower.popup` in herdr's config (the formula's
-  caveats say so too).
+  unlink control-tower`, `rm -r "$(brew --prefix)/var/control-tower"`, any key binding
+  for `control-tower.space` or `control-tower.popup` in herdr's config, and the file
+  `tower space` kept beside the board, `rm -f ~/.local/state/control-tower/board.space-from`
+  (harmless; the formula's caveats say so too).
 
 ## [0.5.3] - 2026-11-24
 

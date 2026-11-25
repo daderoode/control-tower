@@ -44,8 +44,12 @@ class ControlTower < Formula
       what it left behind:
         herdr plugin unlink control-tower
         rm -r #{var}/control-tower
-      and delete any key binding for the control-tower actions (space, popup) in
-      herdr's config, ~/.config/herdr/config.toml.
+      delete any key binding for the control-tower actions (space, popup) in herdr's
+      config, ~/.config/herdr/config.toml, and, if you used tower space, the file it
+      kept beside the board (harmless, read by nothing now):
+        rm -f ~/.local/state/control-tower/board.space-from
+      For a board TOWER_DB names, it is that file's name with .space-from in place
+      of .db.
 
       The watch registers the lead skill's Claude Code marketplace at
       #{opt_pkgshare}/claude when Claude Code has no control-tower marketplace
