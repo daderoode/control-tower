@@ -49,6 +49,16 @@ tag's date, and a new empty Unreleased goes above it.
   forge waiter is now a script shipped beside the skill (`forge-wait`) instead of one the
   lead writes into the git directory, and it sees a waiter started from the old copy as
   already running (#84).
+- **The lead skill starts and closes workers in Rex.** An implementer gets a worktree beside
+  the repo and a tab of its own in the lead's Rex session, a tester or reviewer a block
+  beside it, and a standing worker a tab in a folder beside the repo; each starts without
+  focus as `claude -n <name>`, the name the watch and delivery find it by, and is closed by
+  the ids its start printed. Workers start only in a folder Claude trusts, never under a
+  live worker's name, and are checked to be listed once started. The herdr recipes stay
+  for now. `tower lead attach` and the SessionStart hook, in a session with no
+  `REX_SESSION`, still attach, and tell the lead that the board's team runs in Rex, what the
+  board does not see from outside it (its workers' prompts, delivery), and to raise it with
+  the owner.
 - **The dashboard's `n` starts the lead in a new Rex session.** It opens a Rex session
   named after the lead on the repo's main checkout (or your home directory, for a milestone
   in no repo), without moving the Rex app's focus, running Claude with the dashboard's board

@@ -5,10 +5,10 @@ is the one source for the process and is changed by PR. It holds process only: h
 git, domain rules in `docs/adr/` and GLOSSARY.md.
 
 The repo's docs are enough to do quality work without the lead skill. The lead skill adds
-the board and herdr for visibility, with the same steps, roles and gates. Under `/lead` a
-Standard change's implementer is a herdr worker; a Light change can go to a subagent, with
-no herdr worktree. Where the lead skill differs from this file, this file wins, as the skill
-itself says. The lead skill's default lifecycle is the other copy of this lifecycle: the two
+the board and the terminal for visibility, with the same steps, roles and gates. Under
+`/lead` a Standard change's implementer is a worker in the terminal; a Light change can go
+to a subagent, with no worker's worktree. Where the lead skill differs from this file, this
+file wins, as the skill itself says. The lead skill's default lifecycle is the other copy of this lifecycle: the two
 differ in who merges; the skill adds the board mechanics (the gate, threads, merge task). A
 change to one is checked against the other.
 
