@@ -207,8 +207,11 @@ task's ticket from: `tower milestone show` and `tower repo show` list each task 
 `ticket #64`, `ticket !19`, the link for another tracker, or "no ticket". A link to a forge
 issue or merge or pull request must be in the task's repo: it is refused when its project
 (host and path, in any case) is not the one the repo's forge link names, saying which repo
-it belongs to, and when the repo has no forge link yet. `task set --repo` and `tower task
-hand` refuse a linked task into a repo that is not its link's. Any other link (Jira, a
+it belongs to, when the repo has no forge link yet, and when the repo's link goes on past
+the ticket's project (a page of it, like `.../tree/main`), which is then no project's
+address. `tower task add --link` takes the link when the task is added, by the same check,
+so a refused link adds no task. `task set --repo` and `tower task hand` refuse a linked
+task into a repo that is not its link's. Any other link (Jira, a
 document) is taken for any task. `tower milestone
 set` sets a milestone's `--title` and `--goal` (one line each, as `milestone add` takes
 them), `--context` (as a task's), `--spec` (one line, the spec it came from) and `--link`.

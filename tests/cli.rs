@@ -2547,16 +2547,23 @@ fn repo_and_milestone_listings_give_each_tasks_ticket_from_its_link() {
         ),
         ("Tidy", None),
     ] {
-        let id = ok(&db, &["task", "add", "--milestone", "M1", title]);
-        if let Some(link) = link {
-            ok(&db, &["task", "set", id.trim(), "--link", &link]);
+        let mut add = vec!["task", "add", "--milestone", "M1", title];
+        if let Some(link) = &link {
+            add.extend(["--link", link]);
         }
+        ok(&db, &add);
     }
-    ok(&db, &["task", "add", "Sort the shelves", "--repo", "R1"]);
-    ok(
-        &db,
-        &["task", "set", "5", "--link", &format!("{gl}/issues/41")],
-    );
+    let link = format!("{gl}/issues/41");
+    let add = [
+        "task",
+        "add",
+        "Sort the shelves",
+        "--repo",
+        "R1",
+        "--link",
+        &link,
+    ];
+    ok(&db, &add);
     // Another forge's issue is no ticket of this repo's.
     assert_refused(
         &tower(
@@ -2573,6 +2580,23 @@ fn repo_and_milestone_listings_give_each_tasks_ticket_from_its_link() {
          which is no repo on the board, not to R1 (https://gitlab.example.com/acme/bookshop), \
          the repo of #4",
     );
+    // A task added with it is refused before it exists, so none is added.
+    assert_refused(
+        &tower(
+            &db,
+            &[
+                "task",
+                "add",
+                "--milestone",
+                "M1",
+                "--link",
+                "https://github.com/example/bookshop/issues/41",
+                "Misfiled",
+            ],
+        ),
+        "which is no repo on the board, not to R1 (https://gitlab.example.com/acme/bookshop), \
+         the repo of M1",
+    );
     let shown = ok(&db, &["milestone", "show", "M1"]);
     for want in [
         "  #1 Author index (waiting, unassigned, ticket #36)\n",
@@ -2582,6 +2606,7 @@ fn repo_and_milestone_listings_give_each_tasks_ticket_from_its_link() {
     ] {
         assert!(shown.contains(want), "{want:?} missing from\n{shown}");
     }
+    assert!(!shown.contains("Misfiled"), "{shown}");
     let repo = ok(&db, &["repo", "show", "R1"]);
     assert!(
         repo.contains("standalone tasks\n  #5 Sort the shelves (ticket #41)\n"),

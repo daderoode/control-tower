@@ -338,13 +338,13 @@ implement, test or review.
    criteria, plus what it is blocked by. A task made from an issue carries the issue as its
    link (`--link`), and its title says what it is in words, without the issue's number: the
    board shows the ticket from the link (see The backlog). File a repo's issue only under
-   a milestone of that repo, or as a standalone task in it: `tower task set --link` refuses
-   another repo's issue, and you never get round that by leaving the link off or putting it
-   in the description. A
+   a milestone of that repo, or as a standalone task in it: `tower task add --link` and
+   `tower task set --link` refuse another repo's issue, and you never get round that by
+   leaving the link off or putting it in the description. A
    task sits under a milestone, or stands alone in the repo (`--repo <R>` instead of `--milestone <M>`):
 
-       N=$(tower task add --milestone <M> "<title>")
-       tower task set N --description "<what and why>" --link <ticket URL>
+       N=$(tower task add --milestone <M> --link <ticket URL> "<title>")
+       tower task set N --description "<what and why>"
        tower task criterion add N "<criterion>"
        tower task blocked-by add N <other task>
 

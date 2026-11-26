@@ -15,10 +15,12 @@ tag's date, and a new empty Unreleased goes above it.
   so another repo's issue could be filed under this repo's milestone, recorded as this
   repo's work with its threads on this repo's board. A link to a GitHub or GitLab issue,
   merge request or pull request is now refused when it is not in the project the task's repo
-  link names, saying which repo it belongs to, and when the repo has no forge link yet;
+  link names, saying which repo it belongs to, when the repo has no forge link yet, and when
+  the repo's link is a page past its project rather than the project's address. `tower task
+  add` takes `--link`, checked before the task exists, so a refused link adds no task;
   `task set --repo` and `task hand` refuse a linked task into another repo the same way.
-  Other trackers' links are taken as before. The lead skill says to file a repo's issue only
-  under a milestone of that repo (#142).
+  Other trackers' links are taken as before. The lead skill files a task with its link in
+  `task add` and says to file a repo's issue only under a milestone of that repo (#142).
 
 ## [0.6.3] - 2026-11-26
 

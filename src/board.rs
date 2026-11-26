@@ -1178,6 +1178,14 @@ impl ForgeProject {
         forge_item(link).map(|(_, project)| project)
     }
 
+    /// Whether this address goes on past `project`'s, as a link to a page of that project
+    /// does (`.../docs/tree/main` past `.../docs`, never `.../docs2`). A repo link that does
+    /// is no project's address: a GitHub project is two segments, and a GitLab project
+    /// holds no project under it.
+    pub fn goes_past(&self, project: &ForgeProject) -> bool {
+        (self.0.strip_prefix(&project.0)).is_some_and(|rest| rest.starts_with('/'))
+    }
+
     /// The project a repo's forge `link` names: its whole path, without a trailing `/` or
     /// `.git`. `None` for a link that is no URL.
     pub fn of_repo(link: &str) -> Option<ForgeProject> {
@@ -2592,6 +2600,18 @@ mod tests {
         }
         let project = ForgeProject::of_ticket("https://GitHub.com/Example/Bookshop/issues/42");
         assert_eq!(project.unwrap().to_string(), "github.com/example/bookshop");
+        // A repo link to a page of the project goes on past its address; the project
+        // itself, and another whose name only starts the same, do not.
+        let docs = ForgeProject::of_ticket("https://github.com/example/docs/issues/4").unwrap();
+        for (repo, past) in [
+            ("https://github.com/example/docs/tree/main", true),
+            ("https://github.com/example/docs", false),
+            ("https://github.com/example/docs2", false),
+            ("https://github.com/example", false),
+        ] {
+            let repo_project = ForgeProject::of_repo(repo).unwrap();
+            assert_eq!(repo_project.goes_past(&docs), past, "{repo}");
+        }
     }
 
     #[test]
