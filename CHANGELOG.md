@@ -19,6 +19,14 @@ tag's date, and a new empty Unreleased goes above it.
   PRs, and the unread count, never told) and that its waiters still run, or how to arm them
   (#150).
 
+### Fixed
+
+- **A post naming another board's lead tells its author where to post.** A lead hears only
+  its own board, so a post naming the lead of another repo reached no one, with no reply
+  and no item. Its author now gets tower's reply on the post's thread, naming that lead's
+  board and how to post there, a minute after the post and in the same one reply as any
+  name in it no worker has had. A mention of the board's own lead is unchanged (#145).
+
 ## [0.6.3] - 2026-11-26
 
 ### Fixed
