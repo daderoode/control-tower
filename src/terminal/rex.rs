@@ -129,9 +129,9 @@ const ADDS: &str = "the text of the prompt a worker waits at in its owner item, 
 /// workers the lead starts, by whether rex is found as the watch finds it (`path_in`, a bare
 /// name on `env`'s PATH): with rex, nothing outside Rex; without, Claude Code's session list,
 /// and what Rex would add. `env` is the lead's, not the watch's (the watch service runs with
-/// brew's PATH); they agree while rex is linked into Homebrew's bin. Where they could
-/// differ (rex on the lead's PATH only), rex counts as found, so the lead gets the text
-/// that claims less.
+/// brew's PATH). With rex linked into Homebrew's bin, they agree unless the lead's env names
+/// another rex (`TOWER_REX`, `REX_BIN_DIR`). Where only the PATHs differ (rex on the lead's
+/// PATH only), rex counts as found, so the lead gets the text that claims less.
 pub fn outside(env: impl Fn(&str) -> Option<OsString>) -> Option<String> {
     if env("REX_SESSION").is_some_and(|s| !s.is_empty()) {
         return None;
