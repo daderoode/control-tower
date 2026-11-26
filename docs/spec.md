@@ -129,17 +129,18 @@ Deliberately rough: don't design further until there's real use.
 
 ### While work runs
 
-- **What workers post:** a short plan before building, a progress line at each step, then "done" with the test output and the reviewer's verdict.
+- **What workers post:** a short plan before building, a progress line at each step, then "done" with the test output and the reviewer's verdict, as a hand-off post (`--handoff`), and while it waits on the lead, any post with `--handoff` or none.
 - **Spotting a stuck worker:** the worker says so, and control-tower also flags it by fixed rules; the lead decides what a flag means.
 
   | Signal | Detected by | Goes to |
   |---|---|---|
   | Waiting on a prompt (permission, question, credential) | the terminal shows the worker blocked (in Rex, its program status) | the owner and the lead at once (only the owner can answer it) |
   | Says it is stuck | worker posts "blocked: ..." | the lead, who @mentions the owner if it can't resolve it |
-  | Stopped without reporting | session idle or finished, task not Done, no post for 5 min | nudge, then the lead |
+  | Stopped without reporting | session idle or finished, task not Done, no post for 5 min, and the worker's own latest post on the task is no hand-off post | nudge, then the lead |
   | Silent while working | task In progress, worker busy, no post for 30 min | nudge, then the lead |
   | Orphaned | task In progress, the worker's Claude session gone from the terminal | the lead |
 
+  - **A hand-off post is the lead's wait, not a stop** (#151): a worker whose own latest post on its task hands the work to the lead (its done post, or a post saying it waits on the lead, posted with `tower post --handoff`) is not nudged for being stopped; the lead has that post unread, its waiter and Stop hook bring it, and a lead that is not listening already raises "Lead not listening". The worker's next post of any other kind ends it, and so does a later post by anyone else that @mentions the worker (the lead handing work back), so a worker that stays idle on it is nudged as before; a reply that names no one leaves it so. Silent while working still applies. A done post without the marker is a plain post, nudged as before.
   - **Nudge first:** for the stopped and silent signals, control-tower nudges the worker directly ("no post for 30 min, post your status"). If nothing comes within 2 minutes, it flags the lead, who acts as it sees fit (nudge again, reassign, escalate).
   - Flags are system messages in the task's thread on the repo's board, so they are on the record.
   - The owner is only pulled in for prompts only they can answer, or when the lead @mentions them.

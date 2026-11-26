@@ -581,8 +581,10 @@ and `tower repo show <R>` lists threads by title.
   reviewer's brief names its risks (principle 2); one that uses a shared resource gives its
   protocol (principle 11). In Rex, every brief says the worker never renames the Rex
   session (`rex session rename`), since its tab is already named (a tester or reviewer runs
-  as a pane in its implementer's tab), and ignores any hook that
-  tells it to.
+  as a pane in its implementer's tab), and ignores any hook that tells it to. Every brief
+  says that while the worker waits on you, each post it makes carries `--handoff` (its done
+  post, a question only you can answer, and any "copy" or "staying open" while it still
+  waits), or it posts nothing, and it posts no status.
 - **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting).
   The plan is the signed-off tickets, or a ready-for-agent issue (Starting, step 7). Each
   ticket then goes through:
@@ -729,7 +731,17 @@ name (see Workers), like `dev-119-deliver`.
 - **What workers post:** a short plan before building, a progress line at each step, then
   "done" with the test output and the reviewer's verdict. A progress line is a progress post,
   which becomes the task's doing line: `tower post T --by dev-12-ui --progress "<step>"`.
-  A plain post never does.
+  A plain post never does. While the work waits on you, every post the worker makes
+  carries `--handoff`: its done post, a question only you can answer, and any
+  acknowledgement while it still waits ("copy", "staying open"); or it posts none:
+  `tower post T --by dev-12-ui --handoff "<done: what changed, the checks' output>"`.
+  While the worker's latest post on the task carries `--handoff`, the watch does not nudge
+  it for being stopped, so it posts no "still waiting" status. Its next post without the
+  flag, a "copy" included, starts the 5 minute clock again, as does a done post without
+  it. To hand work back, @mention the worker in the task's thread: a later post there
+  naming it starts the clock again too, so a worker that stays idle on your request is nudged; a reply that names
+  no one leaves it waiting on you. The flag says who the board waits on; it is not the
+  lifecycle's commit hand-off.
 - **Acknowledge in words:** `tower post T --by "<you>" "copy"`, never emoji.
 - **Resolve with evidence:** `tower thread resolve T --by "<you>" "<evidence>"` (principle 6).
 - **Stuck:** a stuck worker (or you) does both: `tower task block N "<reason>"` for the

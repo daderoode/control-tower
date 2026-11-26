@@ -28,6 +28,16 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A worker waiting on the lead is not nudged for it** (#151). A worker that posted its
+  done post and waited on the lead was nudged every 5 quiet minutes ("no post on #N for 5
+  min, post your status") and answered each with another "still waiting", filling the
+  thread and the lead's unread posts. `tower post --handoff` marks a post that hands the
+  work to the lead (a done post, or one saying it waits on the lead): while it is the
+  assignee's latest post on the task, the watch does not nudge the assignee for being
+  stopped, until a later post @mentions the assignee (the lead handing work back), so an
+  assignee that stays idle on that is still nudged. The lead skill tells workers, and their
+  briefs, to post that way.
+
 - **A blocker reaching Done in one repo wakes the lead of a task it blocks in another**
   (#144). `tower task blocked-by add` took a blocker in another repo, but moving it to Done
   posted nothing on the blocked task's board, so that repo's lead, which hears only its own
@@ -35,6 +45,7 @@ tag's date, and a new empty Unreleased goes above it.
   each task it blocks in another repo (its newest open thread, else a new "Blocked by #1"
   one linked to it), saying whether the task can go on or what it is still blocked by. A
   Done task, a task in the blocker's own repo and a repo with no lead get no line.
+
 - **A task's forge ticket stays in its own repo.** `tower task set --link` refused nothing,
   so another repo's issue could be filed under this repo's milestone, recorded as this
   repo's work with its threads on this repo's board. A link to a GitHub or GitLab issue,
