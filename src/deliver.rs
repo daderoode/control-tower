@@ -57,6 +57,13 @@
 //! and goes the round the terminal lists the name. Only past the grace is it any of the
 //! failures above. A send made only of tower's replies is not held: they go to a post's
 //! author, who had started.
+//!
+//! A post's author is told of every name in it no worker has had in one reply (#135): a send
+//! to such a name, past its grace, is judged one post at a time, each once it is
+//! `START_GRACE` old, and the posts from the first under that wait. So every such name in a
+//! post is judged in the same round, a grace and up to a round after the post, whatever is
+//! posted after it, and a worker listed after an older post to it was judged still gets the
+//! newer ones.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -488,8 +495,8 @@ impl Deliver {
         let mut failed: Vec<Failed> = Vec::new();
         // The names no worker on the board has had, by post (index): its author is told.
         let mut unknown: Vec<(usize, Vec<String>)> = Vec::new();
-        for batch in plan(&pending) {
-            let posts: Vec<&Post> = batch.posts.iter().map(|&i| &pending.posts[i]).collect();
+        for mut batch in plan(&pending) {
+            let mut posts: Vec<&Post> = batch.posts.iter().map(|&i| &pending.posts[i]).collect();
             let remaining = deadline.saturating_duration_since(Instant::now());
             let waits = self.stop.load(Ordering::Relaxed) || remaining.is_zero();
             if !waits && agents.is_none() {
@@ -506,7 +513,6 @@ impl Deliver {
                 held.extend(&batch.posts);
                 continue;
             }
-            let n = posts.len();
             let key = batch.to.key();
             // Whether the terminal has an agent by the name: only one it has not can have
             // been closed, or be starting still.
@@ -522,13 +528,35 @@ impl Deliver {
                 // sent, so the send goes the round the terminal lists it, and is judged as
                 // any other once its oldest post is `START_GRACE` old.
                 log.push(format!(
-                    "{n} post(s) for {key} wait: {} has no agent named {key} yet; a worker may \
+                    "{} post(s) for {key} wait: {} has no agent named {key} yet; a worker may \
                      be starting",
+                    posts.len(),
                     self.terminal.name()
                 ));
                 held.extend(&batch.posts);
                 continue;
             }
+            // A name no worker has had is judged one post at a time, each once it is
+            // `START_GRACE` old (#135): the posts from the first under that wait. So every
+            // such name in a post is judged in the same round, and its author gets one reply.
+            if !listed
+                && !replies
+                && !pending.knows(&key)
+                && let Some(at) = posts.iter().position(|p| now - p.posted_at < START_GRACE)
+            {
+                let rest = batch.posts.split_off(at);
+                posts.truncate(at);
+                log.push(format!(
+                    "{} post(s) for {key} wait until each is a grace old, so each author is \
+                     told of every name in a post at once",
+                    rest.len()
+                ));
+                held.extend(&rest);
+                if posts.is_empty() {
+                    continue;
+                }
+            }
+            let n = posts.len();
             let last = posts.last().map_or(0, |p| p.id);
             match store.mark_sent(&key, last) {
                 Ok(true) => {}
@@ -1041,6 +1069,15 @@ mod tests {
         /// The relay's SendMessage to `name` is refused, saying `said`.
         fn fail(&self, name: &str, said: &str) {
             self.touch(&format!("relay-refuse-{name}"), said);
+        }
+
+        /// Tower's replies in T1 to a post naming no worker, oldest first.
+        fn replies(&self) -> Vec<String> {
+            let board = self.store().load().unwrap();
+            (board.milestones[0].threads[0].messages.iter())
+                .filter(|m| m.author == SYSTEM_AUTHOR && replied_to(&m.text).is_some())
+                .map(|m| m.text.clone())
+                .collect()
         }
 
         /// The delivery failure items on the board: for the owner's awareness, never
@@ -1691,6 +1728,147 @@ mod tests {
                  worker on the board has had; no item for the owner",
                 "told dev-2 in T1 of the name(s) no worker has had",
             ]
+        );
+        assert!(f.items().is_empty(), "{:?}", f.items());
+    }
+
+    /// A post naming two names no worker has had, one of them in an older post too, gets one
+    /// reply naming both, a grace after the post: the older post's reply names only its own.
+    #[test]
+    fn a_post_naming_two_names_no_worker_has_had_gets_one_reply_naming_both() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-x first", 1_000);
+        f.post_at("dev-2", "@qa-x @qa-y second", 1_030);
+        assert_eq!(
+            f.drain_at(1_060),
+            [
+                "1 post(s) for qa-x wait until each is a grace old, so each author is told of \
+                 every name in a post at once",
+                "could not deliver 1 post(s) to qa-x: Rex has no agent named qa-x, a name no \
+                 worker on the board has had; no item for the owner",
+                "1 post(s) for qa-y wait: Rex has no agent named qa-y yet; a worker may be \
+                 starting",
+                "1 post(s) wait for the next round",
+                "told dev-2 in T1 of the name(s) no worker has had",
+            ]
+        );
+        let replies = f.replies();
+        assert_eq!(replies.len(), 1, "{replies:?}");
+        assert!(
+            replies[0].starts_with("@dev-2 no worker is named `@qa-x`, so"),
+            "{replies:?}"
+        );
+        f.drain_at(1_090);
+        let replies = f.replies();
+        assert_eq!(replies.len(), 2, "{replies:?}");
+        assert!(
+            replies[1].starts_with("@dev-2 no worker is named `@qa-x` or `@qa-y`, so"),
+            "{replies:?}"
+        );
+        assert_eq!(f.drain_at(1_120), ["delivered 1 post(s) to dev-2"]);
+        assert!(f.drain_at(1_150).is_empty());
+        assert_eq!(f.replies().len(), 2);
+        assert!(f.items().is_empty(), "{:?}", f.items());
+    }
+
+    /// A stream of posts each naming a new name and the last one's puts off no post's reply:
+    /// each post gets one, naming every name in it, a grace after the post.
+    #[test]
+    fn a_stream_of_new_names_puts_off_no_posts_one_reply() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-x a", 1_000);
+        f.post_at("dev-2", "@qa-x @qa-y b", 1_030);
+        f.post_at("dev-2", "@qa-y @qa-z c", 1_060);
+        let told = [
+            "@dev-2 no worker is named `@qa-x`, so",
+            "@dev-2 no worker is named `@qa-x` or `@qa-y`, so",
+            "@dev-2 no worker is named `@qa-y` or `@qa-z`, so",
+        ];
+        for (n, at) in [1_060, 1_090, 1_120].into_iter().enumerate() {
+            f.drain_at(at);
+            let replies = f.replies();
+            assert_eq!(replies.len(), n + 1, "at {at}: {replies:?}");
+            assert!(replies[n].starts_with(told[n]), "at {at}: {replies:?}");
+        }
+        f.drain_at(1_150);
+        f.drain_at(1_180);
+        assert_eq!(f.replies().len(), 3, "{:?}", f.replies());
+    }
+
+    /// senior-69's case on PR #139: posts whose names no worker has had overlap three ways,
+    /// and each is told once, a grace after it, naming every such name in it.
+    #[test]
+    fn posts_whose_names_no_worker_has_had_overlap_three_ways_are_each_told_once() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-x @qa-y a", 1_000);
+        f.post_at("dev-2", "@qa-y @qa-z q", 1_030);
+        f.post_at("dev-2", "@qa-x @qa-y p", 1_035);
+        let told = [
+            (1_060, "@dev-2 no worker is named `@qa-x` or `@qa-y`, so"),
+            (1_090, "@dev-2 no worker is named `@qa-y` or `@qa-z`, so"),
+            (1_095, "@dev-2 no worker is named `@qa-x` or `@qa-y`, so"),
+        ];
+        for (n, (at, reply)) in told.into_iter().enumerate() {
+            f.drain_at(at);
+            let replies = f.replies();
+            assert_eq!(replies.len(), n + 1, "at {at}: {replies:?}");
+            assert!(replies[n].starts_with(reply), "at {at}: {replies:?}");
+        }
+        f.drain_at(1_150);
+        f.drain_at(1_180);
+        assert_eq!(f.replies().len(), 3, "{:?}", f.replies());
+    }
+
+    /// Only a name no worker has had is judged one post at a time: a known worker that is
+    /// gone is judged whole once its oldest post is a grace old, the owner's item as before,
+    /// though a newer post to it is under a grace.
+    #[test]
+    fn a_gone_known_worker_is_judged_whole_though_a_post_is_under_its_grace() {
+        let f = Fixture::new();
+        f.post("qa-9", "done");
+        f.post_at("dev-2", "@qa-9 old", 1_000);
+        f.post_at("dev-2", "@qa-9 new", 1_030);
+        let log = f.drain_at(1_060);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "could not deliver 2 post(s) to qa-9: Rex has no agent named qa-9; told the \
+                 owner in "
+            ),
+            "{log:?}"
+        );
+        assert_eq!(f.items().len(), 1, "{:?}", f.items());
+    }
+
+    /// A worker named a grace before Rex lists it, and briefed since, still gets the brief:
+    /// the older post is judged at its grace, the brief waits for its own.
+    #[test]
+    fn a_name_listed_after_its_first_post_was_judged_still_gets_the_newer_ones() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-7 are you there?", 1_000);
+        f.post_at("dev-2", "@qa-7 your brief", 1_050);
+        let log = f.drain_at(1_060);
+        assert!(
+            log.contains(
+                &"could not deliver 1 post(s) to qa-7: Rex has no agent named qa-7, a name no \
+                  worker on the board has had; no item for the owner"
+                    .to_string()
+            ),
+            "{log:?}"
+        );
+        f.agents(&["dev-1", "dev-2", "qa-1", "qa-2", "qa-7"]);
+        assert_eq!(
+            f.drain_at(1_065),
+            [
+                "delivered 1 post(s) to qa-7",
+                "delivered 1 post(s) to dev-2"
+            ]
+        );
+        let prompts = f.prompts();
+        let brief = (prompts.iter()).find(|p| p.starts_with("qa-7|"));
+        assert!(
+            brief.is_some_and(|p| p.ends_with("[T1 #1] dev-2: @qa-7 your brief")),
+            "{prompts:?}"
         );
         assert!(f.items().is_empty(), "{:?}", f.items());
     }

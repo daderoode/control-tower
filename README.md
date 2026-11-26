@@ -782,7 +782,10 @@ taken off the board with `tower lead remove` counts as no worker too, though it 
 a mention of it is its author's to fix. It raises no item for the owner. Instead
 tower replies on the post's thread, as `system`, to the post's author: "@dev-2 no worker is
 named `@name`, so your post reached no one by that name: ... If you meant a worker, check
-the name; if you were quoting, put it in backticks." The reply goes to a worker author like
+the name; if you were quoting, put it in backticks." A send to such a name is judged one
+post at a time, each once it is a minute old, so a post gets one reply naming every such
+name in it, a minute and up to a round (5 seconds) after the post, whatever is posted after
+it. The reply goes to a worker author like
 any post, once; a lead reads it through its board waiter, and the owner, when the post was
 theirs, finds it in the inbox for awareness. A reply that cannot reach its author (closed
 since it posted) is only logged, never an item for the owner. A reply is never written for

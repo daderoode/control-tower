@@ -16,6 +16,13 @@ tag's date, and a new empty Unreleased goes above it.
   worker relabelled the lead's whole session. The lead skill's worker recipes and every
   brief now say a worker never renames the Rex session: its tab is already named (#137).
 
+- **A post naming two names no worker has had gets one reply naming both.** Since #133, a
+  post naming two such names, one of them named in an older post too, got a reply for each,
+  a minute apart. A send to such a name is now judged one post at a time, each once it is a
+  minute old, so each post gets one reply naming every such name in it, a minute and up to a
+  round after the post, whatever is posted after it. So a worker Rex lists only after the
+  first post naming it was judged still gets the posts made since (#135).
+
 ## [0.6.2] - 2026-11-26
 
 ### Added
