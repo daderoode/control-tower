@@ -1,6 +1,6 @@
 [package]
 name = "control-tower"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2024"
 description = "A taskboard for a team of Claude Code agents in the terminal."
 publish = false

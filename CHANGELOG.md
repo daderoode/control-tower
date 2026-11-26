@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-26
+
 ### Fixed
 
 - **Workers leave the lead's Rex session its name.** Rex's start hook tells every Claude
