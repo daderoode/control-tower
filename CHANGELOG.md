@@ -9,6 +9,16 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Changed
+
+- **The core reads worker state from Claude Code's session list; a terminal module may
+  override it.** The terminal interface's live workers and its prompt to one now have the
+  core's own versions: `claude agents --json`, where `busy` is working, `idle` idle and
+  `waiting` at a prompt (a permission prompt or a question, by what it waits for), and a
+  worker at a prompt is sent nothing. Rex overrides the list and keeps what it does today,
+  the text of the prompt included. With Rex installed nothing changes (#163; the watch
+  running without Rex is #164).
+
 ## [0.7.0] - 2026-11-26
 
 ### Changed

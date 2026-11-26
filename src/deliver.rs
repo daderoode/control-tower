@@ -9,7 +9,7 @@
 //! list) stays after the cursor and goes next round, so a stalled terminal never holds a
 //! stop or an upgrade for long and loses nothing. The terminal is reached only through the
 //! terminal module (`terminal`): its agents, and its prompt to one by name, whose trace
-//! (for Rex, the relay's: who, the text, exit, duration, cost, answer) is logged before
+//! (the relay's: who, the text, exit, duration, cost, answer) is logged before
 //! how the send went.
 //!
 //! Who gets a post (`plan`): never a lead, who hears of its board's posts through its own
@@ -1627,6 +1627,43 @@ mod tests {
         f.post("cat-lead", "reopened: the fix broke CI");
         let log = f.drain();
         assert_eq!(log, ["delivered 1 post(s) to dev-1, reachable again"]);
+    }
+
+    #[test]
+    fn with_no_terminal_module_a_post_reaches_a_listed_worker_and_none_at_a_prompt() {
+        let mut f = Fixture::new();
+        let core = crate::terminal::Core::new(f.dir.path().join("claude"));
+        f.deliver = Deliver {
+            budget: TEST_WAIT,
+            send_limit: TEST_WAIT,
+            ..Deliver::new(&f.db, Arc::new(core), Arc::default())
+        };
+        let list = serde_json::json!([
+            {"pid": 1, "kind": "interactive", "sessionId": "s1", "name": "dev-1", "status": "idle"},
+            {"pid": 2, "kind": "interactive", "sessionId": "s2", "name": "qa-1",
+             "status": "waiting", "waitingFor": "permission prompt"},
+        ]);
+        f.rex.write("claude.json", &list.to_string());
+        // qa-1 waits at a permission prompt, by Claude's list: it is sent nothing.
+        f.post("dev-1", "@qa-1 please look");
+        let log = f.drain();
+        assert_eq!(log.len(), 1, "{log:?}");
+        let want = "could not deliver 1 post(s) to qa-1: at a permission prompt";
+        assert!(log[0].starts_with(want), "{log:?}");
+        assert!(log[0].ends_with("; told the owner in T1"), "{log:?}");
+        let items = f.items();
+        assert_eq!(items.len(), 1, "{items:?}");
+        assert!(
+            items[0].contains("qa-1: at a permission prompt"),
+            "{items:?}"
+        );
+        assert!(f.prompts().is_empty());
+        // dev-1 is idle: the relay sends it its post.
+        f.post("qa-1", "@dev-1 done?");
+        assert_eq!(f.drain(), ["delivered 1 post(s) to dev-1"]);
+        let prompts = f.prompts();
+        assert_eq!(prompts.len(), 1, "{prompts:?}");
+        assert!(prompts[0].starts_with("dev-1|"), "{prompts:?}");
     }
 
     #[test]

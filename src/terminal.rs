@@ -1,15 +1,23 @@
-//! The terminal module: the one place the core (the watch's look, the delivery round, the
-//! dashboard's `n`) reaches the terminal its workers run in. The core asks it for the live
-//! workers (`agents`), has it deliver a text to one by name (`prompt`), and has it open a
-//! new place for a lead (`start_lead`, undone by `undo`), and serves the dashboard's keys
-//! (`space`, `popup`); its display name names the terminal in the core's texts and logs. A
-//! module is built in: `module` gives the one this build has, Rex (`rex`), so another slots
-//! in here without touching the core. Rex's prompt reaches a worker's Claude session
-//! through the relay (`relay`).
+//! The terminal module interface: the one place the core (the watch's look, the delivery
+//! round, the dashboard's `n`) reaches the terminal its workers run in. The core asks it for
+//! the live workers (`agents`), has it deliver a text to one by name (`prompt`), and has it
+//! open a new place for a lead (`start_lead`, undone by `undo`), and serves the dashboard's
+//! keys (`space`, `popup`); its display name names the terminal in the core's texts and logs.
+//!
+//! The core has its own version of what it can do with no terminal, as the trait's defaults:
+//! the live workers are Claude Code's session list (`claude agents --json`, read by
+//! `listed`), and a prompt is a fresh look for the worker by name, nothing sent to one at a
+//! prompt, then the relay (`relay`) to its Claude session. A module overrides any of them
+//! with its own; what it does not override runs the core's. `Core` is the core with no
+//! module: every default, and what only a terminal can do (starting a lead, the dashboard's
+//! keys) fails saying so. A module is built in: `module` gives the one this build has, Rex
+//! (`rex`), whose `agents` adds the text of the prompt a worker waits at; another slots in
+//! here without touching the core.
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
-//! blocked kind where the terminal gives it). A value the core does not know is
-//! `Status::Unknown`: present, with nothing to judge by.
+//! blocked kind where the terminal gives it). Claude's list has its own (`Status::listed`):
+//! `busy` is working, `idle` idle, `waiting` blocked, its kind from `waitingFor`. A value
+//! the core does not know is `Status::Unknown`: present, with nothing to judge by.
 
 pub mod relay;
 pub mod rex;
@@ -18,7 +26,8 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::AtomicBool;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
@@ -37,6 +46,16 @@ impl Kind {
             "permission" => Some(Kind::Permission),
             "question" => Some(Kind::Question),
             "auth" => Some(Kind::Auth),
+            _ => None,
+        }
+    }
+
+    /// The kind Claude's list names as `waitingFor`, `None` for one this build does not
+    /// know.
+    pub fn listed(waiting_for: &str) -> Option<Kind> {
+        match waiting_for {
+            "permission prompt" => Some(Kind::Permission),
+            "input needed" => Some(Kind::Question),
             _ => None,
         }
     }
@@ -62,6 +81,17 @@ impl Status {
             "working" => Status::Working,
             "blocked" => Status::Blocked(kind.and_then(Kind::of)),
             "done" => Status::Done,
+            _ => Status::Unknown,
+        }
+    }
+
+    /// The status Claude's list names as `status`, waiting for `waiting_for` when given:
+    /// `busy`, `idle`, `waiting`; anything else, or none, is `Unknown`.
+    pub fn listed(status: Option<&str>, waiting_for: Option<&str>) -> Status {
+        match status {
+            Some("busy") => Status::Working,
+            Some("idle") => Status::Idle,
+            Some("waiting") => Status::Blocked(waiting_for.and_then(Kind::listed)),
             _ => Status::Unknown,
         }
     }
@@ -201,11 +231,50 @@ pub trait Terminal: Send + Sync {
     /// naming what was tried and how to name it; `None` when it is found. Whoever says it
     /// adds how often (the watch: once, until it is found).
     fn missing(&self, path: Option<&OsStr>) -> Option<String>;
-    /// The live named workers, within `timeout`.
-    fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread>;
-    /// Delivers `text` to the worker `name` (ignoring case), within `timeout`. A worker at a
-    /// prompt is sent nothing.
-    fn prompt(&self, db: &Path, name: &str, text: &str, timeout: Duration) -> Prompted;
+    /// The Claude Code it asks (`register::claude_path`): for the core's list and the relay.
+    fn claude(&self) -> &Path;
+    /// The live named workers, within `timeout`. The core's: each session Claude's list
+    /// names (`listed`), with its status (`Status::listed`) and no `msg`; one with no name
+    /// is no one.
+    fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
+        Ok((listed(self.claude(), db, timeout)?.into_iter())
+            .filter_map(|l| {
+                let status = Status::listed(l.status.as_deref(), l.waiting_for.as_deref());
+                Some(Agent {
+                    name: l.name?,
+                    status,
+                    msg: None,
+                })
+            })
+            .collect())
+    }
+    /// Delivers `text` to the worker `name` (ignoring case), within `timeout`. The core's: a
+    /// fresh look for it (`agents`, the module's when it has its own); one it has no agent
+    /// by, or one at a prompt (any of its sessions blocked), is sent nothing and the send
+    /// fails saying why; else the relay sends the text to its Claude session
+    /// (`relay::send`), within what is left of the time limit.
+    fn prompt(&self, db: &Path, name: &str, text: &str, timeout: Duration) -> Prompted {
+        let deadline = Instant::now() + timeout;
+        let agents = match self.agents(db, timeout.min(terminal_timeout())) {
+            Ok(agents) => agents,
+            Err(e) => return Sent::Failed(e.to_string()).into(),
+        };
+        let theirs: Vec<&Agent> = (agents.iter())
+            .filter(|a| a.name.eq_ignore_ascii_case(name))
+            .collect();
+        let Some(first) = theirs.first() else {
+            return Sent::Failed(format!("{} has no agent named {name}", self.name())).into();
+        };
+        if let Some(blocked) = theirs.iter().find(|a| a.status.is_blocked()) {
+            return Sent::Failed(at_prompt(blocked)).into();
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            let why = format!("no time was left to send within {} s", timeout.as_secs());
+            return Sent::Failed(why).into();
+        }
+        relay::send(self.claude(), db, &first.name, text, left)
+    }
     /// Opens a new place for a lead without taking focus and starts it there.
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle>;
     /// Undoes a start: closes the place `handle` names. Says what it did.
@@ -219,6 +288,97 @@ pub trait Terminal: Send + Sync {
     fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Answer>;
     /// The popup's key, pressed `here`: opens `dashboard` in a popup over `here`'s tab.
     fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()>;
+}
+
+/// A Claude session as `claude agents --json` lists it, as far as the core and Rex read it.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct Listed {
+    pub name: Option<String>,
+    pub pid: Option<i64>,
+    pub status: Option<String>,
+    #[serde(rename = "waitingFor")]
+    pub waiting_for: Option<String>,
+}
+
+/// Claude Code's session list: `claude agents --json`, run from `claude` within `timeout`.
+pub(crate) fn listed(claude: &Path, db: &Path, timeout: Duration) -> Result<Vec<Listed>, Unread> {
+    let not_stopped = AtomicBool::new(false);
+    let args = ["agents", "--json"];
+    let json = crate::register::claude_within(claude, db, &not_stopped, &args, timeout)
+        .map_err(|e| Unread::Failed(format!("{e:#}")))?;
+    serde_json::from_str(&json).map_err(|e| {
+        Unread::Failed(format!(
+            "claude agents --json said something unexpected: {e}"
+        ))
+    })
+}
+
+/// Why a worker at a prompt is sent nothing: "at a permission prompt (approve Bash: ...)",
+/// naming the kind and what it asks where the terminal says.
+fn at_prompt(agent: &Agent) -> String {
+    let what = match agent.status {
+        Status::Blocked(Some(Kind::Permission)) => "a permission prompt",
+        Status::Blocked(Some(Kind::Question)) => "a question",
+        Status::Blocked(Some(Kind::Auth)) => "a credential prompt",
+        _ => "a prompt",
+    };
+    let asks = (agent.msg.as_deref()).map_or(String::new(), |m| format!(" ({m})"));
+    format!("at {what}{asks}")
+}
+
+/// The core with no terminal module, asking the `claude` at `claude`: the live workers and
+/// prompts are the core's (the trait's defaults); starting a lead and the dashboard's keys
+/// need a terminal, so they fail saying so. Its name in texts is Claude Code's, whose list
+/// it reads.
+pub struct Core {
+    claude: PathBuf,
+}
+
+impl Core {
+    pub fn new(claude: PathBuf) -> Core {
+        Core { claude }
+    }
+}
+
+/// What `Core` says for `what`, which only a terminal module can do.
+fn needs_module(what: &str) -> anyhow::Error {
+    anyhow::anyhow!("{what} needs a terminal module (Rex), and there is none")
+}
+
+impl Terminal for Core {
+    fn name(&self) -> &'static str {
+        "Claude Code"
+    }
+
+    fn exe(&self) -> &Path {
+        &self.claude
+    }
+
+    fn missing(&self, path: Option<&OsStr>) -> Option<String> {
+        find_exe(&self.claude, path)
+            .is_none()
+            .then(|| not_found("claude", &self.claude, path))
+    }
+
+    fn claude(&self) -> &Path {
+        &self.claude
+    }
+
+    fn start_lead(&self, _db: &Path, _lead: &LeadStart) -> Result<Handle> {
+        Err(needs_module("starting a lead"))
+    }
+
+    fn undo(&self, _db: &Path, _handle: &Handle) -> Result<String> {
+        Err(needs_module("closing a lead's place"))
+    }
+
+    fn space(&self, _db: &Path, _here: &Here, _back: &Path, _dash: &[String]) -> Result<Answer> {
+        Err(needs_module("the dashboard's key"))
+    }
+
+    fn popup(&self, _db: &Path, _here: &Here, _dashboard: &[String]) -> Result<()> {
+        Err(needs_module("the popup's key"))
+    }
 }
 
 /// The built-in terminal module, Rex, its executable at `exe`, asking the `claude` the
@@ -306,7 +466,182 @@ pub(crate) fn not_found(name: &str, exe: &Path, path: Option<&OsStr>) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal::rex::fake::FakeRex;
+    use crate::watch::TEST_WAIT;
     use std::os::unix::fs::PermissionsExt;
+
+    /// One session as `claude agents --json` lists it: interactive unless `background`.
+    fn session(
+        name: Option<&str>,
+        status: Option<&str>,
+        waiting_for: Option<&str>,
+    ) -> serde_json::Value {
+        let mut s = serde_json::json!({
+            "pid": 1, "cwd": "/somewhere", "kind": "interactive", "startedAt": 1,
+            "sessionId": "sess-1",
+        });
+        for (key, value) in [
+            ("name", name),
+            ("status", status),
+            ("waitingFor", waiting_for),
+        ] {
+            if let Some(value) = value {
+                s[key] = value.into();
+            }
+        }
+        s
+    }
+
+    /// The fakes in a temp folder, with Claude listing `sessions`, and the core over them.
+    fn over(sessions: &[serde_json::Value]) -> (tempfile::TempDir, FakeRex, Core) {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        f.write(
+            "claude.json",
+            &serde_json::Value::from(sessions).to_string(),
+        );
+        let core = Core::new(dir.path().join("claude"));
+        (dir, f, core)
+    }
+
+    fn agent(name: &str, status: Status) -> Agent {
+        Agent {
+            name: name.into(),
+            status,
+            msg: None,
+        }
+    }
+
+    #[test]
+    fn the_core_reads_each_worker_from_claudes_list_by_its_status_and_what_it_waits_for() {
+        let mut background = session(Some("bg"), Some("waiting"), Some("input needed"));
+        background["kind"] = "background".into();
+        background["id"] = "b1".into();
+        background["state"] = "blocked".into();
+        let (dir, _f, core) = over(&[
+            session(Some("busy"), Some("busy"), None),
+            session(Some("idle"), Some("idle"), None),
+            session(
+                Some("asks-leave"),
+                Some("waiting"),
+                Some("permission prompt"),
+            ),
+            session(Some("asks-what"), Some("waiting"), Some("input needed")),
+            session(Some("asks-other"), Some("waiting"), Some("sign in")),
+            session(Some("asks-none"), Some("waiting"), None),
+            session(Some("odd"), Some("stopping"), None),
+            session(Some("silent"), None, None),
+            // No name: no one, whatever its status.
+            session(None, Some("waiting"), Some("permission prompt")),
+            background,
+        ]);
+        let got = core
+            .agents(&dir.path().join("board.db"), TEST_WAIT)
+            .unwrap();
+        assert_eq!(
+            got,
+            [
+                agent("busy", Status::Working),
+                agent("idle", Status::Idle),
+                agent("asks-leave", Status::Blocked(Some(Kind::Permission))),
+                agent("asks-what", Status::Blocked(Some(Kind::Question))),
+                agent("asks-other", Status::Blocked(None)),
+                agent("asks-none", Status::Blocked(None)),
+                agent("odd", Status::Unknown),
+                agent("silent", Status::Unknown),
+                agent("bg", Status::Blocked(Some(Kind::Question))),
+            ]
+        );
+        // A session gone from the list is gone from the workers.
+        let (dir, _f, core) = over(&[]);
+        let got = core
+            .agents(&dir.path().join("board.db"), TEST_WAIT)
+            .unwrap();
+        assert_eq!(got, []);
+    }
+
+    #[test]
+    fn the_core_fails_a_look_when_claudes_list_cannot_be_read() {
+        let (dir, f, core) = over(&[]);
+        let db = dir.path().join("board.db");
+        f.write("claude.json", "not json");
+        match core.agents(&db, TEST_WAIT) {
+            Err(Unread::Failed(why)) => {
+                assert!(
+                    why.starts_with("claude agents --json said something unexpected"),
+                    "{why}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        let gone = Core::new(dir.path().join("no-claude"));
+        assert!(matches!(
+            gone.agents(&db, TEST_WAIT),
+            Err(Unread::Failed(_))
+        ));
+        // What the watch says once: claude is found, or not.
+        assert_eq!(core.missing(None), None);
+        assert_eq!(
+            gone.missing(None),
+            Some(not_found("claude", &dir.path().join("no-claude"), None))
+        );
+    }
+
+    #[test]
+    fn the_core_prompts_a_listed_worker_through_the_relay_and_one_at_a_prompt_never() {
+        let (dir, f, core) = over(&[
+            session(Some("dev-1"), Some("idle"), None),
+            session(Some("qa"), Some("waiting"), Some("permission prompt")),
+            session(Some("rev"), Some("waiting"), Some("input needed")),
+        ]);
+        let db = dir.path().join("board.db");
+        let prompt = |name: &str| core.prompt(&db, name, "hello", TEST_WAIT).sent;
+        assert_eq!(prompt("DEV-1"), Sent::Delivered);
+        assert_eq!(prompt("qa"), Sent::Failed("at a permission prompt".into()));
+        assert_eq!(prompt("rev"), Sent::Failed("at a question".into()));
+        assert_eq!(
+            prompt("ghost"),
+            Sent::Failed("Claude Code has no agent named ghost".into())
+        );
+        // The relay ran once, for dev-1 alone.
+        let relays = (f.calls().into_iter()).filter(|c| c.starts_with("claude|-p"));
+        assert_eq!(relays.count(), 1);
+        let sent = std::fs::read_to_string(dir.path().join("prompts.log")).unwrap();
+        assert_eq!(sent, "dev-1|hello\n");
+    }
+
+    #[test]
+    fn the_core_cannot_start_a_lead_or_serve_the_keys() {
+        let (dir, _f, core) = over(&[]);
+        let db = dir.path().join("board.db");
+        let here = Here {
+            session: "s".into(),
+            block: "b".into(),
+        };
+        let lead = LeadStart {
+            name: "lead",
+            dir: "/",
+            board: "/board.db",
+            command: &[],
+        };
+        let said = [
+            core.start_lead(&db, &lead).map(|_| ()),
+            core.undo(&db, &Handle("h".into())).map(|_| ()),
+            core.space(&db, &here, &dir.path().join("back"), &[])
+                .map(|_| ()),
+            core.popup(&db, &here, &[]),
+        ]
+        .map(|r| r.unwrap_err().to_string());
+        assert_eq!(
+            said,
+            [
+                "starting a lead needs a terminal module (Rex), and there is none",
+                "closing a lead's place needs a terminal module (Rex), and there is none",
+                "the dashboard's key needs a terminal module (Rex), and there is none",
+                "the popup's key needs a terminal module (Rex), and there is none",
+            ]
+        );
+    }
 
     #[test]
     fn finds_an_executable_by_path_or_on_path_in_order_and_says_what_it_tried() {
