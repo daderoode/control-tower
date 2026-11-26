@@ -1593,6 +1593,30 @@ fn task_show_lists_the_tasks_threads_open_first_then_resolved() {
 }
 
 #[test]
+fn task_show_lists_a_standalone_tasks_threads_in_a_repo_with_no_milestone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("board.db");
+    let checkout = dir.path().join("shelf");
+    std::fs::create_dir_all(checkout.join(".git")).unwrap();
+    ok(&db, &["repo", "add", checkout.to_str().unwrap()]);
+    let lead = ["--name", "Shelf Lead", "--session", "shelf-lead"];
+    ok(&db, &[&["lead", "add", "R1"][..], &lead].concat());
+    ok(&db, &["task", "add", "Sort the shelf", "--repo", "R1"]);
+    let new = ["thread", "new", "shelf-lead", "--by", "dev-1"];
+    ok(
+        &db,
+        &[&new[..], &["--task", "1", "Sort plan", "go"]].concat(),
+    );
+    ok(&db, &[&new[..], &["Repo chat", "go"]].concat());
+
+    let shown = ok(&db, &["task", "show", "1"]);
+    assert!(
+        shown.ends_with("threads\n  T1 Sort plan (open, by dev-1, 0 replies)\n"),
+        "{shown}"
+    );
+}
+
+#[test]
 fn thread_show_prints_a_thread_whole_oldest_first() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("board.db");

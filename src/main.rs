@@ -713,9 +713,8 @@ fn show_milestone(m: &Milestone, session: Option<&str>) -> String {
 }
 
 /// `tower task show`: the task, its details, criteria, what it is blocked by, subtasks and
-/// the threads linked to it, in the dashboard's order, from `board`, a milestone showing
-/// its repo's board.
-fn show_task(t: &Task, milestone: Option<&Milestone>, board: Option<&Milestone>) -> String {
+/// the threads linked to it, in the dashboard's order, from `board`, its repo's board.
+fn show_task(t: &Task, milestone: Option<&Milestone>, board: &[Thread]) -> String {
     let d = &t.details;
     let mut out = format!("{} {}\n", t.id, t.title);
     field(&mut out, "stage", t.stage.label());
@@ -774,8 +773,7 @@ fn show_task(t: &Task, milestone: Option<&Milestone>, board: Option<&Milestone>)
     for s in &t.subtasks {
         out.push_str(&format!("  {} {} ({})\n", s.id, s.title, s.stage.label()));
     }
-    let linked = board.map_or(Vec::new(), |m| m.ordered_threads(Some(t.id)));
-    threads(&mut out, linked, false);
+    threads(&mut out, ordered_threads(board, Some(t.id)), false);
     out
 }
 
@@ -1065,12 +1063,11 @@ fn run(cli: Cli) -> Result<()> {
             let t = store.task(task)?;
             let board = store.load()?;
             let m = (board.milestones.iter()).find(|m| m.tasks.iter().any(|x| x.id == task));
-            // A standalone task's threads are on its repo's board, which each milestone of
-            // the repo shows.
-            let board_of = m.or_else(|| {
-                (board.milestones.iter()).find(|m| m.threads.iter().any(|x| x.task == Some(task)))
-            });
-            print!("{}", show_task(&t, m, board_of));
+            // Its threads are on its repo's board: its milestone's repo, or its own when
+            // standalone, whatever milestones that repo has.
+            let repo = m.map_or(t.details.repo, |m| m.repo);
+            let threads = (repo.and_then(|r| board.repo(r))).map_or(&[][..], |r| &r.threads);
+            print!("{}", show_task(&t, m, threads));
         }
         Command::Task(TaskCommand::Criterion(CriterionCommand::Add { task, text })) => {
             let n = Store::open(&path)?.add_criterion(task, &text)?;
