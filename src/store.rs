@@ -24,7 +24,7 @@ use crate::deliver::{LeadBoard, Pending, Post};
 use crate::watch::{Flag, Named, Signal};
 
 /// The schema this build reads and writes, kept in SQLite's `user_version`.
-pub const SCHEMA_VERSION: i32 = 20;
+pub const SCHEMA_VERSION: i32 = 21;
 
 /// `MIGRATIONS[n]` takes the schema from version `n` to `n + 1`.
 const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
@@ -402,6 +402,12 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
     "
     ALTER TABLE message ADD COLUMN handoff INTEGER NOT NULL DEFAULT 0
         CHECK (handoff IN (0, 1));
+",
+    // `turn_error` is the API error the last turn its hooks counted ended on (StopFailure's
+    // text), NULL for a turn that ended well (Stop): the cause the watch names when several
+    // leads stop on the same error in one look (#146).
+    "
+    ALTER TABLE lead ADD COLUMN turn_error TEXT;
 ",
 ];
 
@@ -1253,6 +1259,8 @@ pub struct Registered {
     /// or the watch first saw it, idle or busy, with none; `None` while none of these has
     /// happened since the session attached.
     pub quiet_turns: Option<i64>,
+    /// The API error the last turn counted in `turns` ended on, `None` when it ended well.
+    pub turn_error: Option<String>,
 }
 
 /// How many messages in the threads `threads` selects (a query on `?2`, given `of`) the
@@ -3645,7 +3653,7 @@ impl Store {
             .conn
             .prepare(
                 "SELECT repo_id, name, session, colour, claude_session, deaf_thread, turns, \
-                 quiet_turns FROM lead ORDER BY repo_id",
+                 quiet_turns, turn_error FROM lead ORDER BY repo_id",
             )?
             .query_map([], |r| {
                 Ok(Registered {
@@ -3655,6 +3663,7 @@ impl Store {
                     deaf: r.get::<_, Option<i64>>("deaf_thread")?.map(ThreadId),
                     turns: r.get("turns")?,
                     quiet_turns: r.get("quiet_turns")?,
+                    turn_error: r.get("turn_error")?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -3672,42 +3681,86 @@ impl Store {
     /// open: a new thread about the whole repo, "Lead not listening", with `text` posted
     /// by `system`. Returns the thread, or `None`, posting nothing, when one was open.
     pub fn lead_deaf(&mut self, repo: RepoId, text: &str, at: i64) -> Result<Option<ThreadId>> {
-        let text = check_message("message", text)?;
+        let opened = self.leads_deaf(&[(repo, text, text)], at, |_| String::new())?;
+        Ok(opened.first().map(|&(_, thread)| thread))
+    }
+
+    /// Opens a "lead not listening" episode, as `lead_deaf` does, at `at`, for each lead of
+    /// `leads` (its repo, the text of its own item, and that text as a plain record) with
+    /// none open, in one write. When it opens one, its thread gets its item; when it opens
+    /// more (several leads stopped by one cause in one look, #146), each thread gets its
+    /// plain record and the owner one item, `shared` of the (index, thread) of those it
+    /// opened, in a new "Lead not listening" thread on the first's board, which is the
+    /// thread each is said to be told in. Returns, for each it opened, its index in `leads`
+    /// and the thread the owner was told in.
+    pub fn leads_deaf(
+        &mut self,
+        leads: &[(RepoId, &str, &str)],
+        at: i64,
+        shared: impl FnOnce(&[(usize, ThreadId)]) -> String,
+    ) -> Result<Vec<(usize, ThreadId)>> {
         let cannot_write = self.cannot_write();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context(cannot_write.clone())?;
-        let open: Option<Option<i64>> = tx
-            .query_row(
-                "SELECT deaf_thread FROM lead WHERE repo_id = ?1",
-                params![repo.0],
-                |r| r.get(0),
-            )
-            .optional()
-            .context(cannot_write.clone())?;
-        match open {
-            None => bail!("{repo} has no lead"),
-            Some(Some(_)) => return Ok(None),
-            Some(None) => {}
+        let mut closed = Vec::new();
+        for (i, (repo, _, _)) in leads.iter().enumerate() {
+            let open: Option<Option<i64>> = tx
+                .query_row(
+                    "SELECT deaf_thread FROM lead WHERE repo_id = ?1",
+                    params![repo.0],
+                    |r| r.get(0),
+                )
+                .optional()
+                .context(cannot_write.clone())?;
+            match open {
+                None => bail!("{repo} has no lead"),
+                Some(Some(_)) => {}
+                Some(None) => closed.push(i),
+            }
         }
-        let thread = new_thread(&tx, repo, None, None, NOT_LISTENING, &cannot_write)?;
-        append(
-            &tx,
-            thread,
-            SYSTEM_AUTHOR,
-            &text,
-            Kind::Plain,
-            at,
-            &cannot_write,
-        )?;
-        tx.execute(
-            "UPDATE lead SET deaf_thread = ?1 WHERE repo_id = ?2",
-            params![thread.0, repo.0],
-        )
-        .context(cannot_write.clone())?;
+        let one = closed.len() == 1;
+        let mut opened = Vec::new();
+        for &i in &closed {
+            let (repo, item, plain) = leads[i];
+            let text = check_message("message", if one { item } else { plain })?;
+            let thread = new_thread(&tx, repo, None, None, NOT_LISTENING, &cannot_write)?;
+            append(
+                &tx,
+                thread,
+                SYSTEM_AUTHOR,
+                &text,
+                Kind::Plain,
+                at,
+                &cannot_write,
+            )?;
+            tx.execute(
+                "UPDATE lead SET deaf_thread = ?1 WHERE repo_id = ?2",
+                params![thread.0, repo.0],
+            )
+            .context(cannot_write.clone())?;
+            opened.push((i, thread));
+        }
+        if opened.len() > 1 {
+            let text = check_message("message", &shared(&opened))?;
+            let repo = leads[opened[0].0].0;
+            let thread = new_thread(&tx, repo, None, None, NOT_LISTENING, &cannot_write)?;
+            append(
+                &tx,
+                thread,
+                SYSTEM_AUTHOR,
+                &text,
+                Kind::Plain,
+                at,
+                &cannot_write,
+            )?;
+            for told in &mut opened {
+                told.1 = thread;
+            }
+        }
         tx.commit().context(cannot_write)?;
-        Ok(Some(thread))
+        Ok(opened)
     }
 
     /// Records `turns`, the turns the lead of `repo`'s session has ended, as when the watch
@@ -3741,11 +3794,13 @@ impl Store {
     /// finished a turn without re-arming). `waiting` is asked inside this write's own
     /// transaction, so a waiter that took its lock first is seen, and one that takes it
     /// later writes its baseline (`lead_waiter_armed`) after this commits, absorbing the
-    /// count. Returns whether it counted.
+    /// count. A counted turn records `error`, the API error it ended on (StopFailure), or
+    /// none (Stop), as the lead's `turn_error`. Returns whether it counted.
     pub fn lead_turn_ended(
         &mut self,
         repo: RepoId,
         session: &str,
+        error: Option<&str>,
         waiting: impl FnOnce() -> Result<bool>,
     ) -> Result<bool> {
         let cannot_write = self.cannot_write();
@@ -3758,8 +3813,9 @@ impl Store {
         }
         let n = tx
             .execute(
-                "UPDATE lead SET turns = turns + 1 WHERE repo_id = ?1 AND claude_session = ?2",
-                params![repo.0, session],
+                "UPDATE lead SET turns = turns + 1, turn_error = ?3 \
+                 WHERE repo_id = ?1 AND claude_session = ?2",
+                params![repo.0, session, error],
             )
             .context(cannot_write.clone())?;
         tx.commit().context(cannot_write)?;

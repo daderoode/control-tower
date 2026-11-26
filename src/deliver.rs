@@ -45,10 +45,13 @@
 //! the owner's awareness (`Store::delivery_failed`); while it is open further failures are
 //! only logged, and a send that gets through ends it; one open longer than `EPISODE_EXPIRES`
 //! is told again. The item is a `system` post, so it goes to no worker: it cannot start a
-//! storm. A send that may have arrived (stopped at its limit, no answer) is logged only,
-//! never resent and no item. A send that went to someone else (`Sent::Misrouted`) always posts its
-//! own item naming who got it, open episode or not (`Store::misrouted`), tower's replies
-//! too: it is worse than a lost send.
+//! storm. A round's item is per board, but the recipients it could not reach because the
+//! relay's own run ended on the same error (`Prompted::cause`: a provider outage, which
+//! stops every send at once) are one item for that error, naming each on every board, in
+//! the thread of the first (#146). A send that may have arrived (stopped at its limit, no
+//! answer) is logged only, never resent and no item. A send that went to someone else
+//! (`Sent::Misrouted`) always posts its own item naming who got it, open episode or not
+//! (`Store::misrouted`), tower's replies too: it is worse than a lost send.
 //!
 //! A worker the board knew that the terminal no longer has is the owner's item only while it
 //! can still need the posts: it is the assignee of a task not done, or a post in the send is
@@ -107,7 +110,7 @@ pub const CATCH_UP: i64 = 60 * 60;
 /// and is listed a few seconds later (#133).
 pub const START_GRACE: i64 = 60;
 /// The most characters of a failure's reason a failure item quotes.
-const WHY_CHARS: usize = 300;
+pub(crate) const WHY_CHARS: usize = 300;
 /// How tower's reply to a post's author starts after "@<author> ", when the post named
 /// someone no worker on the board is: the reply goes to that author, and only to it.
 pub const UNKNOWN_NAME: &str = "no worker is named ";
@@ -537,10 +540,28 @@ fn failure_text(lines: &[&str]) -> String {
     if let [line] = lines {
         return format!("{DELIVERY_FAILURE}{line}. Its posts stay on the board.");
     }
-    let mut text = format!(
+    let head = format!(
         "{DELIVERY_FAILURE}{} recipients; their posts stay on the board:",
         lines.len()
     );
+    listing(head, lines)
+}
+
+/// The one delivery failure item for the recipients one error stopped (`cause`, the relay's
+/// own run ending on it), on every board, naming each (`names`, "dev-1 (R1)"): one item for
+/// one cause (#146).
+fn cause_text(cause: &str, names: &[&str]) -> String {
+    let cause: String = cause.chars().take(WHY_CHARS).collect();
+    let head = format!(
+        "{DELIVERY_FAILURE}{} recipients, all on one error: the relay's run ended on \"{cause}\". \
+         Their posts stay on the board:",
+        names.len()
+    );
+    listing(head, names)
+}
+
+/// `head`, then a line per item of `lines`, as many as fit in a board message.
+fn listing(mut text: String, lines: &[&str]) -> String {
     for (i, line) in lines.iter().enumerate() {
         let one = format!("\n- {line}");
         // Room for the last line; the watch log names every one.
@@ -554,6 +575,47 @@ fn failure_text(lines: &[&str]) -> String {
         text.push_str(&one);
     }
     text
+}
+
+/// A recipient a round could not reach, for its failure item.
+struct Failure {
+    /// The board of its first post, and that post's thread, where its item goes.
+    board: RepoId,
+    thread: ThreadId,
+    /// Its failure episode's key (`Recipient::key`).
+    key: String,
+    /// What a board's item says of it (`failure_line`), and an item for one cause
+    /// (`cause_text`): "dev-1 (R1)".
+    line: String,
+    named: String,
+    /// Its log line.
+    said: String,
+    /// The error the send shares with every send it stopped (`Prompted::cause`), if any.
+    cause: Option<String>,
+}
+
+/// The items for a round's `failed`, in order of their first failure, each its cause and
+/// the failures (indexes) it names: the failures sharing a cause with another, on any
+/// board, are one item for that cause (#146); the rest are one item per board.
+fn items(failed: &[Failure]) -> Vec<(Option<&str>, Vec<usize>)> {
+    let mut items: Vec<(Option<&str>, RepoId, Vec<usize>)> = Vec::new();
+    for (i, f) in failed.iter().enumerate() {
+        let cause = (f.cause.as_deref()).filter(|&c| {
+            (failed.iter())
+                .filter(|o| o.cause.as_deref() == Some(c))
+                .count()
+                > 1
+        });
+        let at = (items.iter()).position(|(c, b, _)| match cause {
+            Some(_) => *c == cause,
+            None => c.is_none() && *b == f.board,
+        });
+        match at {
+            Some(at) => items[at].2.push(i),
+            None => items.push((cause, f.board, vec![i])),
+        }
+    }
+    items.into_iter().map(|(c, _, g)| (c, g)).collect()
 }
 
 /// The delivery side of the watch: the board it drains and the terminal it prompts through.
@@ -616,10 +678,9 @@ impl Deliver {
         let mut held: BTreeSet<usize> = BTreeSet::new();
         // The terminal's agent names, asked once, before the first worker send.
         let mut agents: Option<Result<Vec<String>, String>> = None;
-        // The recipients not reached, by board: the thread of the board's first failure,
-        // then (key, line for the item, log line) for each, told in one item per board.
-        type Failed = (RepoId, ThreadId, Vec<(String, String, String)>);
-        let mut failed: Vec<Failed> = Vec::new();
+        // The recipients not reached, in order, told in one item per board, or per cause
+        // when several share one (`items`).
+        let mut failed: Vec<Failure> = Vec::new();
         // What each post's author is told, in one reply per post.
         let mut tells: Vec<Told> = Vec::new();
         for mut batch in plan(&pending) {
@@ -733,21 +794,22 @@ impl Deliver {
                     continue;
                 }
             }
-            let (who, sent, gone) = match &batch.to {
+            let (who, sent, gone, cause) = match &batch.to {
                 Recipient::Worker(name) => {
-                    let sent = if listed {
+                    let (sent, cause) = if listed {
                         // A send that starts has its whole limit: the budget only stops the
                         // next one starting, so none is cut short and lost.
                         let text = worker_text(&posts);
                         let prompted =
                             (self.terminal).prompt(&self.db, name, &text, self.send_limit);
                         log.extend(prompted.trace);
-                        prompted.sent
+                        (prompted.sent, prompted.cause)
                     } else {
                         let terminal = self.terminal.name();
-                        Sent::Failed(format!("{terminal} has no agent named {name}"))
+                        let why = format!("{terminal} has no agent named {name}");
+                        (Sent::Failed(why), None)
                     };
-                    (name.clone(), sent, !listed)
+                    (name.clone(), sent, !listed, cause)
                 }
                 Recipient::Lead(_) => unreachable!("judged above, never sent"),
             };
@@ -798,21 +860,20 @@ impl Deliver {
                 }
                 Sent::Failed(why) => {
                     let (m, thread) = (posts[0].repo, posts[0].thread);
-                    let at = match failed.iter().position(|(b, _, _)| *b == m) {
-                        Some(i) => i,
-                        None => {
-                            failed.push((m, thread, Vec::new()));
-                            failed.len() - 1
-                        }
-                    };
                     let tasks = if gone {
                         pending.assigned_to(&who, m)
                     } else {
                         Vec::new()
                     };
-                    let line = failure_line(&batch.to, &why, &tasks);
-                    let said = format!("could not deliver {n} post(s) to {who}: {why}");
-                    failed[at].2.push((key, line, said));
+                    failed.push(Failure {
+                        board: m,
+                        thread,
+                        line: failure_line(&batch.to, &why, &tasks),
+                        named: format!("{who} ({m})"),
+                        said: format!("could not deliver {n} post(s) to {who}: {why}"),
+                        key,
+                        cause,
+                    });
                     continue;
                 }
             });
@@ -855,16 +916,26 @@ impl Deliver {
                 Err(e) => format!("failed to tell {} in {}: {e:#}", post.author, post.thread),
             });
         }
-        for (_, thread, failed) in &failed {
-            let thread = *thread;
-            let keys: Vec<&str> = failed.iter().map(|(k, _, _)| k.as_str()).collect();
-            let text = |opened: &[usize]| {
-                let lines: Vec<&str> = opened.iter().map(|&i| failed[i].1.as_str()).collect();
-                failure_text(&lines)
+        for (cause, group) in items(&failed) {
+            let failed: Vec<&Failure> = group.iter().map(|&i| &failed[i]).collect();
+            let thread = failed[0].thread;
+            let keys: Vec<&str> = failed.iter().map(|f| f.key.as_str()).collect();
+            let text = |opened: &[usize]| match cause {
+                Some(cause) if opened.len() > 1 => {
+                    let names: Vec<&str> =
+                        opened.iter().map(|&i| failed[i].named.as_str()).collect();
+                    cause_text(cause, &names)
+                }
+                _ => {
+                    let lines: Vec<&str> =
+                        opened.iter().map(|&i| failed[i].line.as_str()).collect();
+                    failure_text(&lines)
+                }
             };
             match store.delivery_failed(&keys, thread, now, text) {
                 Ok(told) => {
-                    for (i, (_, _, said)) in failed.iter().enumerate() {
+                    for (i, f) in failed.iter().enumerate() {
+                        let said = &f.said;
                         log.push(match &told {
                             Some((t, opened)) if opened.contains(&i) => {
                                 format!("{said}; told the owner in {t}")
@@ -873,9 +944,8 @@ impl Deliver {
                         });
                     }
                 }
-                Err(e) => (failed.iter()).for_each(|(_, _, said)| {
-                    log.push(format!("{said}; failed to tell the owner: {e:#}"))
-                }),
+                Err(e) => (failed.iter())
+                    .for_each(|f| log.push(format!("{}; failed to tell the owner: {e:#}", f.said))),
             }
         }
         Ok(log)
@@ -2517,6 +2587,90 @@ mod tests {
                 .iter()
                 .any(|(t, i)| *t == t2 && i.contains("ghost-2") && !i.contains("ghost-1")),
             "{items:?}"
+        );
+    }
+
+    /// The provider refuses the relay's own run for each of `names`, saying `error`, as on
+    /// 2026-11-25 (the error invented): the relay sends nothing.
+    fn outage(f: &Fixture, names: &[&str], error: &str) {
+        for name in names {
+            f.touch(&format!("relay-error-{name}"), error);
+        }
+    }
+
+    const OVERLOADED: &str = "The service is overloaded; try again shortly.";
+
+    #[test]
+    fn one_error_stopping_workers_on_two_boards_is_one_item_naming_each() {
+        let f = Fixture::new();
+        // The first failure is on R1, so the item is in its thread.
+        f.post("dev-1", "@qa-1 look");
+        let mut store = f.store();
+        let m2 = store.add_milestone("Other", "goal", None).unwrap();
+        store
+            .lead_milestone(m2, "Other", "other-lead", None)
+            .unwrap();
+        (store.open_thread(&BoardOf::Milestone(m2), "dev-2", None, "q", "@qa-2 hi")).unwrap();
+        outage(&f, &["qa-1", "qa-2"], OVERLOADED);
+        let log = f.drain();
+        // Each is still its own failure, told in the one item on the first's board.
+        for who in ["qa-1", "qa-2"] {
+            assert!(
+                log.iter().any(|l| l.starts_with(&format!(
+                    "could not deliver 1 post(s) to {who}: \
+                     the relay sent nothing; it said: {OVERLOADED:?}"
+                )) && l.ends_with("told the owner in T1")),
+                "{log:?}"
+            );
+        }
+        // Today's rule, one item per board, gave two.
+        let items = f.items();
+        assert_eq!(items.len(), 1, "{items:?}");
+        let item = &items[0];
+        assert!(
+            item.starts_with(&format!(
+                "@manager could not deliver to 2 recipients, all on one error: the relay's run \
+                 ended on \"{OVERLOADED}\". Their posts stay on the board:\n- qa-1 (R1)\n- qa-2 (R"
+            )),
+            "{item}"
+        );
+        assert!(!item.contains("qa-2 (R1)"), "{item}");
+        // Their episodes are open: the same error next round tells no one again.
+        f.post("dev-1", "@qa-1 again");
+        assert!(
+            f.drain()
+                .iter()
+                .any(|l| l.ends_with("(the owner was told already)"))
+        );
+        assert_eq!(f.items().len(), 1);
+    }
+
+    #[test]
+    fn a_failure_with_no_cause_or_another_error_beside_a_shared_one_keeps_its_boards_item() {
+        let f = Fixture::new();
+        outage(&f, &["qa-1", "qa-2"], OVERLOADED);
+        outage(&f, &["qa-3"], "Rate limited until 10:00.");
+        f.fail("dev-2", "No agent named 'dev-2' is reachable.");
+        f.post("dev-1", "@qa-1 @qa-2 @qa-3 @dev-2 look");
+        f.drain();
+        let mut items = f.items();
+        items.sort();
+        // One item for the shared error; qa-3's own error and dev-2's refusal are the
+        // board's item, as before. Grouping by board alone gave one item naming all four;
+        // grouping by any cause would give qa-3 its own.
+        assert_eq!(
+            items,
+            [
+                format!(
+                    "@manager could not deliver to 2 recipients, all on one error: the relay's \
+                     run ended on \"{OVERLOADED}\". Their posts stay on the board:\n- qa-1 (R1)\n\
+                     - qa-2 (R1)"
+                ),
+                "@manager could not deliver to 2 recipients; their posts stay on the board:\n\
+                 - qa-3: the relay sent nothing; it said: \"Rate limited until 10:00.\"\n\
+                 - dev-2: the relay could not send it: \"No agent named 'dev-2' is reachable.\""
+                    .to_string(),
+            ]
         );
     }
 

@@ -831,7 +831,12 @@ has, a relay that sent nothing) opens a failure episode for that recipient and p
 item for the owner's awareness (not need-you), a `system` message starting "@manager could
 not deliver to" in the thread of the first post it carried (or a new "Delivery failed"
 thread when that one is resolved). A round posts one item per board, naming each recipient
-newly failing there and why, so a post naming several gone workers is one item. A recipient
+newly failing there and why, so a post naming several gone workers is one item. Recipients
+the relay could not reach because its own run ended on the same error (a provider outage:
+the run exits on an error result and sends nothing) are one item for that error instead,
+on whatever board, in the thread of the first: "@manager could not deliver to 3 recipients,
+all on one error: the relay's run ended on "...". Their posts stay on the board:", then
+each as "dev-1 (R1)". A recipient
 Rex has no worker for that is the assignee of a task not done on that board has its line
 end with how to clear it ("if it was closed: tower task unassign N, or set the next
 worker"). One Rex has no worker for that is the assignee of no task not done is the
@@ -965,7 +970,13 @@ and an idle lead is never woken while nothing is posted:
   working, or with a status that says nothing, is not raised, and an empty list (likelier a
   glitch than every Claude session gone) changes nothing. A list that cannot be read skips
   those leads for the look, with one log line. When a waiter runs again, the watch resolves
-  that thread, which takes the item off the alert line.
+  that thread, which takes the item off the alert line. Leads whose last turns ended on the
+  same API error (the text Claude Code's StopFailure hook passes as
+  `last_assistant_message`), raised in the same look, are one item: each lead's thread
+  opens as a plain record, and one more "Lead not listening" thread, on the first's repo,
+  carries the item, "@manager one error stopped 2 leads, so none of them is listening:
+  "...". Not listening: Catalogue, the lead of R1 (T3); ...". Each lead's thread still
+  resolves on its own.
 
 ## The board
 

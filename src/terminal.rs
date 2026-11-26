@@ -116,16 +116,24 @@ pub enum Sent {
 
 /// What a prompt did: how the send went, and the one line the module has on how it made it
 /// (for the relay: who, the text, its exit, duration, cost and answer), for the log.
+/// `cause` is the error a send that failed shares with every other send it stops: for the
+/// relay, the result its own Claude run ended on when that run ended on an error and sent
+/// nothing (a provider outage, say), never a refusal or anything about the recipient.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompted {
     pub sent: Sent,
     pub trace: Option<String>,
+    pub cause: Option<String>,
 }
 
 impl From<Sent> for Prompted {
-    /// A send with nothing more to log.
+    /// A send with nothing more to log, and no cause it shares.
     fn from(sent: Sent) -> Prompted {
-        Prompted { sent, trace: None }
+        Prompted {
+            sent,
+            trace: None,
+            cause: None,
+        }
     }
 }
 

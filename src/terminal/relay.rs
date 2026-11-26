@@ -238,6 +238,7 @@ fn verdict(to: &str, text: &str, outcome: Outcome, took: Duration) -> Prompted {
             return Prompted {
                 sent: Sent::Failed(format!("the relay could not run: {why:?}")),
                 trace: Some(trace),
+                cause: None,
             };
         }
         Outcome::TimedOut {
@@ -297,9 +298,19 @@ fn verdict(to: &str, text: &str, outcome: Outcome, took: Duration) -> Prompted {
     } else {
         Sent::Failed(format!("the relay sent nothing{}", ends()))
     };
+    // A run that ended on an error and sent nothing failed whoever it was for: its result
+    // (as the 2026-11-25 outage's "Claude Code can't use your Claude subscription, ...")
+    // is the cause every send it stops shares.
+    let sent_none = matches!(sent, Sent::Failed(_)) && stream.calls.is_empty();
+    let cause = (stream.result.as_ref())
+        .filter(|r| sent_none && r["is_error"] == true)
+        .and_then(|r| r["result"].as_str())
+        .map(|said| said.trim().to_string())
+        .filter(|said| !said.is_empty());
     Prompted {
         sent,
         trace: Some(trace(to, text, &how, secs, &stream, &stderr)),
+        cause,
     }
 }
 
@@ -542,6 +553,31 @@ mod tests {
                 .unwrap()
                 .starts_with("relay to dev-1: stopped at its 60 s limit")
         );
+    }
+
+    #[test]
+    fn a_run_that_ended_on_an_error_and_sent_nothing_carries_its_result_as_the_cause() {
+        let error = "The service is overloaded; try again shortly.";
+        let ended = |calls: &[(&str, &str, &str)], answers: &[(&str, &str)], is_error: bool| {
+            let result = serde_json::json!({"type": "result", "is_error": is_error,
+                "num_turns": 1, "result": format!(" {error}\n")});
+            format!("{}\n{result}", stream(calls, answers, false))
+        };
+        let got = sent(exited(1, ended(&[], &[], true)));
+        assert_eq!(
+            got.sent,
+            Sent::Failed(format!("the relay sent nothing; it said: {error:?}"))
+        );
+        assert_eq!(got.cause.as_deref(), Some(error));
+        // The same words from a run that ended well, or after a send it made that was
+        // refused, are about this send alone: no cause.
+        assert_eq!(sent(exited(0, ended(&[], &[], false))).cause, None);
+        let refused = sent(exited(
+            1,
+            ended(&[("t1", "dev-1", TEXT)], &[("t1", NO_ONE)], true),
+        ));
+        assert!(matches!(refused.sent, Sent::Failed(_)), "{refused:?}");
+        assert_eq!(refused.cause, None);
     }
 
     #[test]

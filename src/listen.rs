@@ -38,7 +38,10 @@
 //!   hook's count of such turns moved), opens
 //!   one "lead not listening" episode (one awareness item for the owner); a listener running
 //!   again resolves it. A lead woken by its waiter's end re-arms in that turn, so the gap
-//!   between the end and the re-arm never raises one. No terminal is asked.
+//!   between the end and the re-arm never raises one. No terminal is asked. Leads raised in
+//!   one look whose last turns ended on the same API error (the text the StopFailure hook
+//!   recorded, `turn_error`) are one item for the owner naming each: each lead's own
+//!   episode and thread still open, as a record with no item (#146).
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions, TryLockError};
@@ -52,7 +55,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 
-use crate::board::{Lead, RepoId, RepoOf, Stage};
+use crate::board::{Lead, RepoId, RepoOf, Stage, ThreadId};
 use crate::deliver::{Post, sanitise};
 use crate::store::Store;
 
@@ -435,6 +438,16 @@ struct HookInput {
     session_id: String,
 }
 
+/// What Claude Code passes a StopFailure hook on stdin, as far as this reads it: the
+/// session, and `last_assistant_message`, the text of the API error the turn ended on, as
+/// Claude Code shows it (absent when it has none). Claude Code also passes `error`, a kind
+/// such as `rate_limit`, which says less: two different errors can share a kind.
+#[derive(Deserialize)]
+struct FailureInput {
+    session_id: String,
+    last_assistant_message: Option<String>,
+}
+
 /// `tower lead hook`: given the Stop hook's JSON `input`, the hook's reply to print, or
 /// `None` to let the turn end. Only the Claude session a lead attached is held, and only
 /// while posts on its board are unread: the reply blocks the stop, naming them, and they
@@ -468,7 +481,7 @@ pub fn hook(db: &Path, input: &str) -> Result<Option<String>> {
         // Asked again inside the count's own write: a waiter whose lock lands meanwhile is
         // seen, or writes its baseline after the count (`Store::lead_turn_ended`).
         if !waiting {
-            store.lead_turn_ended(repo, &input.session_id, || listening(db, repo))?;
+            store.lead_turn_ended(repo, &input.session_id, None, || listening(db, repo))?;
         }
         return Ok(None);
     }
@@ -481,10 +494,11 @@ pub fn hook(db: &Path, input: &str) -> Result<Option<String>> {
 /// on an API error (a rate limit, an overload, the output limit), for which Claude Code runs
 /// no Stop hook. For the Claude session a lead attached, with no waiter running, it counts as
 /// a turn ended without one (`Store::lead_turn_ended`), as a Stop that lets the turn end
-/// does. It never tells: Claude Code ignores this hook's output, so a telling would move the
-/// cursor past posts nobody saw. Any other session, and a board that does not exist, passes.
+/// does, with the error's text, so the watch can tell leads stopped by one error. It never
+/// tells: Claude Code ignores this hook's output, so a telling would move the cursor past
+/// posts nobody saw. Any other session, and a board that does not exist, passes.
 pub fn turn_failed(db: &Path, input: &str) -> Result<()> {
-    let input: HookInput = serde_json::from_str(input)
+    let input: FailureInput = serde_json::from_str(input)
         .context("the StopFailure hook's input is not what Claude Code sends")?;
     if !db.exists() {
         return Ok(());
@@ -493,7 +507,10 @@ pub fn turn_failed(db: &Path, input: &str) -> Result<()> {
         return Ok(());
     };
     if !listening(db, repo)? {
-        Store::open(db)?.lead_turn_ended(repo, &input.session_id, || listening(db, repo))?;
+        let error = (input.last_assistant_message.as_deref())
+            .map(str::trim)
+            .filter(|e| !e.is_empty());
+        Store::open(db)?.lead_turn_ended(repo, &input.session_id, error, || listening(db, repo))?;
     }
     Ok(())
 }
@@ -867,7 +884,9 @@ fn check(
     now: i64,
     unheard: &mut Unheard,
 ) -> Result<Vec<String>> {
-    let mut log = Vec::new();
+    // What this look says, a line or a lead found not listening, in lead order: the
+    // episodes open after the look (`open_deaf`), so leads one error stopped are one item.
+    let mut said: Vec<Said> = Vec::new();
     // The leads seen with no attached session and no listener in this look: every other
     // memory of one goes after it (a lead listening, attached, changed or taken off), so a
     // lead registered later starts its grace afresh.
@@ -875,23 +894,17 @@ fn check(
     for lead in store.leads()? {
         let repo = lead.repo;
         let name = &lead.lead.name;
-        // Opens the lead's "not listening" episode, saying `why`, unless one is open.
-        let deaf = |store: &mut Store, why: &str| -> Result<Option<String>> {
-            let text = format!(
-                "@manager {name}, the lead of {repo}, is not listening: no board waiter runs \
-                 and {why}, so posts on {repo} wait until it next looks. If a session leads \
-                 {repo}, it arms one with tower lead wait {repo}, run with Bash \
-                 run_in_background; if nobody leads {repo} any more, take the lead off with \
-                 tower lead remove {repo}."
-            );
-            let opened = store.lead_deaf(repo, &text, now)?;
-            Ok(opened.map(|t| {
-                format!(
-                    "{name}, the lead of {repo}, is not listening ({why}); told the owner in {t}"
-                )
-            }))
+        // The lead is not listening, saying `why`, for the error its last turn ended on,
+        // `cause`, if any.
+        let deaf = |why: &'static str, cause: Option<String>| -> Result<Option<Said>> {
+            Ok(Some(Said::Deaf(Deaf {
+                repo,
+                name: name.clone(),
+                why,
+                cause,
+            })))
         };
-        let step = (|| -> Result<Option<String>> {
+        let step = (|| -> Result<Option<Said>> {
             if listening(db, repo)? {
                 // The count as the waiter runs is the baseline: a turn that ends after the
                 // waiter ends, without re-arming, moves it, however soon after this look.
@@ -901,8 +914,11 @@ fn check(
                 let evidence =
                     format!("{name} is listening again: its board waiter for {repo} runs.");
                 let ended = store.lead_listening(repo, &evidence, now)?;
-                return Ok(ended
-                    .map(|t| format!("{name}, the lead of {repo}, listens again; resolved {t}")));
+                return Ok(ended.map(|t| {
+                    Said::Line(format!(
+                        "{name}, the lead of {repo}, listens again; resolved {t}"
+                    ))
+                }));
             }
             // A lead with no attached Claude session has no session to look for: once the
             // watch has seen it with no listener for `NO_SESSION_GRACE`, it is not
@@ -916,8 +932,8 @@ fn check(
                     return Ok(None);
                 }
                 return deaf(
-                    store,
                     "no Claude session is attached to it (tower lead attach)",
+                    None,
                 );
             };
             let sessions =
@@ -931,8 +947,8 @@ fn check(
                 return Ok(None);
             }
             let found = (sessions.iter()).find(|s| s.session_id.as_deref() == Some(session));
-            let why = match found.map(Status::of) {
-                None => "its Claude session is gone",
+            let (why, cause) = match found.map(Status::of) {
+                None => ("its Claude session is gone", None),
                 Some(Status::Idle) => {
                     // Idle with no listener is the gap between a waiter's end and the lead's
                     // re-arm until the lead has finished a turn without a waiter since the
@@ -947,7 +963,12 @@ fn check(
                             return Ok(None);
                         }
                         Some(first) if first == lead.turns => return Ok(None),
-                        Some(_) => "its Claude session finished a turn without one",
+                        // A turn that ended on an API error names it, the cause it shares
+                        // with every lead and send that error stops.
+                        Some(_) => (
+                            "its Claude session finished a turn without one",
+                            lead.turn_error.clone(),
+                        ),
                     }
                 }
                 Some(Status::Working) => {
@@ -961,18 +982,126 @@ fn check(
                 // Nothing to judge by.
                 Some(Status::Unknown) => return Ok(None),
             };
-            deaf(store, why)
+            deaf(why, cause)
         })();
         match step {
-            Ok(Some(said)) => log.push(said),
+            Ok(Some(one)) => said.push(one),
             Ok(None) => {}
-            Err(e) => log.push(format!(
+            Err(e) => said.push(Said::Line(format!(
                 "could not check {name}, the lead of {repo}, is listening: {e:#}"
-            )),
+            ))),
         }
     }
     unheard.retain(|key, _| seen.contains(key));
-    Ok(log)
+    Ok(open_deaf(store, said, now))
+}
+
+/// What one lead's check says: a line for the log, or that the lead is not listening.
+enum Said {
+    Line(String),
+    Deaf(Deaf),
+}
+
+/// A lead the look found not listening: its repo and name, why, and the API error its last
+/// turn ended on (`cause`), if that is why.
+struct Deaf {
+    repo: RepoId,
+    name: String,
+    why: &'static str,
+    cause: Option<String>,
+}
+
+impl Deaf {
+    /// What its "not listening" thread says, with no `@manager`: the owner's item adds it.
+    fn text(&self) -> String {
+        let Deaf {
+            repo, name, why, ..
+        } = self;
+        format!(
+            "{name}, the lead of {repo}, is not listening: no board waiter runs and {why}, so \
+             posts on {repo} wait until it next looks. If a session leads {repo}, it arms one \
+             with tower lead wait {repo}, run with Bash run_in_background; if nobody leads \
+             {repo} any more, take the lead off with tower lead remove {repo}."
+        )
+    }
+}
+
+/// Opens the "not listening" episode of each lead in `said` with none open, at `now`, and
+/// returns the look's log, in lead order. Leads whose last turns ended on the same API
+/// error are one write and, when more than one opens, one item for the owner naming each
+/// (#146); any other lead's episode is its own item, as each always was.
+fn open_deaf(store: &mut Store, said: Vec<Said>, now: i64) -> Vec<String> {
+    let deaf: Vec<(usize, &Deaf)> = (said.iter().enumerate())
+        .filter_map(|(i, s)| match s {
+            Said::Deaf(d) => Some((i, d)),
+            Said::Line(_) => None,
+        })
+        .collect();
+    // The leads one write opens: those sharing a cause together, the rest alone.
+    let mut groups: Vec<Vec<(usize, &Deaf)>> = Vec::new();
+    for &(i, d) in &deaf {
+        let with = (d.cause.as_ref())
+            .and_then(|c| (groups.iter()).position(|g| g[0].1.cause.as_ref() == Some(c)));
+        match with {
+            Some(g) => groups[g].push((i, d)),
+            None => groups.push(vec![(i, d)]),
+        }
+    }
+    let mut lines: HashMap<usize, String> = HashMap::new();
+    for group in &groups {
+        let texts: Vec<(String, String)> = (group.iter())
+            .map(|(_, d)| (format!("@manager {}", d.text()), d.text()))
+            .collect();
+        let leads: Vec<(RepoId, &str, &str)> = (group.iter().zip(&texts))
+            .map(|((_, d), (item, plain))| (d.repo, item.as_str(), plain.as_str()))
+            .collect();
+        let shared = |opened: &[(usize, ThreadId)]| {
+            let cause: String = (group[0].1.cause.as_deref().unwrap_or_default())
+                .chars()
+                .take(crate::deliver::WHY_CHARS)
+                .collect();
+            let named: Vec<String> = (opened.iter())
+                .map(|&(i, t)| {
+                    let d = group[i].1;
+                    format!("{}, the lead of {} ({t})", d.name, d.repo)
+                })
+                .collect();
+            format!(
+                "@manager one error stopped {} leads, so none of them is listening: \"{cause}\". \
+                 Not listening: {}. Each one's thread says how to arm its waiter again; posts \
+                 on its board wait until it next looks.",
+                opened.len(),
+                named.join("; ")
+            )
+        };
+        match store.leads_deaf(&leads, now, shared) {
+            Ok(opened) => {
+                for (i, t) in opened {
+                    let (at, d) = group[i];
+                    let line = format!(
+                        "{}, the lead of {}, is not listening ({}); told the owner in {t}",
+                        d.name, d.repo, d.why
+                    );
+                    lines.insert(at, line);
+                }
+            }
+            Err(e) => {
+                for &(at, d) in group {
+                    let line = format!(
+                        "could not check {}, the lead of {}, is listening: {e:#}",
+                        d.name, d.repo
+                    );
+                    lines.insert(at, line);
+                }
+            }
+        }
+    }
+    (said.into_iter().enumerate())
+        .filter_map(|(i, s)| match s {
+            Said::Line(line) => Some(line),
+            Said::Deaf(_) => lines.remove(&i),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1335,6 +1464,108 @@ mod tests {
         let held = open_lock(&lock_path(db, RepoId(repo))).unwrap();
         held.try_lock().unwrap();
         Held(held)
+    }
+
+    /// `session` ends a turn on an API error that says `error`: its StopFailure hook runs.
+    fn turn_fails(db: &Path, session: &str, error: &str) {
+        let input = serde_json::json!({
+            "session_id": session,
+            "hook_event_name": "StopFailure",
+            "error": "server_error",
+            "last_assistant_message": format!("{error}\n"),
+        });
+        turn_failed(db, &input.to_string()).unwrap();
+    }
+
+    /// The text of the first message of thread `t` on `repo`'s board.
+    fn opener(store: &mut Store, repo: i64, t: i64) -> String {
+        let board = store.load().unwrap();
+        let repo = (board.repos.iter()).find(|r| r.id == RepoId(repo)).unwrap();
+        let thread = (repo.threads.iter())
+            .find(|th| th.id == ThreadId(t))
+            .unwrap();
+        thread.messages[0].text.clone()
+    }
+
+    const OVERLOADED: &str = "The service is overloaded; try again shortly.";
+
+    #[test]
+    fn leads_one_error_stops_in_one_look_are_one_item_naming_each() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        store.attach_lead(RepoId(2), "sess-2").unwrap();
+        let idle = agents(&[("sess-1", "idle"), ("sess-2", "idle")]);
+        // Seen first idle with no waiter: the baseline. Then the provider fails both turns.
+        assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+        turn_fails(&db, "sess-1", OVERLOADED);
+        turn_fails(&db, "sess-2", OVERLOADED);
+        // Each lead's own thread (T3, T4) opens; the owner is told once, in T5.
+        assert_eq!(
+            look_with(&mut store, &db, &idle, 30),
+            [
+                "Catalogue, the lead of R1, is not listening (its Claude session finished a turn \
+                 without one); told the owner in T5",
+                "Other, the lead of R2, is not listening (its Claude session finished a turn \
+                 without one); told the owner in T5",
+            ]
+        );
+        // Before, each opened its own item: two.
+        assert_eq!(
+            items(&mut store),
+            [format!(
+                "@manager one error stopped 2 leads, so none of them is listening: \
+                 \"{OVERLOADED}\". Not listening: Catalogue, the lead of R1 (T3); Other, the lead \
+                 of R2 (T4). Each one's thread says how to arm its waiter again; posts on its \
+                 board wait until it next looks."
+            )]
+        );
+        // Each thread is on the record, with no item of its own.
+        assert!(
+            opener(&mut store, 1, 3).starts_with(
+                "Catalogue, the lead of R1, is not listening: no board waiter runs and its Claude \
+                 session finished a turn without one, so posts on R1 wait"
+            ),
+            "{}",
+            opener(&mut store, 1, 3)
+        );
+        assert!(opener(&mut store, 2, 4).starts_with("Other, the lead of R2, is not listening"));
+        // Each ends on its own: R1 listening again resolves T3 alone, and is not raised again.
+        let held = waiter_runs(&db, 1);
+        assert_eq!(
+            look_with(&mut store, &db, &idle, 40),
+            ["Catalogue, the lead of R1, listens again; resolved T3"]
+        );
+        drop(held);
+        let deaf: Vec<Option<ThreadId>> = store.leads().unwrap().iter().map(|l| l.deaf).collect();
+        assert_eq!(deaf, [None, Some(ThreadId(4))]);
+        assert!(look_with(&mut store, &db, &idle, 50).is_empty());
+    }
+
+    #[test]
+    fn leads_stopped_by_different_errors_or_none_are_an_item_each() {
+        for second in [Some("Rate limited until 10:00."), None] {
+            let (_dir, db, mut store) = board();
+            store.attach_lead(RepoId(1), "sess-1").unwrap();
+            store.attach_lead(RepoId(2), "sess-2").unwrap();
+            let idle = agents(&[("sess-1", "idle"), ("sess-2", "idle")]);
+            assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+            turn_fails(&db, "sess-1", OVERLOADED);
+            match second {
+                Some(error) => turn_fails(&db, "sess-2", error),
+                // A turn that ended well: its Stop records no error.
+                None => {
+                    turn_fails(&db, "sess-2", OVERLOADED);
+                    ends_turn(&db, "sess-2");
+                }
+            }
+            // Grouping every failed turn, whatever its error, or keeping the error of an
+            // earlier turn, would make these one item.
+            assert_eq!(look_with(&mut store, &db, &idle, 30).len(), 2);
+            let items = items(&mut store);
+            assert_eq!(items.len(), 2, "{second:?}: {items:?}");
+            assert!(items[0].starts_with("@manager Catalogue, the lead of R1, is not listening"));
+            assert!(items[1].starts_with("@manager Other, the lead of R2, is not listening"));
+        }
     }
 
     #[test]
