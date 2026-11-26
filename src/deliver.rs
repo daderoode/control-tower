@@ -1027,7 +1027,7 @@ mod tests {
             post(3, None, "dev-2", "@cat-lead and @Catalogue"),
         ]);
         let other = batch(Recipient::Lead(lead(2, "Other", "other-lead")), &[0]);
-        assert_eq!(plan(&p), [other.clone()]);
+        assert_eq!(plan(&p), std::slice::from_ref(&other));
         p.leads
             .insert(0, lead(3, "Catalogue elsewhere", "cat-lead"));
         assert_eq!(plan(&p), [other]);
