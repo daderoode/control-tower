@@ -405,9 +405,12 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
 ",
     // `turn_error` is the API error the last turn its hooks counted ended on (StopFailure's
     // text), NULL for a turn that ended well (Stop): the cause the watch names when several
-    // leads stop on the same error in one look (#146).
+    // leads stop on the same error in one look (#146). `told_thread` is the thread of the
+    // owner's one item for those leads, while the lead's episode is open and named there;
+    // NULL when its episode is its own item. The last lead to leave it resolves it.
     "
     ALTER TABLE lead ADD COLUMN turn_error TEXT;
+    ALTER TABLE lead ADD COLUMN told_thread INTEGER REFERENCES thread(id) ON DELETE SET NULL;
 ",
 ];
 
@@ -1737,6 +1740,62 @@ fn tell_blocked_boards(tx: &Connection, blocker: TaskId, cannot_write: &str) -> 
 /// latest message, resolving the thread by it when it is evidence. Refuses a thread that
 /// is not on the board, a resolved one, and a progress or hand-off post in a thread linked
 /// to no task.
+/// The lead of `repo` leaves the owner's item it shared with other leads (`told_thread`),
+/// if any, as its episode ends: once no other lead is named there, the item's thread is
+/// resolved by `system` at `at`, unless someone resolved it already, with a line saying so
+/// and the last one's `evidence`. Returns that thread when this resolved it.
+fn leave_told(
+    tx: &Connection,
+    repo: RepoId,
+    evidence: &str,
+    at: i64,
+    cannot_write: &str,
+) -> Result<Option<ThreadId>> {
+    let told: Option<i64> = tx
+        .query_row(
+            "SELECT told_thread FROM lead WHERE repo_id = ?1",
+            params![repo.0],
+            |r| r.get(0),
+        )
+        .optional()
+        .context(cannot_write.to_string())?
+        .flatten();
+    let Some(told) = told else {
+        return Ok(None);
+    };
+    tx.execute(
+        "UPDATE lead SET told_thread = NULL WHERE repo_id = ?1",
+        params![repo.0],
+    )
+    .context(cannot_write.to_string())?;
+    let (others, open): (i64, bool) = tx
+        .query_row(
+            "SELECT (SELECT count(*) FROM lead WHERE told_thread = ?1), \
+             (SELECT resolved_at IS NULL FROM thread WHERE id = ?1)",
+            params![told],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .context(cannot_write.to_string())?;
+    if others > 0 || !open {
+        return Ok(None);
+    }
+    let text = check_message(
+        "evidence",
+        &format!("Every lead named here listens again or was taken off; the last: {evidence}"),
+    )?;
+    let thread = ThreadId(told);
+    append(
+        tx,
+        thread,
+        SYSTEM_AUTHOR,
+        &text,
+        Kind::Evidence,
+        at,
+        cannot_write,
+    )?;
+    Ok(Some(thread))
+}
+
 fn append(
     tx: &Connection,
     thread: ThreadId,
@@ -2029,6 +2088,15 @@ impl Store {
             "SELECT id FROM thread_board WHERE repo_id = ?2",
             repo.0,
         )?;
+        // Its lead leaves any item it shared with other leads, on another board; one on this
+        // board goes with it, and the others' `told_thread` with it (ON DELETE SET NULL).
+        if let Some(lead) = &lead {
+            let evidence = format!(
+                "{}, the lead of {repo}, was taken off with {repo}.",
+                lead.name
+            );
+            leave_told(&tx, repo, &evidence, now()?, &cannot_write)?;
+        }
         for sql in [
             "DELETE FROM lead WHERE repo_id = ?1",
             "DELETE FROM message \
@@ -3691,7 +3759,8 @@ impl Store {
     /// more (several leads stopped by one cause in one look, #146), each thread gets its
     /// plain record and the owner one item, `shared` of the (index, thread) of those it
     /// opened, in a new "Lead not listening" thread on the first's board, which is the
-    /// thread each is said to be told in. Returns, for each it opened, its index in `leads`
+    /// thread each is said to be told in (`told_thread`), resolved once the last of them
+    /// listens again or is taken off (`leave_told`). Returns, for each it opened, its index in `leads`
     /// and the thread the owner was told in.
     pub fn leads_deaf(
         &mut self,
@@ -3756,6 +3825,11 @@ impl Store {
                 &cannot_write,
             )?;
             for told in &mut opened {
+                tx.execute(
+                    "UPDATE lead SET told_thread = ?1 WHERE repo_id = ?2",
+                    params![thread.0, leads[told.0].0.0],
+                )
+                .context(cannot_write.clone())?;
                 told.1 = thread;
             }
         }
@@ -3825,14 +3899,16 @@ impl Store {
     /// The lead of `repo` is listening: ends its "lead not listening" episode, if one is
     /// open, resolving its thread with `evidence` by `system` at `at` unless someone resolved
     /// it already, and takes its count of turns ended now as the baseline (`quiet_turns`), so
-    /// a turn it ends without re-arming from here on is seen. Returns the episode's thread,
-    /// or `None` when none was open.
+    /// a turn it ends without re-arming from here on is seen. When it was the last lead
+    /// open in an item shared with other leads (`told_thread`), that item's thread is
+    /// resolved too (`leave_told`). Returns the episode's thread and that item's, or `None`
+    /// when no episode was open.
     pub fn lead_listening(
         &mut self,
         repo: RepoId,
         evidence: &str,
         at: i64,
-    ) -> Result<Option<ThreadId>> {
+    ) -> Result<Option<(ThreadId, Option<ThreadId>)>> {
         let evidence = check_message("evidence", evidence)?;
         let cannot_write = self.cannot_write();
         let tx = self
@@ -3859,20 +3935,23 @@ impl Store {
                 &cannot_write,
             )?;
         }
+        let shared = leave_told(&tx, repo, &evidence, at, &cannot_write)?;
         tx.execute(
             "UPDATE lead SET deaf_thread = NULL, quiet_turns = turns WHERE repo_id = ?1",
             params![repo.0],
         )
         .context(cannot_write.clone())?;
         tx.commit().context(cannot_write)?;
-        Ok(open.map(|(thread, _)| ThreadId(thread)))
+        Ok(open.map(|(thread, _)| (ThreadId(thread), shared)))
     }
 
     /// Takes the lead of `repo` off the board, in one transaction: its row goes, so
     /// no session is its lead any more and the watch stops checking it, while the repo, its
     /// milestones, tasks and threads stay for the next lead (`tower lead add`). Its open
     /// "lead not listening" episode, if any, is resolved with `evidence` by `system` at `at`
-    /// (unless someone resolved it already), so its item leaves the alert line. Its name and
+    /// (unless someone resolved it already), so its item leaves the alert line, and so is an
+    /// item it shared with other leads once it was the last open there (`leave_told`). Its
+    /// name and
     /// session are kept as a retired lead's, so a mention of it is no worker's. Nothing
     /// else points at a lead: threads belong to the repo, and its cursor (`told_upto`),
     /// episode and seq are on its own row. Refuses a repo not on the board or with no lead.
@@ -3913,6 +3992,7 @@ impl Store {
                 &cannot_write,
             )?;
         }
+        leave_told(&tx, repo, &evidence, at, &cannot_write)?;
         tx.execute("DELETE FROM lead WHERE repo_id = ?1", params![repo.0])
             .context(cannot_write.clone())?;
         // Its names are no worker's from now on: a mention of it tells its author.

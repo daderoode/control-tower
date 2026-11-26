@@ -49,7 +49,8 @@ tag's date, and a new empty Unreleased goes above it.
   one item naming each, and the workers the relay could not reach in one round because its
   own run ended on the same error are one item naming each on every board, in the first's
   thread. Each lead's own "Lead not listening" thread still opens, with no item of its own,
-  and resolves when it listens again; a failure with no such error, or another one, keeps
+  and resolves when it listens again; the leads' one item resolves once the last lead it
+  names listens again or is taken off. A failure with no such error, or another one, keeps
   its own item.
 - **A blocker reaching Done in one repo wakes the lead of a task it blocks in another**
   (#144). `tower task blocked-by add` took a blocker in another repo, but moving it to Done

@@ -41,7 +41,8 @@
 //!   between the end and the re-arm never raises one. No terminal is asked. Leads raised in
 //!   one look whose last turns ended on the same API error (the text the StopFailure hook
 //!   recorded, `turn_error`) are one item for the owner naming each: each lead's own
-//!   episode and thread still open, as a record with no item (#146).
+//!   episode and thread still open, as a record with no item, and the item's thread
+//!   resolves once the last lead it names listens again or is taken off (#146).
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions, TryLockError};
@@ -914,9 +915,12 @@ fn check(
                 let evidence =
                     format!("{name} is listening again: its board waiter for {repo} runs.");
                 let ended = store.lead_listening(repo, &evidence, now)?;
-                return Ok(ended.map(|t| {
+                return Ok(ended.map(|(t, shared)| {
+                    let shared = shared.map_or(String::new(), |s| {
+                        format!(", and {s}, the owner's item it was the last open in")
+                    });
                     Said::Line(format!(
-                        "{name}, the lead of {repo}, listens again; resolved {t}"
+                        "{name}, the lead of {repo}, listens again; resolved {t}{shared}"
                     ))
                 }));
             }
@@ -1487,6 +1491,26 @@ mod tests {
         thread.messages[0].text.clone()
     }
 
+    /// Thread `t` on `repo`'s board.
+    fn thread_of(store: &mut Store, repo: i64, t: i64) -> crate::board::Thread {
+        let board = store.load().unwrap();
+        let repo = (board.repos.iter()).find(|r| r.id == RepoId(repo)).unwrap();
+        (repo.threads.iter())
+            .find(|th| th.id == ThreadId(t))
+            .unwrap()
+            .clone()
+    }
+
+    fn resolved(store: &mut Store, repo: i64, t: i64) -> bool {
+        thread_of(store, repo, t).resolved.is_some()
+    }
+
+    /// The text of the last message of thread `t` on `repo`'s board.
+    fn last_said(store: &mut Store, repo: i64, t: i64) -> String {
+        let thread = thread_of(store, repo, t);
+        thread.messages.last().unwrap().text.clone()
+    }
+
     const OVERLOADED: &str = "The service is overloaded; try again shortly.";
 
     #[test]
@@ -1539,6 +1563,59 @@ mod tests {
         let deaf: Vec<Option<ThreadId>> = store.leads().unwrap().iter().map(|l| l.deaf).collect();
         assert_eq!(deaf, [None, Some(ThreadId(4))]);
         assert!(look_with(&mut store, &db, &idle, 50).is_empty());
+        // The owner's item stays while R2 is still not listening.
+        assert_eq!(items(&mut store).len(), 1);
+        assert!(!resolved(&mut store, 1, 5));
+        // The last lead it names listens again: T4 and the item's T5 are resolved, with a
+        // line saying so, and nothing is left on the alert line. Before, T5 stayed open.
+        let held = waiter_runs(&db, 2);
+        assert_eq!(
+            look_with(&mut store, &db, &idle, 60),
+            [
+                "Other, the lead of R2, listens again; resolved T4, and T5, the owner's item it \
+                 was the last open in"
+            ]
+        );
+        drop(held);
+        assert!(items(&mut store).is_empty());
+        assert!(resolved(&mut store, 1, 5));
+        assert_eq!(
+            last_said(&mut store, 1, 5),
+            "Every lead named here listens again or was taken off; the last: Other is \
+             listening again: its board waiter for R2 runs."
+        );
+        // A new episode of either is its own again, and leaves T5 as it is.
+        ends_turn(&db, "sess-1");
+        assert_eq!(look_with(&mut store, &db, &idle, 70).len(), 1);
+        assert_eq!(items(&mut store).len(), 1);
+    }
+
+    #[test]
+    fn the_last_lead_of_a_shared_item_taken_off_resolves_it() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        store.attach_lead(RepoId(2), "sess-2").unwrap();
+        let idle = agents(&[("sess-1", "idle"), ("sess-2", "idle")]);
+        assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+        turn_fails(&db, "sess-1", OVERLOADED);
+        turn_fails(&db, "sess-2", OVERLOADED);
+        assert_eq!(look_with(&mut store, &db, &idle, 30).len(), 2);
+        // R1, the lead whose board holds the item, is taken off first: the item stays for R2.
+        store
+            .remove_lead(RepoId(1), "nobody leads R1 any more")
+            .unwrap();
+        assert!(!resolved(&mut store, 1, 5));
+        assert_eq!(items(&mut store).len(), 1);
+        store
+            .remove_lead(RepoId(2), "nobody leads R2 any more")
+            .unwrap();
+        assert!(resolved(&mut store, 1, 5));
+        assert_eq!(
+            last_said(&mut store, 1, 5),
+            "Every lead named here listens again or was taken off; the last: nobody leads R2 \
+             any more"
+        );
+        assert!(items(&mut store).is_empty());
     }
 
     #[test]

@@ -976,7 +976,8 @@ and an idle lead is never woken while nothing is posted:
   opens as a plain record, and one more "Lead not listening" thread, on the first's repo,
   carries the item, "@manager one error stopped 2 leads, so none of them is listening:
   "...". Not listening: Catalogue, the lead of R1 (T3); ...". Each lead's thread still
-  resolves on its own.
+  resolves on its own, and the item's thread resolves, with a line saying so, once the last
+  lead it names listens again or is taken off.
 
 ## The board
 
