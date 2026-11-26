@@ -42,6 +42,8 @@ class ControlTower < Formula
       REX_BIN_DIR, which it sets in its own tabs, so from a Rex tab link it into
       Homebrew's bin:
         ln -s "$REX_BIN_DIR/rex" "#{HOMEBREW_PREFIX}/bin/rex"
+      Once rex is linked, the watch reads only the workers in Rex, and skips its
+      looks while Rex is not running.
 
       Start the stuck-worker watch as a background service (it starts at login):
         brew services start control-tower

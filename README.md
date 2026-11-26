@@ -23,40 +23,39 @@ on the machine it is written on: SDLC.md, Building and testing.
 
 The owner starts work without typing `tower`, in either of two ways:
 
-- **From the dashboard, in Rex** (What Rex adds): select a repo without a lead (or anything in it), press `n` (or
-  click "new lead (n) ▶" on the alert line), type the goal in one line (up to 200
-  characters) and press Enter; Esc cancels and an empty goal is refused. The input says
-  where the lead starts: "new lead on search, its goal:". In one write the dashboard adds
-  the milestone in that repo (title and goal from that line) and registers its lead on the
-  repo, named after the repo: its name in lowercase ASCII letters and digits, each run of
-  anything else one `-`, plus `-lead` (`checkpoint-lead` on repo `checkpoint`,
-  `my-app-v2-lead` on `My App.v2`); in no repo yet, or for a name with no letter or digit,
-  after the milestone (`m4-lead`); a name another lead or a task's assignee has gets the
-  milestone id after it (`checkpoint-lead-m4`). It is both its name and its session, one
-  word a mention reads whole (`@checkpoint-lead`). The repo's row shows the lead at once,
-  and a second `n` on it is refused. Then it opens a new Rex session named
-  after the lead on the repo's main checkout, running `env TOWER_DB=<the dashboard's board,
-  absolute> claude -n <lead name> "/control-tower:lead <M>"`, so the lead uses the board
-  you are looking at. Rex does not show a new session in the app, so your focus stays where
-  it is. The skill finds itself registered, arms its board waiter and attaches. A repo has
-  one lead: on a repo that has one, or anything in it, `n` is refused, naming the repo and
-  its lead. A repo whose main checkout is not on the
-  board yet is refused too, saying to set it with `tower repo set R<n> --path <checkout>`,
-  and so is one whose main checkout is no longer a directory.
-  With something in no repo selected (or nothing), the milestone is added in no repo yet and
-  the session opens in your home directory, where the lead asks you for its repo's main
-  checkout, then to start it again there with `/control-tower:lead <M>` (the lead skill,
-  Where you run). The keys line says "started search-lead for M3 on
-  search in Rex". When Rex fails, the keys line says why and the start is undone in one
-  write: the milestone and the lead it registered are removed again (a milestone something
-  already uses, or a lead that has attached, stays), so `n` can simply be pressed again.
-  When `rex new` is stopped, or replies without the new session's id, the keys line also
-  says a session with that label may be left, to `rex kill`.
-  Every argument reaches Rex as its own word, never as a shell string, and of the goal only
-  the lead name does (made of letters, digits, spaces, `-`, `_` and `.`, starting with a
-  letter or digit). `TOWER_REX` names rex; else tower takes `rex` in `REX_BIN_DIR`, where
-  Rex keeps it and which Rex sets in its own tabs, else `rex` on the PATH. A rex that cannot
-  be found is refused before anything is written, saying what was tried.
+- **From the dashboard, in Rex** (What Rex adds): select a repo without a lead (or anything
+  in it), press `n` (or click "new lead (n) ▶" on the alert line), type the goal in one
+  line (up to 200 characters) and press Enter; Esc cancels and an empty goal is refused.
+  The input says where the lead starts: "new lead on search, its goal:". In one write the
+  dashboard adds the milestone in that repo (title and goal from that line) and registers
+  its lead on the repo, named after the repo: its name in lowercase ASCII letters and
+  digits, each run of anything else one `-`, plus `-lead` (`checkpoint-lead` on repo
+  `checkpoint`, `my-app-v2-lead` on `My App.v2`); in no repo yet, or for a name with no
+  letter or digit, after the milestone (`m4-lead`); a name another lead or a task's
+  assignee has gets the milestone id after it (`checkpoint-lead-m4`). It is both its name
+  and its session, one word a mention reads whole (`@checkpoint-lead`). The repo's row
+  shows the lead at once, and a second `n` on it is refused. Then it opens a new Rex
+  session named after the lead on the repo's main checkout, running `env TOWER_DB=<the
+  dashboard's board, absolute> claude -n <lead name> "/control-tower:lead <M>"`, so the
+  lead uses the board you are looking at. Rex does not show a new session in the app, so
+  your focus stays where it is. The skill finds itself registered, arms its board waiter
+  and attaches. A repo has one lead: on a repo that has one, or anything in it, `n` is
+  refused, naming the repo and its lead. A repo whose main checkout is not on the board yet
+  is refused too, saying to set it with `tower repo set R<n> --path <checkout>`, and so is
+  one whose main checkout is no longer a directory. With something in no repo selected (or
+  nothing), the milestone is added in no repo yet and the session opens in your home
+  directory, where the lead asks you for its repo's main checkout, then to start it again
+  there with `/control-tower:lead <M>` (the lead skill, Where you run). The keys line says
+  "started search-lead for M3 on search in Rex". When Rex fails, the keys line says why and
+  the start is undone in one write: the milestone and the lead it registered are removed
+  again (a milestone something already uses, or a lead that has attached, stays), so `n`
+  can simply be pressed again. When `rex new` is stopped, or replies without the new
+  session's id, the keys line also says a session with that label may be left, to `rex
+  kill`. Every argument reaches Rex as its own word, never as a shell string, and of the
+  goal only the lead name does (made of letters, digits, spaces, `-`, `_` and `.`, starting
+  with a letter or digit). `TOWER_REX` names rex; else tower takes `rex` in `REX_BIN_DIR`,
+  where Rex keeps it and which Rex sets in its own tabs, else `rex` on the PATH. A rex that
+  cannot be found is refused before anything is written, saying what was tried.
 - **From a session in progress:** `/control-tower:lead <the goal in words>` creates the
   milestone from those words and the conversation, then leads it; `/control-tower:lead M3`
   takes over M3. A session with no name is told which `/rename` to type.
@@ -648,21 +647,22 @@ starting workers as visible tabs); every look still runs. Once rex is found, the
 uses it, with no restart.
 
 With Rex, a look lists every session on the local Rex server and every block in each, and
-asks each terminal block for its program status, reading only the root record (a session's background shells and
-subagents report as child records, so a worker waiting on a background job reads as what it
-is). A block whose root record is Claude Code's, with the process that reported it, is
-joined by that process id to `claude agents --json`: the worker's name is that Claude
-session's name and its status the record's state (`idle`, `working`, `done`, `blocked` with
-what it waits on). Blocks running no Claude, and Claude sessions Claude does not list, are
-no one. Claude does not list a session still at its "trust this folder" dialog, so a worker
-started in a folder Claude has not trusted is not seen (no need-you item for that dialog,
-and orphaned after three looks if its task is in progress) until the folder is trusted:
-start workers in a trusted folder; a state the watch does not know is unknown, never idle.
-The look has a 15 second limit, and one call that fails (Rex found but not running, a block
-that cannot be read, `claude` failing) skips the whole look, says so, and looks again 20
-seconds later: a list half read never reads as workers gone. The watch never starts a Rex server.
-`TOWER_REX` names the rex executable, else `rex` in `$REX_BIN_DIR` (where Rex keeps it),
-else `rex` on the PATH; `TOWER_CLAUDE` names `claude`.
+asks each terminal block for its program status, reading only the root record (a session's
+background shells and subagents report as child records, so a worker waiting on a
+background job reads as what it is). A block whose root record is Claude Code's, with the
+process that reported it, is joined by that process id to `claude agents --json`: the
+worker's name is that Claude session's name and its status the record's state (`idle`,
+`working`, `done`, `blocked` with what it waits on). Blocks running no Claude, and Claude
+sessions Claude does not list, are no one. Claude does not list a session still at its
+"trust this folder" dialog, so a worker started in a folder Claude has not trusted is not
+seen (no need-you item for that dialog, and orphaned after three looks if its task is in
+progress) until the folder is trusted: start workers in a trusted folder; a state the watch
+does not know is unknown, never idle. The look has a 15 second limit, and one call that
+fails (Rex found but not running, a block that cannot be read, `claude` failing) skips the
+whole look, says so, and looks again 20 seconds later: a list half read never reads as
+workers gone. The watch never starts a Rex server. `TOWER_REX` names the rex executable,
+else `rex` in `$REX_BIN_DIR` (where Rex keeps it), else `rex` on the PATH; `TOWER_CLAUDE`
+names `claude`.
 
 A worker is linked to its live Claude session by name: **a task's assignee is the
 Claude session name of the worker on it** (compared ignoring case; the lead names it with
@@ -686,31 +686,31 @@ posted on a task nor been named there is on no team, and is not seen; nor is the
 unassigned task.
 
 - **Waiting on a prompt** (the terminal shows any member of the team blocked: at a
-  permission, question or credential prompt; without Rex, `waiting` in Claude Code's session
-  list): a message starting `question: @manager` at once, naming that member and the
-  terminal ("waiting on a prompt in Rex", or "in Claude Code"), and, with Rex, quoting what
-  the prompt asks ("It asks: approve Bash: ...", on one line, at most 200 characters), so it is a need-you item in the inbox
-  and on the alert line; two members waiting are two items. When the member leaves the
-  prompt, a plain note says "qa-2's prompt was answered."; the need-you item itself stays
-  until the owner clears it or its thread is resolved, as every need-you item does. The
-  signals below are the assignee's alone.
+  permission, question or credential prompt; without Rex, `waiting` in Claude Code's
+  session list): a message starting `question: @manager` at once, naming that member and
+  the terminal ("waiting on a prompt in Rex", or "in Claude Code"), and, with Rex, quoting
+  what the prompt asks ("It asks: approve Bash: ...", on one line, at most 200 characters),
+  so it is a need-you item in the inbox and on the alert line; two members waiting are two
+  items. When the member leaves the prompt, a plain note says "qa-2's prompt was
+  answered."; the need-you item itself stays until the owner clears it or its thread is
+  resolved, as every need-you item does. The signals below are the assignee's alone.
 - **Says it is stuck** (its own `blocked:` post): nothing for the watch.
 - **Stopped without reporting** (the assignee idle or done, no post for 5 min) and **silent
   while working** (task in progress, assignee working, no post for 30 min): the worker is
   nudged through the relay (Live delivery), "no post on #N for M min, post your status",
   and the nudge is recorded as a plain message, "nudged dev-1: ...", saying so if the
   terminal refused delivery ("Rex refused delivery", or "Claude Code" without Rex) or "not
-  confirmed by Rex" ("by Claude Code" without Rex) when it may have arrived (a nudge sent to
-  another session is recorded as an item for the owner naming who got it), with the relay's
-  line in the watch's log; with no post 2 minutes later, a message tells the lead. A task
-  flagged blocked is never nudged: its worker already said it is stuck, and the lead owns
-  it. An assignee whose own latest post on the task is a hand-off post (below) is never
-  nudged for being stopped: the work waits on the lead, who has that post unread. The
-  assignee's next post of any other kind ends that, and so does a later post by anyone
-  else in the task's thread that @mentions the assignee (the lead handing work back), so an assignee that stays
-  idle on it is nudged 5 minutes on; a reply that names no one, or names it only in
-  backticks, leaves the hand-off, and the watch's own posts never end it. Silent while
-  working still applies.
+  confirmed by Rex" ("by Claude Code" without Rex) when it may have arrived (a nudge sent
+  to another session is recorded as an item for the owner naming who got it), with the
+  relay's line in the watch's log; with no post 2 minutes later, a message tells the lead.
+  A task flagged blocked is never nudged: its worker already said it is stuck, and the lead
+  owns it. An assignee whose own latest post on the task is a hand-off post (below) is
+  never nudged for being stopped: the work waits on the lead, who has that post unread. The
+  assignee's next post of any other kind ends that, and so does a later post by anyone else
+  in the task's thread that @mentions the assignee (the lead handing work back), so an
+  assignee that stays idle on it is nudged 5 minutes on; a reply that names no one, or
+  names it only in backticks, leaves the hand-off, and the watch's own posts never end it.
+  Silent while working still applies.
 - **Orphaned** (task in progress, no live Claude session in the terminal's list by its
   assignee's name for three looks in a row): a message to the lead, saying it is "gone from
   Rex" ("gone from Claude Code" without Rex) and ending with how to clear it ("if it was
@@ -729,10 +729,10 @@ afresh; a prompt goes on while the old assignee is still on the team. Renaming a
 Claude session away from the assignee makes it look gone (orphaned after three looks), so
 rename the assignee with it. Each flag is raised once, and again only after its episode
 ends (the prompt answered or the member off the team, a post after the nudge, the worker
-back, the task Done, or for a nudge or orphan flag, reassigned). If the workers cannot be read, the
-watch skips that look and says so, rather than taking every worker for gone. `system`
-messages show their author in slate grey, a colour no role or lead has; no one else can
-post as `system`.
+back, the task Done, or for a nudge or orphan flag, reassigned). If the workers cannot be
+read, the watch skips that look and says so, rather than taking every worker for gone.
+`system` messages show their author in slate grey, a colour no role or lead has; no one
+else can post as `system`.
 
 A board written by an older `tower` is upgraded by `tower upgrade` (or by any other
 `tower` command that writes); until then `tower ui` says so instead of showing the tree.
@@ -766,20 +766,20 @@ send loses that one send, and no one is told.
   worker has finished and may be closed already; @mention it to reach it), reach the
   worker's Claude session as a message from `@control-tower`, through the relay (below),
   every control character but newline stripped first. Only to a worker the look finds in
-  the terminal's list by that name (its Claude session name, compared ignoring case, so `@Senior` reaches
-  senior). A name must start with a letter or digit. Never the post's author, a lead or the
-  owner, and never a `system` post (the watch nudges workers itself), except tower's reply
-  to an author below, which goes to that author. A name that is no worker there counts as
-  a failed send, so quote example names in backticks. Code is no mention: a name followed
-  straight by `(` and an ASCII character or the end of its line (`@cart(x)`), or by `.` and
-  an ASCII letter, digit or `_` (`@cart.isEmpty()`), while a sentence ending on a name
-  (`@qa.`) still mentions it, and so does a name before `.` or `(` and any character that
-  is not ASCII, such as Chinese or Japanese (`请@qa.谢谢`). While the workers cannot be read, posts
-  for workers wait (said once in the log) and go when it answers. A lead receives the posts
-  on its own board only, so a post naming another board's lead reaches no one there:
-  tower replies on the post's thread to its author, naming that lead's board (`R<n>`) and
-  how to post on it, a minute after the post, in the same one reply as any name in the post
-  no worker has had. The owner gets no item.
+  the terminal's list by that name (its Claude session name, compared ignoring case, so
+  `@Senior` reaches senior). A name must start with a letter or digit. Never the post's
+  author, a lead or the owner, and never a `system` post (the watch nudges workers itself),
+  except tower's reply to an author below, which goes to that author. A name that is no
+  worker there counts as a failed send, so quote example names in backticks. Code is no
+  mention: a name followed straight by `(` and an ASCII character or the end of its line
+  (`@cart(x)`), or by `.` and an ASCII letter, digit or `_` (`@cart.isEmpty()`), while a
+  sentence ending on a name (`@qa.`) still mentions it, and so does a name before `.` or
+  `(` and any character that is not ASCII, such as Chinese or Japanese (`请@qa.谢谢`). While
+  the workers cannot be read, posts for workers wait (said once in the log) and go when it
+  answers. A lead receives the posts on its own board only, so a post naming another
+  board's lead reaches no one there: tower replies on the post's thread to its author,
+  naming that lead's board (`R<n>`) and how to post on it, a minute after the post, in the
+  same one reply as any name in the post no worker has had. The owner gets no item.
 - **To the owner:** unchanged, the `@manager` items.
 
 **The relay.** tower cannot use Claude Code's cross-session messaging itself, so each send
@@ -798,18 +798,18 @@ named. Each send is a paid model call (about $0.003 to $0.006, and 6 to 10 secon
 Haiku), and the text is copied by a model, so it may not arrive verbatim.
 
 A worker at a prompt (any of its Claude sessions blocked in the terminal's list, looked up
-afresh just before the send) is sent nothing: the send fails "at a permission prompt (approve Bash:
-...)", naming the kind and, with Rex, what it asks. How a send went is read from the relay's own
-events, never from what the model says, and from a relay stopped at its 60 second limit the
-events it printed until then are read too. A SendMessage to any other session is a
-misroute: it always posts its own item for the owner naming who got it, whatever failure
-episode is open, for a post, tower's reply to an author or a nudge, and is never resent.
-Else a relay stopped at its limit may have arrived, so it is logged as unsure and never
-resent; a SendMessage to the worker that its tool answered as sent is delivered; one with
-no answer is unsure; one refused (as for a name no session has), or none at all, fails.
-What the relay or its tool said goes into the reason escaped on one line, as in its log
-line. A worker running with permissions bypassed holds a cross-session message for its own
-user's approval (Claude Code's rule), which the relay cannot see: that send reads as
+afresh just before the send) is sent nothing: the send fails "at a permission prompt
+(approve Bash: ...)", naming the kind and, with Rex, what it asks. How a send went is read
+from the relay's own events, never from what the model says, and from a relay stopped at
+its 60 second limit the events it printed until then are read too. A SendMessage to any
+other session is a misroute: it always posts its own item for the owner naming who got it,
+whatever failure episode is open, for a post, tower's reply to an author or a nudge, and is
+never resent. Else a relay stopped at its limit may have arrived, so it is logged as unsure
+and never resent; a SendMessage to the worker that its tool answered as sent is delivered;
+one with no answer is unsure; one refused (as for a name no session has), or none at all,
+fails. What the relay or its tool said goes into the reason escaped on one line, as in its
+log line. A worker running with permissions bypassed holds a cross-session message for its
+own user's approval (Claude Code's rule), which the relay cannot see: that send reads as
 delivered.
 
 Every send logs one line starting `relay to <name>:`: how the relay ended, how long it
@@ -820,49 +820,50 @@ text tower asked it to send, so the relay can be checked in use.
 A send to a name the terminal has no worker for waits first, until its oldest post is a
 minute old: a lead posts a worker's brief, then starts it, and the terminal lists the new
 session a few seconds later. Each round logs "1 post(s) for qa-7 wait: Rex has no agent
-named qa-7 yet; a worker may be starting" ("Claude Code has no agent" without Rex) and tries
-again, and the round the terminal lists the name, the send goes, with no
-item and no reply. Only that name's posts wait: every other recipient's go at once. A name
-still unlisted after the minute is one of the failures below. A send made only of tower's
-replies to an author never waits, since their author had started.
+named qa-7 yet; a worker may be starting" ("Claude Code has no agent" without Rex) and
+tries again, and the round the terminal lists the name, the send goes, with no item and no
+reply. Only that name's posts wait: every other recipient's go at once. A name still
+unlisted after the minute is one of the failures below. A send made only of tower's replies
+to an author never waits, since their author had started.
 
-A name the terminal has no worker for, that no worker on the board ever had (no task's assignee has
-had it and nobody has posted under it, in any case), is a name the post only seemed to give:
-an example like `@name`, a CSS rule like `@media`, or a worker's name misspelt. A lead
-taken off the board with `tower lead remove` counts as no worker too, though it posted there:
-a mention of it is its author's to fix. It raises no item for the owner. Instead
-tower replies on the post's thread, as `system`, to the post's author: "@dev-2 no worker is
-named `@name`, so your post reached no one by that name: ... If you meant a worker, check
-the name; if you were quoting, put it in backticks." A send to such a name is judged one
-post at a time, each once it is a minute old, so a post gets one reply naming every such
-name in it, a minute and up to a round (5 seconds) after the post, whatever is posted after
-it. The reply goes to a worker author like
-any post, once; a lead reads it through its board waiter, and the owner, when the post was
-theirs, finds it in the inbox for awareness. A reply that cannot reach its author (closed
-since it posted) is only logged, never an item for the owner. A reply is never written for
-tower's own posts, nor on a thread resolved meanwhile (the log says so).
+A name the terminal has no worker for, that no worker on the board ever had (no task's
+assignee has had it and nobody has posted under it, in any case), is a name the post only
+seemed to give: an example like `@name`, a CSS rule like `@media`, or a worker's name
+misspelt. A lead taken off the board with `tower lead remove` counts as no worker too,
+though it posted there: a mention of it is its author's to fix. It raises no item for the
+owner. Instead tower replies on the post's thread, as `system`, to the post's author:
+"@dev-2 no worker is named `@name`, so your post reached no one by that name: ... If you
+meant a worker, check the name; if you were quoting, put it in backticks." A send to such a
+name is judged one post at a time, each once it is a minute old, so a post gets one reply
+naming every such name in it, a minute and up to a round (5 seconds) after the post,
+whatever is posted after it. The reply goes to a worker author like any post, once; a lead
+reads it through its board waiter, and the owner, when the post was theirs, finds it in the
+inbox for awareness. A reply that cannot reach its author (closed since it posted) is only
+logged, never an item for the owner. A reply is never written for tower's own posts, nor on
+a thread resolved meanwhile (the log says so).
 
-Any other send that fails (a worker at a prompt, a worker the board knew that the terminal no
-longer has, a relay that sent nothing) opens a failure episode for that recipient and posts an item
-for the owner's awareness (not need-you), a `system` message starting "@manager could not
-deliver to" in the thread of the first post to the first recipient it names (or a new
-"Delivery failed" thread when that one is resolved). A round posts one item per board,
-naming each recipient newly failing there and why, so a post naming several gone workers is
-one item. Recipients the relay could not reach because its own run ended on the same error
-(a provider outage: the run exits on an error result and sends nothing) are one item for
-that error instead, on whatever board: "@manager could not deliver to 3 recipients, all on
-one error: the relay's run ended on "...". Their posts stay on the board:", then each as
-"dev-1 (R1)". A recipient the terminal has no worker for that is the assignee of a task not done on
-that board has its line end with how to clear it ("if it was closed: tower task unassign N,
-or set the next worker"). One it has no worker for that is the assignee of no task not done
-is the owner's item only when a post in the send is less than an hour old; an older one is a
-closed worker's, found by a watch catching up after a stop, and is only logged, opening no
-episode: "could not deliver 2 post(s) to dev-24: Rex has no agent named dev-24, a worker
-with no task not done and no post to it in the last hour; no item for the owner". A worker
-the terminal lists is sent its posts however old they are. While an episode is open, further failures
-to that recipient are only logged; a send that gets through ends it, and one still failing
-after an hour is told again with a new item. A send that may have arrived (the relay stopped
-at its limit, or a SendMessage with no answer) is logged only, and never resent.
+Any other send that fails (a worker at a prompt, a worker the board knew that the terminal
+no longer has, a relay that sent nothing) opens a failure episode for that recipient and
+posts an item for the owner's awareness (not need-you), a `system` message starting
+"@manager could not deliver to" in the thread of the first post to the first recipient it
+names (or a new "Delivery failed" thread when that one is resolved). A round posts one item
+per board, naming each recipient newly failing there and why, so a post naming several gone
+workers is one item. Recipients the relay could not reach because its own run ended on the
+same error (a provider outage: the run exits on an error result and sends nothing) are one
+item for that error instead, on whatever board: "@manager could not deliver to 3
+recipients, all on one error: the relay's run ended on "...". Their posts stay on the
+board:", then each as "dev-1 (R1)". A recipient the terminal has no worker for that is the
+assignee of a task not done on that board has its line end with how to clear it ("if it was
+closed: tower task unassign N, or set the next worker"). One it has no worker for that is
+the assignee of no task not done is the owner's item only when a post in the send is less
+than an hour old; an older one is a closed worker's, found by a watch catching up after a
+stop, and is only logged, opening no episode: "could not deliver 2 post(s) to dev-24: Rex
+has no agent named dev-24, a worker with no task not done and no post to it in the last
+hour; no item for the owner". A worker the terminal lists is sent its posts however old
+they are. While an episode is open, further failures to that recipient are only logged; a
+send that gets through ends it, and one still failing after an hour is told again with a
+new item. A send that may have arrived (the relay stopped at its limit, or a SendMessage
+with no answer) is logged only, and never resent.
 
 ### How posts reach a lead
 
@@ -1030,13 +1031,14 @@ on an Intel Mac `brew install` refuses with Homebrew's own message.
 
 `brew install` puts `tower` on your PATH. `brew services start` runs the stuck-worker
 watch, `tower watch`, as a launchd service: it starts at login, restarts if it stops, and
-logs to `$(brew --prefix)/var/log/control-tower.log`. No terminal tab is needed for it.
-To use Rex, the watch finds rex on the Homebrew PATH. Rex keeps `rex` in `$REX_BIN_DIR`,
-not on the PATH, so the log says once which path it tried: link it into Homebrew's bin
-(`ln -s "$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with `REX_BIN_DIR` as a Rex tab has
-it); the next look finds it. A watch run by hand takes its full path in `TOWER_REX`. Brew does
-not restart the service on `brew upgrade`; the watch notices its binary changed and
-restarts itself between looks, logging one line.
+logs to `$(brew --prefix)/var/log/control-tower.log`. No terminal tab is needed for it. To
+use Rex, the watch finds rex on the Homebrew PATH. Rex keeps `rex` in `$REX_BIN_DIR`, not
+on the PATH, so the log says once which path it tried: link it into Homebrew's bin (`ln -s
+"$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with `REX_BIN_DIR` as a Rex tab has it);
+the next look finds it. Once rex is linked, the watch reads only the workers in Rex, and
+skips its looks while Rex is not running. A watch run by hand takes its full path in
+`TOWER_REX`. Brew does not restart the service on `brew upgrade`; the watch notices its
+binary changed and restarts itself between looks, logging one line.
 
 The lead skill is a Claude Code plugin in `claude-plugin/`, `control-tower`; this repo is
 its marketplace, also `control-tower`. A lead starts it with `/control-tower:lead M1`.
@@ -1088,9 +1090,10 @@ module, adds:
 ### The dashboard's keys in Rex
 
 The dashboard is `tower ui`, in any terminal. In Rex, two keys bring it into view, as Rex
-actions that brew installs in `$(brew --prefix)/opt/control-tower/share/control-tower/rex/control-tower.lua`,
-with brew's prefix written in. Nothing loads that file until you do: add to
-`~/.config/rex/init.lua`, with the keys you want, and run `rex config reload`:
+actions that brew installs in
+`$(brew --prefix)/opt/control-tower/share/control-tower/rex/control-tower.lua`, with brew's
+prefix written in. Nothing loads that file until you do: add to `~/.config/rex/init.lua`,
+with the keys you want, and run `rex config reload`:
 
     dofile("/opt/homebrew/opt/control-tower/share/control-tower/rex/control-tower.lua")
     rex.bind("<key>", "tower_space")
