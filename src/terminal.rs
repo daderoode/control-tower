@@ -291,13 +291,17 @@ pub trait Terminal: Send + Sync {
 }
 
 /// A Claude session as `claude agents --json` lists it, as far as control-tower reads it.
-/// A `status` or `waitingFor` that is not a string is none (`text`), so it reads as a value
-/// the core does not know, never as a list that cannot be read.
+/// Each entry stands alone: a field of another type is none (`text`, `integer`), so an
+/// odd entry is a session with nothing to know it by (no name, no one), and a `status` or
+/// `waitingFor` of another type a value the core does not know, never a list that cannot
+/// be read.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct Listed {
+    #[serde(default, deserialize_with = "text")]
     pub name: Option<String>,
-    #[serde(rename = "sessionId")]
+    #[serde(default, rename = "sessionId", deserialize_with = "text")]
     pub session_id: Option<String>,
+    #[serde(default, deserialize_with = "integer")]
     pub pid: Option<i64>,
     #[serde(default, deserialize_with = "text")]
     pub status: Option<String>,
@@ -312,6 +316,12 @@ fn text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Err
         serde_json::Value::String(s) => Some(s),
         _ => None,
     })
+}
+
+/// A JSON integer (within an i64) as itself; any other value, null included, as none.
+fn integer<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    use serde::Deserialize;
+    Ok(serde_json::Value::deserialize(d)?.as_i64())
 }
 
 /// Claude Code's session list: `claude agents --json`, run from `claude` within `timeout`.
@@ -551,8 +561,11 @@ mod tests {
             // Not strings: a value the core does not know, never a list it cannot read.
             serde_json::json!({"name": "odd-type", "status": 1}),
             serde_json::json!({"name": "odd-wait", "status": "waiting", "waitingFor": {"x": 1}}),
-            // No name: no one, whatever its status.
+            // No name, or one that is not a string: no one, whatever its status. A pid or
+            // sessionId that is not the type listed fails nothing.
             session(None, Some("waiting"), Some("permission prompt")),
+            serde_json::json!({"name": 7, "status": "busy"}),
+            serde_json::json!({"name": "odd-ids", "pid": "301", "sessionId": 5, "status": "idle"}),
             background,
         ]);
         let got = core
@@ -571,6 +584,7 @@ mod tests {
                 agent("silent", Status::Unknown),
                 agent("odd-type", Status::Unknown),
                 agent("odd-wait", Status::Blocked(None)),
+                agent("odd-ids", Status::Idle),
                 agent("bg", Status::Blocked(Some(Kind::Question))),
             ]
         );

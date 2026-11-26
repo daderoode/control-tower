@@ -1902,6 +1902,58 @@ mod tests {
         assert!(items(&mut store).is_empty());
     }
 
+    /// `list` (a `claude agents --json` list) with another session after it whose name is
+    /// not a string and whose pid and sessionId are not the types Claude lists.
+    fn with_odd_entry(list: &str) -> String {
+        let mut list: Vec<serde_json::Value> = serde_json::from_str(list).unwrap();
+        list.push(serde_json::json!({
+            "sessionId": 9, "name": 5, "pid": "301", "kind": "interactive", "status": "busy",
+        }));
+        serde_json::Value::Array(list).to_string()
+    }
+
+    #[test]
+    fn an_odd_entry_for_another_session_never_stops_the_lead_being_judged() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        let idle = with_odd_entry(&agents(&[("sess-1", "idle")]));
+        assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+        ends_turn(&db, "sess-1");
+        let log = look_with(&mut store, &db, &idle, 20);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "Catalogue, the lead of R1, is not listening (its Claude session finished a turn \
+                 without one)"
+            ),
+            "{log:?}"
+        );
+    }
+
+    #[test]
+    fn an_odd_entry_for_another_session_never_stops_a_lead_attaching() {
+        let (_dir, db, mut store) = board();
+        let lists = with_odd_entry(&claude_lists(&[("sess-2", "cat-lead")]));
+        let reply = session_start(
+            &db,
+            &start("sess-2", "startup", Some("cat-lead")),
+            None,
+            None,
+            || Ok(lists.clone()),
+        );
+        assert!(context(reply.unwrap()).is_some());
+        assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-2"));
+        // The lead's live workers, on a compact, still read from the same list.
+        let reply = session_start(
+            &db,
+            &start("sess-2", "compact", Some("cat-lead")),
+            None,
+            None,
+            || Ok(lists.clone()),
+        );
+        assert!(context(reply.unwrap()).is_some());
+    }
+
     #[test]
     fn a_short_turn_between_two_looks_is_counted() {
         let (_dir, db, mut store) = board();

@@ -20,9 +20,11 @@ tag's date, and a new empty Unreleased goes above it.
   running without Rex is #164).
 - **One reader of Claude Code's session list.** The lead-listening check, a lead's attach
   and delivery's checks read `claude agents --json` through the same reader as the core's
-  worker list, and the lead check judges a session's status by the same mapping. A status
-  that is not a string is now nothing to judge by, where the lead check failed to read the
-  list (#167).
+  worker list, and the lead check judges a session's status by the same mapping. Each entry
+  in the list stands alone: a status that is not a string is nothing to judge by, where the
+  lead check failed to read the list, and a session whose name, pid or session id is not
+  the type Claude lists is no one, where it failed the workers' look for every session
+  (#167).
 
 ## [0.7.0] - 2026-11-26
 
