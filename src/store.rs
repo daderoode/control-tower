@@ -2974,7 +2974,8 @@ impl Store {
     /// and repo are given, each replacing the stored one. A milestone given a repo takes
     /// the threads about it and its tasks along, and says so in what it returns. Refuses a
     /// call that changes nothing, a milestone not on the board, a repo not on the board, and
-    /// a milestone with threads going to a repo with no lead (the rule at MIGRATIONS[13]).
+    /// a milestone with threads going to a repo with no lead (the rule at MIGRATIONS[13]),
+    /// and a repo that is not the link's of one of its tasks (`refuse_foreign_link`).
     pub fn set_milestone(
         &mut self,
         milestone: MilestoneId,
@@ -3041,6 +3042,20 @@ impl Store {
                 params![repo.0, milestone.0],
             )
             .context(cannot_write.clone())?;
+            // Its tasks are now in the new repo, so each one's link is checked against it;
+            // the first refusal drops the transaction, so nothing moves.
+            let linked = tx
+                .prepare(
+                    "SELECT id FROM task WHERE milestone_id = ?1 AND link IS NOT NULL ORDER BY id",
+                )
+                .and_then(|mut q| {
+                    q.query_map(params![milestone.0], |r| Ok(TaskId(r.get(0)?)))?
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .context(cannot_write.clone())?;
+            for task in linked {
+                refuse_foreign_link(&tx, task).context(cannot_write.clone())??;
+            }
             moved = Some(Moved {
                 repo,
                 threads: threads as usize,
@@ -5326,6 +5341,11 @@ mod tests {
             (on_m1, sentry),
             (on_bare, sentry),
             (on_m1, elsewhere),
+            // A GitLab group's work item is in no project, so it is another tracker's too.
+            (
+                on_web,
+                "https://gitlab.example.com/groups/acme/-/work_items/7",
+            ),
             (on_m1, jira),
             (on_bare, jira),
             (loose, web_mr),
@@ -5439,6 +5459,33 @@ mod tests {
         assert_eq!(milestone_of(&mut store, m1).tasks.len(), tasks + 2);
         assert_eq!(link_of(&mut store, crash).as_deref(), Some(sentry));
         assert_eq!(link_of(&mut store, filed).as_deref(), Some(shop_issue));
+        // A milestone given a repo takes its tasks along, so each linked task's link is
+        // checked against it: a refusal moves nothing, the title given with it included.
+        let m2 = store.add_milestone("Loose shelves", "g", None).unwrap();
+        let on_m2 = (store.insert_task(Some(m2), None, "Web work", Some(web_mr))).unwrap();
+        let move_to = |store: &mut Store, repo: RepoId| {
+            let fields = MilestoneFields {
+                title: Some("Moved"),
+                repo: Some(repo),
+                ..MilestoneFields::default()
+            };
+            store
+                .set_milestone(m2, fields)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
+        assert_eq!(
+            move_to(&mut store, shop),
+            Err(format!(
+                "{web_mr} belongs to R2 ({web_link}), not to R1 ({shop_link}), the repo of \
+                 {on_m2}; file it in R2"
+            ))
+        );
+        let m = milestone_of(&mut store, m2);
+        assert_eq!((m.repo, m.title.as_str()), (None, "Loose shelves"));
+        assert_eq!(move_to(&mut store, web), Ok(()));
+        let m = milestone_of(&mut store, m2);
+        assert_eq!((m.repo, m.title.as_str()), (Some(web), "Moved"));
         // A change that sets neither link nor repo leaves a stored link alone.
         store.exec_sql(&format!(
             "UPDATE task SET link = '{web_mr}' WHERE id = {}",

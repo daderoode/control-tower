@@ -1128,9 +1128,10 @@ impl Ticket {
 }
 
 /// The forge ticket `link` names, as `Ticket::of` reads it, with the project it is in:
-/// GitLab's is the path before its "-" segment, GitHub's the first two segments. `None`
-/// for any other link.
-fn forge_item(link: &str) -> Option<(Ticket, ForgeProject)> {
+/// GitLab's is the path before its "-" segment, GitHub's the first two segments. A GitLab
+/// group's work item (`/groups/<group>/-/work_items/N`; `groups` is a path GitLab keeps for
+/// itself, never a namespace) is in no project. `None` for any other link.
+fn forge_item(link: &str) -> Option<(Ticket, Option<ForgeProject>)> {
     let url = url::Url::parse(link.trim()).ok()?;
     let parts: Vec<&str> = url
         .path_segments()
@@ -1150,7 +1151,11 @@ fn forge_item(link: &str) -> Option<(Ticket, ForgeProject)> {
         ["issues" | "pull", n, ..] if !gitlab => Ticket::Issue(number(n)?),
         _ => return None,
     };
-    Some((ticket, ForgeProject::new(&url, project)))
+    let of_group = gitlab && project.first() == Some(&"groups");
+    Some((
+        ticket,
+        (!of_group).then(|| ForgeProject::new(&url, project)),
+    ))
 }
 
 /// The forge hosts a link is read as a forge ticket on even when no repo on the board links
@@ -1177,9 +1182,10 @@ impl ForgeProject {
     }
 
     /// The project a forge issue, work item, or merge or pull request `link` is in, read as
-    /// `Ticket::of` reads it; `None` for any other link, such as another tracker's.
+    /// `Ticket::of` reads it; `None` for a GitLab group's work item, in no project, and for
+    /// any other link, such as another tracker's.
     pub fn of_ticket(link: &str) -> Option<ForgeProject> {
-        forge_item(link).map(|(_, project)| project)
+        forge_item(link).and_then(|(_, project)| project)
     }
 
     /// Its host, with any port, like `github.com` or `gitlab.example.com:8443`.
@@ -2597,16 +2603,20 @@ mod tests {
             assert_ne!(project, ForgeProject::of_repo(repo), "{ticket} in {repo}");
         }
         // No forge ticket, so in no project: another tracker, a repo's own page, a ticket
-        // with no number.
+        // with no number, a GitLab group's work item.
         for link in [
             "https://acme.atlassian.net/browse/SHOP-12",
             "https://github.com/example/bookshop",
             "https://github.com/example/bookshop/tree/main/issues/9",
             "https://gitlab.example.com/x/-/issues/abc",
+            "https://gitlab.example.com/groups/acme/-/work_items/7",
             "not a url",
         ] {
             assert_eq!(ForgeProject::of_ticket(link), None, "{link}");
         }
+        // A group's work item is still a GitLab work item on the board, but in no project.
+        let group_item = "https://gitlab.example.com/groups/acme/shop/-/work_items/7";
+        assert_eq!(Ticket::of(group_item), Ticket::Issue(7));
         let project = ForgeProject::of_ticket("https://GitHub.com/Example/Bookshop/issues/42");
         assert_eq!(project.unwrap().to_string(), "github.com/example/bookshop");
         // A repo link to a page of the project goes on past its address; the project
