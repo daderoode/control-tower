@@ -939,12 +939,13 @@ fn check(
             };
             let sessions =
                 listed.get_or_insert_with(|| read_listed(agents()).map_err(|e| format!("{e:#}")));
-            // Unreadable: logged once by `check_leads`. An empty list is likelier a glitch
-            // than every Claude session on the machine gone, so it says nothing either.
+            // Unreadable: logged once by `check_leads`. A list that names no session id
+            // (empty, or every entry odd) is likelier a glitch than every Claude session on
+            // the machine gone, so it says nothing about anyone either.
             let Ok(sessions) = sessions else {
                 return Ok(None);
             };
-            if sessions.is_empty() {
+            if sessions.iter().all(|s| s.session_id.is_none()) {
                 return Ok(None);
             }
             let found = (sessions.iter()).find(|s| s.session_id.as_deref() == Some(session));
@@ -1928,6 +1929,18 @@ mod tests {
             ),
             "{log:?}"
         );
+    }
+
+    #[test]
+    fn a_list_that_names_no_session_id_says_nothing_about_a_lead() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        assert!(look_with(&mut store, &db, &agents(&[("sess-1", "idle")]), 10).is_empty());
+        ends_turn(&db, "sess-1");
+        // Every entry odd: not the lead's session gone.
+        let odd = r#"[{"sessionId":9,"name":"cat-lead","status":"idle"}]"#;
+        assert!(look_with(&mut store, &db, odd, 20).is_empty());
+        assert!(items(&mut store).is_empty());
     }
 
     #[test]
