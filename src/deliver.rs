@@ -1675,13 +1675,15 @@ mod tests {
         let list = serde_json::json!([{"name": 7, "sessionId": "s1", "status": "idle"}]);
         f.rex.write("claude.json", &list.to_string());
         f.post("qa-1", "@dev-1 @dev-9 please look");
-        let log = f.drain();
-        assert_eq!(log.len(), 1, "{log:?}");
-        assert!(
-            log[0].starts_with(
-                "claude agents --json said something unexpected: no session's name is a string"
-            ) && log[0].ends_with("; posts for workers wait until Claude Code answers"),
-            "{log:?}"
+        // As any list that cannot be read (`workers_wait_while_rex_cannot_be_read_said_once`):
+        // why, once, and the post held for the next round.
+        assert_eq!(
+            f.drain(),
+            [
+                "claude agents --json said something unexpected: no session's name is a string; \
+                 posts for workers wait until Claude Code answers",
+                "1 post(s) wait for the next round",
+            ]
         );
         assert!(f.items().is_empty());
         assert!(f.replies().is_empty());
