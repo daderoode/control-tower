@@ -14,10 +14,15 @@ tag's date, and a new empty Unreleased goes above it.
 - **Where a lead and its workers run when the owner sets up a Space.** The spec and the lead
   skill now say a lead and its workers run on each repo's main checkout, its workers in
   worktrees beside it; a Space (a folder holding a worktree of each repo of a piece of work)
-  is the owner's view, never a lead's or a worker's working directory, so a lead started in
-  one asks the owner to start it again on the main checkout; and the owner trusts
+  is the owner's view, never a lead's or a worker's working directory; and the owner trusts
   each repo's parent folder once before the lead's first dispatch, which trusting the Space
   does not cover (#147).
+
+- **A lead started outside its repo's main checkout asks to be started again there.** A
+  `cd` out of the folder a Claude session started in does not hold, so the lead skill's
+  Starting steps no longer move the lead: a lead whose working directory is not inside the
+  main checkout (a Space, a linked worktree, another folder, a new project's new checkout)
+  finds the checkout, asks the owner once to start it again there, and stops (#160).
 
 - **A lead quotes a repo's grant before it merges or releases there.** Merge and release
   authority is per repo. Before a merge to the default branch or a release, the lead skill

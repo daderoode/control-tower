@@ -154,21 +154,22 @@ implement, test or review.
 0. **The repo:** you run in a pane on the repo's main checkout, and the repo above names it:
    - a path, or nothing: the repo whose main checkout holds that path (or your working
      directory);
-   - a repo id (R and digits, like R2): `tower repo show <R>` prints its path; `cd` there if
-     you are not on it;
+   - a repo id (R and digits, like R2): `tower repo show <R>` prints its path; when you are
+     not on it, see Where you run below;
    - a milestone id (M and digits, like M3): that milestone's repo; you lead the whole repo,
      and that milestone is where you start;
    - anything else is a goal in words: you create a milestone for it in step 1, once you have
      `<R>`.
 
-   You and your workers run on the main checkout even when the owner has set the work up in
-   a Space (a folder holding a worktree of each repo it touches): the Space is the owner's
-   view of the work, never your working directory or a worker's, and the board refuses a
-   linked worktree as a repo path. A path in a Space names the repo whose main checkout
-   holds that worktree, found from it in step 1. Started inside a Space (your working
-   directory is not the main checkout), find that checkout as step 1 does, ask the owner
-   once to start you again there, and stop until then: a `cd` out of the folder you were
-   started in does not hold.
+   **Where you run.** You run on the repo's main checkout, and your workers beside it. When
+   your working directory is not inside that checkout, find the checkout as step 1 does, ask
+   the owner once to start you again there (`/control-tower:lead` with the same argument, in
+   a pane on that checkout), and stop until then: a `cd` out of the folder you were started
+   in does not hold, so every later command would run from the folder you started in. A
+   Space is one case: a folder holding a worktree of each repo a piece of work touches,
+   which the owner may set up. The Space is the owner's view of the work, never your working
+   directory or a worker's, and the board refuses a linked worktree as a repo path; a path in
+   a Space names the repo whose main checkout holds that worktree, found from it in step 1.
 1. Register yourself on the repo, as your first step, since only you know your own Claude
    session name. A lead registers on a repo, the main checkout you run on, and leads every
    milestone and standalone task in it. First find `<you>`: `claude agents --json` lists
@@ -180,23 +181,23 @@ implement, test or review.
    `My App.v2`), then use that name.
    Then find `<R>`:
    - from a repo id, it is that id. If `tower repo show <R>` says its path is not set, ask
-     the owner once for its main checkout and `cd` there. Record the path with
+     the owner once for its main checkout. Record the path with
      `tower repo set <R> --path "<checkout>"` only when the repo has no lead or its lead's
      session is `<you>`. A repo led by another session is an earlier lead's, and its path
      stays unset (see What earlier leads leave): it is not your `<R>`, even once that lead is
      closed. Take your `<R>` from `tower repo add` on that checkout, as below, and adopt the
      old repo's milestones and standalone tasks as that paragraph says; never
-     `tower lead set` the old repo;
+     `tower lead set` the old repo. Not on that checkout: Where you run (step 0);
    - from a milestone whose `tower milestone show <M>` names its repo (`repo  R2`), that
      repo; if it says `repo  none yet`, find the main checkout as below and then
      `tower milestone set <M> --repo <R>`;
    - otherwise find the main checkout from the path given, or `.` when none was:
      `G=$(git -C "<path>" rev-parse --path-format=absolute --git-common-dir) && C=$(dirname "$G")`
-     (from a linked worktree too), and `cd "$C"` if you are not there. If that fails, the
-     path is not in a git repo: ask the owner once for the repo's main checkout, then `cd`
-     there and work from it. For a new project with no repo yet, ask the owner first where
-     it lives (its checkout, and its place on the forge), then `git init` it there with a
-     first commit.
+     (from a linked worktree too); when you are not inside `$C`, see Where you run (step 0).
+     If that fails, the path is not in a git repo: ask the owner once for the repo's main
+     checkout, then Where you run. For a new project with no repo yet, ask the owner first
+     where it lives (its checkout, and its place on the forge), then `git init "<checkout>"`
+     with a first commit (`git -C "<checkout>"`), then Where you run.
      `tower repo add "$C" --link <forge URL>` prints the new repo's id, your `<R>` (the
      forge URL, as https: `gh repo view --json url -q .url`, or the `web_url` of
      `glab repo view -F json`); if it refuses with "is already R<n>", that `R<n>` is your
@@ -497,7 +498,8 @@ and `tower repo show <R>` lists threads by title.
     gone. Start a worker only in a folder Claude trusts, itself or a folder above it: the
     folder holding the repo, trusted once by the owner before your first dispatch on it,
     covers the checkout and the `<repo>.worktrees`, `<repo>.review` and `<repo>.standing`
-    folders beside it. Trusting a Space does not cover it (Starting, step 0).
+    folders beside it. Trusting a Space does not cover it: a Space (Starting, step 0) is not
+    above the repo.
   - **One live worker per name.** Claude does not keep session names unique, so before a
     start check that no live session has the name, ignoring case:
     `claude agents --json | jq -e --arg n "<name>" 'any(.[]; (.name // "" | ascii_downcase) == ($n | ascii_downcase))'`
