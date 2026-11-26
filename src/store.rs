@@ -5318,8 +5318,9 @@ mod tests {
             assert_eq!(set(&mut store, task, Some(link), None), Ok(()), "{link}");
         }
         // Another repo's ticket is refused naming that repo; one of no repo on the board,
-        // naming its project; one in a repo with no forge link, saying to give it one.
-        // Nothing is written, the description given with it included.
+        // naming its project; the parent group's ticket, which makes the parent a project, so
+        // the subgroup's link no project's address; one in a repo with no forge link, saying
+        // to give it one. Nothing is written, the description given with it included.
         for (task, link, want) in [
             (
                 on_m1,
@@ -5331,11 +5332,19 @@ mod tests {
             ),
             (
                 on_web,
+                "https://gitlab.example.com/acme/catalogue/-/issues/5",
+                format!(
+                    "https://gitlab.example.com/acme/catalogue/-/issues/5 belongs to \
+                     gitlab.example.com/acme/catalogue, which is no repo on the board, not to \
+                     R2 ({web_link}), the repo of #2"
+                ),
+            ),
+            (
+                on_web,
                 "https://gitlab.example.com/acme/shop/-/issues/5",
                 format!(
-                    "https://gitlab.example.com/acme/shop/-/issues/5 belongs to \
-                     gitlab.example.com/acme/shop, which is no repo on the board, not to R2 \
-                     ({web_link}), the repo of #2"
+                    "R2's link ({web_link}) is not a project's address; set it to the \
+                     project: tower repo set R2 --link <project URL>"
                 ),
             ),
             (
