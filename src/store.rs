@@ -1615,6 +1615,107 @@ fn new_thread(
     Ok(ThreadId(tx.last_insert_rowid()))
 }
 
+/// The thread tower posts about `task` in: its open linked thread with the newest message,
+/// else a new one titled `title` on its lead's board linked to it, opened by `new_thread`.
+/// Refuses a task with no lead's board (a subtask, a task in no repo, a repo with no lead).
+fn task_thread(tx: &Connection, task: TaskId, title: &str, cannot_write: &str) -> Result<ThreadId> {
+    let open: Option<i64> = tx
+        .query_row(
+            "SELECT t.id FROM thread t JOIN message m ON m.thread_id = t.id \
+             WHERE t.task_id = ?1 AND t.resolved_at IS NULL \
+             GROUP BY t.id ORDER BY max(m.posted_at) DESC, t.id DESC LIMIT 1",
+            params![task.0],
+            |r| r.get(0),
+        )
+        .optional()
+        .context(cannot_write.to_string())?;
+    if let Some(id) = open {
+        return Ok(ThreadId(id));
+    }
+    let repo: Option<Option<i64>> = tx
+        .query_row(TASK_REPO, params![task.0], |r| r.get(0))
+        .optional()
+        .context(cannot_write.to_string())?;
+    let Some(Some(repo)) = repo else {
+        bail!("{task} is on no lead's board, so there is nowhere to post about it");
+    };
+    new_thread(tx, RepoId(repo), None, Some(task), title, cannot_write)
+}
+
+/// Posts by `system` that `blocker` is done, in the thread (`task_thread`) of each task it
+/// blocks in another repo, not Done, whose repo has a lead: that lead hears only its own
+/// board, so this is what wakes it (#144). A task it blocks in its own repo is left to its
+/// own lead, who sees it done.
+fn tell_blocked_boards(tx: &Connection, blocker: TaskId, cannot_write: &str) -> Result<()> {
+    let repo_of_task = |task: i64| -> rusqlite::Result<Option<i64>> {
+        let repo: Option<Option<i64>> = tx
+            .query_row(TASK_REPO, params![task], |r| r.get(0))
+            .optional()?;
+        Ok(repo.flatten())
+    };
+    let from = repo_of_task(blocker.0).context(cannot_write.to_string())?;
+    let blocked: Vec<i64> = tx
+        .prepare(
+            "SELECT b.task_id FROM blocker b JOIN task t ON t.id = b.task_id \
+             WHERE b.blocker_id = ?1 AND t.stage != ?2 ORDER BY b.task_id",
+        )
+        .and_then(|mut s| {
+            s.query_map(params![blocker.0, Stage::Done.name()], |r| r.get(0))?
+                .collect()
+        })
+        .context(cannot_write.to_string())?;
+    let at = now()?;
+    for task in blocked {
+        let Some(repo) = repo_of_task(task).context(cannot_write.to_string())? else {
+            continue;
+        };
+        let has_lead = lead_of_repo(tx, RepoId(repo))
+            .context(cannot_write.to_string())?
+            .is_some();
+        if Some(repo) == from || !has_lead {
+            continue;
+        }
+        let task = TaskId(task);
+        let title = format!("Blocked by {blocker}");
+        let thread = task_thread(tx, task, &title, cannot_write)?;
+        // `blocker` is Done already in this transaction, so these are the others.
+        let open: Vec<String> = tx
+            .prepare(
+                "SELECT b.blocker_id FROM blocker b JOIN task t ON t.id = b.blocker_id \
+                 WHERE b.task_id = ?1 AND t.stage != ?2 ORDER BY b.blocker_id",
+            )
+            .and_then(|mut s| {
+                s.query_map(params![task.0, Stage::Done.name()], |r| {
+                    Ok(TaskId(r.get(0)?).to_string())
+                })?
+                .collect()
+            })
+            .context(cannot_write.to_string())?;
+        let done = match from {
+            Some(from) => format!("{blocker} in {} is done", RepoId(from)),
+            None => format!("{blocker} is done"),
+        };
+        let text = if open.is_empty() {
+            format!("{done}; {task}, which it blocked, can go on")
+        } else {
+            format!(
+                "{done}; {task}, which it blocked, is still blocked by {}",
+                open.join(", ")
+            )
+        };
+        append(
+            tx,
+            thread,
+            SYSTEM_AUTHOR,
+            &text,
+            Kind::Plain,
+            at,
+            cannot_write,
+        )?;
+    }
+    Ok(())
+}
+
 /// Adds a checked message by a checked author to an open thread at `at`, or after its
 /// latest message, resolving the thread by it when it is evidence. Refuses a thread that
 /// is not on the board, a resolved one, and a progress post in a thread linked to no task.
@@ -2576,6 +2677,9 @@ impl Store {
         {
             reopen_parent(&tx, TaskId(parent)).context(cannot_write.clone())?;
         }
+        if stage == Stage::Done && parent.is_none() {
+            tell_blocked_boards(&tx, task, &cannot_write)?;
+        }
         tx.commit().context(cannot_write)?;
         Ok(milestone.map(MilestoneId))
     }
@@ -3283,30 +3387,8 @@ impl Store {
         }
         let mut posted = None;
         if let Some(text) = post {
-            let open: Option<i64> = tx
-                .query_row(
-                    "SELECT t.id FROM thread t JOIN message m ON m.thread_id = t.id \
-                     WHERE t.task_id = ?1 AND t.resolved_at IS NULL \
-                     GROUP BY t.id ORDER BY max(m.posted_at) DESC, t.id DESC LIMIT 1",
-                    params![task.0],
-                    |r| r.get(0),
-                )
-                .optional()
-                .context(cannot_write.clone())?;
-            let thread = match open {
-                Some(id) => ThreadId(id),
-                None => {
-                    let repo: Option<Option<i64>> = tx
-                        .query_row(TASK_REPO, params![task.0], |r| r.get(0))
-                        .optional()
-                        .context(cannot_write.clone())?;
-                    let Some(Some(repo)) = repo else {
-                        bail!("{task} is on no lead's board, so there is nowhere to post about it");
-                    };
-                    let title = format!("Watch on {task}");
-                    new_thread(&tx, RepoId(repo), None, Some(task), &title, &cannot_write)?
-                }
-            };
+            let title = format!("Watch on {task}");
+            let thread = task_thread(&tx, task, &title, &cannot_write)?;
             append(
                 &tx,
                 thread,
@@ -7226,6 +7308,82 @@ mod tests {
         );
         // Two tasks waiting for the same one is not a loop.
         store.add_blocker(a, c).unwrap();
+    }
+
+    /// The unread posts on `repo`'s board as (thread, author, text), then counted as told.
+    fn take_unread(store: &mut Store, repo: RepoId) -> Vec<(ThreadId, String, String)> {
+        let posts = unread(&store.conn, repo).unwrap();
+        store.tell_lead(repo, |_| Ok(())).unwrap();
+        (posts.into_iter())
+            .map(|p| (p.thread, p.author, p.text))
+            .collect()
+    }
+
+    #[test]
+    fn a_blocker_done_in_another_repo_posts_in_the_blocked_tasks_thread_for_its_lead() {
+        let (_dir, path) = temp_board();
+        let mut store = board_with_leads(&path);
+        // #4 in R2 waits for #1 and #2, both in R1.
+        store.add_blocker(TaskId(4), TaskId(1)).unwrap();
+        store.add_blocker(TaskId(4), TaskId(2)).unwrap();
+        let m2 = BoardOf::Milestone(MilestoneId(2));
+        let (t, _) = store
+            .open_thread(
+                &m2,
+                "dev-4",
+                Some(TaskId(4)),
+                "Task #4 team",
+                "waiting on R1",
+            )
+            .unwrap();
+        take_unread(&mut store, RepoId(2));
+        store.set_task_stage(TaskId(3), Stage::Done).unwrap();
+        store.set_task_stage(TaskId(1), Stage::Done).unwrap();
+        let line = |text: &str| vec![(t, "system".to_string(), text.to_string())];
+        assert_eq!(
+            take_unread(&mut store, RepoId(2)),
+            line("#1 in R1 is done; #4, which it blocked, is still blocked by #2")
+        );
+        store.set_task_stage(TaskId(2), Stage::Done).unwrap();
+        assert_eq!(
+            take_unread(&mut store, RepoId(2)),
+            line("#2 in R1 is done; #4, which it blocked, can go on")
+        );
+        // The blocker's own board is told nothing: its lead moved it.
+        assert!(take_unread(&mut store, RepoId(1)).is_empty());
+    }
+
+    #[test]
+    fn a_blocker_done_opens_a_thread_for_a_blocked_task_with_none_and_no_other_board_hears() {
+        let (_dir, path) = temp_board();
+        let mut store = board_with_leads(&path);
+        let done = store.add_task(MilestoneId(2), "done already").unwrap();
+        store.set_task_stage(done, Stage::Done).unwrap();
+        store.exec_sql("INSERT INTO repo (path) VALUES (NULL)");
+        let leadless = store
+            .add_standalone_task("in a repo with no lead", Some(RepoId(3)))
+            .unwrap();
+        // #1 in R1 blocks: #2 in its own repo, #4 in R2 with no thread, a Done task in
+        // R2, a task in a repo with no lead and #5 in no repo.
+        for task in [TaskId(2), TaskId(4), done, leadless, TaskId(5)] {
+            store.add_blocker(task, TaskId(1)).unwrap();
+        }
+        store.set_task_stage(TaskId(3), Stage::Done).unwrap();
+        store.set_task_stage(TaskId(1), Stage::Done).unwrap();
+        let threads = milestone_of(&mut store, MilestoneId(2)).threads;
+        assert_eq!(threads.len(), 1);
+        let thread = store.thread(threads[0].id).unwrap();
+        assert_eq!(
+            (thread.task, thread.by.as_str(), thread.title.as_str()),
+            (Some(TaskId(4)), "system", "Blocked by #1")
+        );
+        let texts: Vec<&str> = thread.messages.iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(texts, ["#1 in R1 is done; #4, which it blocked, can go on"]);
+        // That line is the only message on the board.
+        let messages: i64 = (store.conn)
+            .query_row("SELECT count(*) FROM message", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(messages, 1);
     }
 
     #[test]
