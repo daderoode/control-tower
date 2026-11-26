@@ -1,25 +1,24 @@
 //! The Rex module: the terminal module interface over the `rex` command line (`path`), on
 //! the local Rex server only, never starting one (`--autostart=false`).
 //!
-//! The workers (`agents`) are the Claude sessions running in Rex's terminal blocks: every
+//! Rex overrides the core's live workers (`agents`) only: it adds what a worker's prompt
+//! asks. The workers are the Claude sessions running in Rex's terminal blocks: every
 //! session's blocks, each terminal block's `program_status` root record (the one without an
 //! id; child records are a session's background shells and subagents), kept when its
-//! `effective_app` is `claude-code` with an owner pid, joined by that pid to `claude agents
-//! --json`. A worker's name is its Claude session's name, its status the root record's
-//! state and kind, its `msg` the record's. A block with no Claude record, or whose pid
-//! Claude does not list, is no one. One look is one call per session and per terminal
+//! `effective_app` is `claude-code` with an owner pid, joined by that pid to Claude's list
+//! (`super::listed`). A worker's name is its Claude session's name, its status the root
+//! record's state and kind, its `msg` the record's. A block with no Claude record, or whose
+//! pid Claude does not list, is no one. One look is one call per session and per terminal
 //! block, all within the look's time limit; any call that fails fails the whole look, so a
 //! Rex half read never reads as workers gone.
+//!
+//! A text reaches a worker by the core's `prompt`, over Rex's look: a worker at a prompt is
+//! sent nothing, the send failing with what the prompt asks.
 //!
 //! A lead starts in a new Rex session labelled with its name (`rex new`), which Rex does not
 //! show in the app, so focus stays where it is; the session runs the lead's command directly,
 //! each argument its own word, never through a shell string. The handle is the session's id,
 //! and undo kills it (`rex kill`).
-//!
-//! A text reaches a worker (`prompt`) by a fresh look for it by name, as `agents` finds it
-//! (ignoring case): a worker Rex has no Claude session for, or one at a prompt (any of its
-//! sessions `blocked`), is sent nothing and the send fails saying why; else the relay sends
-//! the text to its Claude session (`super::relay`), within what is left of the time limit.
 //!
 //! The dashboard's key (`space`, run by `rex/control-tower.lua`'s `tower_space` action with
 //! the session and block the key was pressed in) finds the dashboard's tab by asking Rex, not
@@ -39,7 +38,6 @@
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -47,8 +45,8 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::{
-    Agent, Answer, Handle, Here, Kind, LeadStart, Place, Prompted, Sent, Shown, Status, Terminal,
-    Unread, find_exe, not_found, relay, terminal_timeout,
+    Agent, Answer, Handle, Here, LeadStart, Listed, Place, Shown, Status, Terminal, Unread,
+    find_exe, listed, not_found, terminal_timeout,
 };
 use crate::ui::runner::{Outcome, Run, run_now};
 
@@ -542,13 +540,6 @@ struct Owner {
     name: Option<String>,
 }
 
-/// A Claude session as `claude agents --json` lists it, as far as the look reads it.
-#[derive(Deserialize)]
-struct Listed {
-    name: Option<String>,
-    pid: Option<i64>,
-}
-
 /// A block's Claude: the pid its root record names, with the record's status and msg, when
 /// that record is Claude Code's. `None` for a block with no records, or whose root record
 /// is another program's or names no owner. Child records (with an id) are never read.
@@ -583,19 +574,6 @@ fn join(found: Vec<(i64, Status, Option<String>)>, listed: &[Listed]) -> Vec<Age
         .collect()
 }
 
-/// Why a worker at a prompt is sent nothing: "at a permission prompt (approve Bash: ...)",
-/// naming the kind and what it asks where Claude Code says.
-fn at_prompt(agent: &Agent) -> String {
-    let what = match agent.status {
-        Status::Blocked(Some(Kind::Permission)) => "a permission prompt",
-        Status::Blocked(Some(Kind::Question)) => "a question",
-        Status::Blocked(Some(Kind::Auth)) => "a credential prompt",
-        _ => "a prompt",
-    };
-    let asks = (agent.msg.as_deref()).map_or(String::new(), |m| format!(" ({m})"));
-    format!("at {what}{asks}")
-}
-
 impl Terminal for Rex {
     fn name(&self) -> &'static str {
         "Rex"
@@ -603,6 +581,10 @@ impl Terminal for Rex {
 
     fn exe(&self) -> &Path {
         &self.exe
+    }
+
+    fn claude(&self) -> &Path {
+        &self.claude
     }
 
     fn missing(&self, path: Option<&OsStr>) -> Option<String> {
@@ -645,39 +627,7 @@ impl Terminal for Rex {
         if left.is_zero() {
             return Err(out_of_time(timeout));
         }
-        let args = ["agents", "--json"];
-        let not_stopped = AtomicBool::new(false);
-        let json = crate::register::claude_within(&self.claude, db, &not_stopped, &args, left)
-            .map_err(|e| Unread::Failed(format!("{e:#}")))?;
-        let listed: Vec<Listed> = serde_json::from_str(&json).map_err(|e| {
-            Unread::Failed(format!(
-                "claude agents --json said something unexpected: {e}"
-            ))
-        })?;
-        Ok(join(found, &listed))
-    }
-
-    fn prompt(&self, db: &Path, name: &str, text: &str, timeout: Duration) -> Prompted {
-        let deadline = Instant::now() + timeout;
-        let agents = match self.agents(db, timeout.min(terminal_timeout())) {
-            Ok(agents) => agents,
-            Err(e) => return Sent::Failed(e.to_string()).into(),
-        };
-        let theirs: Vec<&Agent> = (agents.iter())
-            .filter(|a| a.name.eq_ignore_ascii_case(name))
-            .collect();
-        let Some(first) = theirs.first() else {
-            return Sent::Failed(format!("Rex has no agent named {name}")).into();
-        };
-        if let Some(blocked) = theirs.iter().find(|a| a.status.is_blocked()) {
-            return Sent::Failed(at_prompt(blocked)).into();
-        }
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            let why = format!("no time was left to send within {} s", timeout.as_secs());
-            return Sent::Failed(why).into();
-        }
-        relay::send(&self.claude, db, &first.name, text, left)
+        Ok(join(found, &listed(&self.claude, db, left)?))
     }
 
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle> {
@@ -996,7 +946,7 @@ echo '{"type":"result","is_error":false,"num_turns":3,"total_cost_usd":0.00593,"
 mod tests {
     use super::fake::FakeRex;
     use super::*;
-    use crate::terminal::Kind;
+    use crate::terminal::{Kind, Prompted, Sent};
     use crate::test_exe::executable;
 
     const TERM: &str = TERMINAL_CREATOR;
@@ -1017,6 +967,29 @@ mod tests {
     /// `path_in` over an environment holding just `vars`.
     fn path_with(vars: &[(&str, &OsStr)]) -> PathBuf {
         path_in(|name| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.to_os_string()))
+    }
+
+    #[test]
+    fn a_claude_entry_whose_status_is_not_a_string_still_names_rexs_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let asks = Some("approve Bash: touch notes.txt");
+        let blocked = FakeRex::claude_record(41, "blocked", Some("permission"), asks);
+        f.server(&[("session:a", &[("block:1", TERM, &blocked)])]);
+        let list = serde_json::json!([
+            {"pid": 41, "kind": "interactive", "sessionId": "s1", "name": "dev-1",
+             "status": 1, "waitingFor": {"x": 1}},
+        ]);
+        f.write("claude.json", &list.to_string());
+        // Rex's record gives the state; Claude's odd fields fail nothing.
+        assert_eq!(
+            agents(&f).unwrap(),
+            [agent(
+                "dev-1",
+                Status::Blocked(Some(Kind::Permission)),
+                asks
+            )]
+        );
     }
 
     #[test]

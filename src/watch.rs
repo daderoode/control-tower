@@ -1,7 +1,7 @@
-//! The stuck-worker watch, `tower watch`: a long-running process that every
-//! `TICK` reads the board and the terminal's live workers (the terminal module, `terminal`:
-//! Rex) and flags a stuck worker by the spec's fixed rules (section 4, "While work runs").
-//! It runs on its own, dashboard open or not.
+//! The stuck-worker watch, `tower watch`: a long-running process that every `TICK` reads the
+//! board and the live workers (through the terminal module, `terminal`: Claude Code's
+//! session list, or the module's own list, Rex's) and flags a stuck worker by the spec's
+//! fixed rules (section 4, "While work runs"). It runs on its own, dashboard open or not.
 //!
 //! A worker is linked to its live Claude session in the terminal by name: a task's assignee
 //! is the Claude session name of the worker on it, compared ignoring ASCII case. Only
@@ -32,7 +32,7 @@
 //!   that @mentions it (the lead handing work back). A reply that names no one does not.
 //! - Silent while working: the task is In progress, the worker `working`, no post for
 //!   `SILENT_AFTER`.
-//!   Both nudge the worker directly (the terminal's prompt; in Rex, a message from
+//!   Both nudge the worker directly (the terminal's prompt: a message from
 //!   `@control-tower` through the relay, never to a worker at a prompt) and record the nudge
 //!   as a plain `system` message in the task's thread (saying so when the terminal refused
 //!   delivery, or could not confirm it; a nudge sent to someone else is recorded as an item
@@ -45,7 +45,8 @@
 //!
 //! "No post" counts every post in the task's threads but the watch's own; a task with none
 //! counts from when the watch first saw it with that worker, kept on the board
-//! (`watch_seen`) so a restart does not reset it. The watch sees the local Rex server.
+//! (`watch_seen`) so a restart does not reset it. With Rex, the watch sees the local Rex
+//! server.
 //! Several live sessions can share a name (Claude does not keep names unique, and names
 //! are compared ignoring case): they are one worker, whose status is the busiest of theirs
 //! (`worker_agent`), and a prompt is raised when any of them is blocked. Each flag is
@@ -881,6 +882,9 @@ mod tests {
         fn missing(&self, path: Option<&std::ffi::OsStr>) -> Option<String> {
             self.rex.missing(path)
         }
+        fn claude(&self) -> &Path {
+            self.rex.claude()
+        }
         fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
             self.rex.agents(db, timeout)
         }
@@ -1371,6 +1375,75 @@ mod tests {
         let sent = std::fs::read_to_string(f.dir.path().join("rex/prompts.log")).unwrap();
         assert_eq!(sent, format!("dev-1|{text}\n"));
         assert_eq!(f.system(1), [format!("nudged dev-1: {text}")]);
+    }
+
+    /// The watch over the fixture with no terminal module (`Core`), Claude listing
+    /// `sessions` as (name, status, what it waits for).
+    fn with_no_module(f: &mut Fixture, sessions: &[(&str, &str, Option<&str>)]) {
+        let core = crate::terminal::Core::new(f.rex.dir.join("claude"));
+        f.watch = Watch::new(&f.db, Arc::new(core), Arc::default());
+        listed(f, sessions);
+    }
+
+    /// Claude's list from now on: `sessions` as (name, status, what it waits for).
+    fn listed(f: &Fixture, sessions: &[(&str, &str, Option<&str>)]) {
+        let list: Vec<serde_json::Value> = (sessions.iter().enumerate())
+            .map(|(i, (name, status, waiting_for))| {
+                let mut s = serde_json::json!({
+                    "pid": 100 + i, "kind": "interactive", "sessionId": format!("sess-{i}"),
+                    "name": name, "status": status,
+                });
+                if let Some(w) = waiting_for {
+                    s["waitingFor"] = (*w).into();
+                }
+                s
+            })
+            .collect();
+        f.rex
+            .write("claude.json", &serde_json::Value::Array(list).to_string());
+    }
+
+    #[test]
+    fn with_no_terminal_module_a_look_judges_prompts_and_orphans_from_claudes_list() {
+        let mut f = Fixture::new();
+        with_no_module(&mut f, &[("dev-1", "waiting", Some("permission prompt"))]);
+        assert_eq!(f.tick(0), ["flagged dev-1 on #1 (prompt) in T1"]);
+        // No prompt text in Claude's list: nothing quoted.
+        assert_eq!(
+            f.system(1),
+            [
+                "question: @manager dev-1 on #1 is waiting on a prompt in Claude Code that only \
+                 you can answer (@cat-lead for your information)."
+            ]
+        );
+        listed(&f, &[("dev-1", "busy", None)]);
+        assert_eq!(f.tick(1), ["#1's prompt episode for dev-1 ended"]);
+        assert_eq!(f.system(1)[1], "dev-1's prompt was answered.");
+        // Gone from a list that is not empty, three looks in a row: orphaned.
+        listed(&f, &[("dev-2", "busy", None)]);
+        assert!(f.tick(2).is_empty(), "missing once");
+        assert!(f.tick(2).is_empty(), "missing twice");
+        assert_eq!(f.tick(3), ["flagged dev-1 on #1 (orphaned) in T1"]);
+        assert_eq!(
+            f.system(1)[2],
+            "@cat-lead #1 is in progress but its worker dev-1 is gone from Claude Code (no live \
+             Claude session by that name); if it was closed: tower task unassign 1, or set the \
+             next worker."
+        );
+    }
+
+    #[test]
+    fn with_no_terminal_module_an_idle_worker_is_nudged_through_the_relay() {
+        let mut f = Fixture::new();
+        with_no_module(&mut f, &[("dev-1", "idle", None)]);
+        assert!(f.tick(4).is_empty(), "under 5 min is not stopped");
+        let lines = f.tick(6);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let text = "no post on #1 for 6 min, post your status";
+        let (nudged, _trace) = lines[0].split_once("; relay to dev-1: exit 0, ").unwrap();
+        assert_eq!(nudged, format!("nudged dev-1 on #1 (stopped): {text}"));
+        let sent = std::fs::read_to_string(f.dir.path().join("rex/prompts.log")).unwrap();
+        assert_eq!(sent, format!("dev-1|{text}\n"));
     }
 
     #[test]
