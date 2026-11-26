@@ -160,6 +160,12 @@ implement, test or review.
      and that milestone is where you start;
    - anything else is a goal in words: you create a milestone for it in step 1, once you have
      `<R>`.
+
+   You and your workers run on the main checkout even when the owner has set the work up in
+   a Space (a folder holding a worktree of each repo it touches): the Space is the owner's
+   view of the work, never your working directory or a worker's, and the board refuses a
+   linked worktree as a repo path. A path in a Space names the repo whose main checkout
+   holds that worktree, found from it in step 1.
 1. Register yourself on the repo, as your first step, since only you know your own Claude
    session name. A lead registers on a repo, the main checkout you run on, and leads every
    milestone and standalone task in it. First find `<you>`: `claude agents --json` lists
@@ -486,8 +492,9 @@ and `tower repo show <R>` lists threads by title.
   - **Only in a trusted folder.** A worker at Claude's folder-trust dialog is not listed by
     `claude agents --json`, so the watch cannot see it: it raises nothing and later reads as
     gone. Start a worker only in a folder Claude trusts, itself or a folder above it: the
-    folder holding the repo, trusted once by the owner, covers the checkout and the
-    `<repo>.worktrees`, `<repo>.review` and `<repo>.standing` folders beside it.
+    folder holding the repo, trusted once by the owner before your first dispatch on it,
+    covers the checkout and the `<repo>.worktrees`, `<repo>.review` and `<repo>.standing`
+    folders beside it. Trusting a Space does not cover it (Starting, step 0).
   - **One live worker per name.** Claude does not keep session names unique, so before a
     start check that no live session has the name, ignoring case:
     `claude agents --json | jq -e --arg n "<name>" 'any(.[]; (.name // "" | ascii_downcase) == ($n | ascii_downcase))'`

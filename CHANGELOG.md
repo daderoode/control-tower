@@ -11,6 +11,13 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Changed
 
+- **Where a lead and its workers run when the owner sets up a Space.** The spec and the lead
+  skill now say a lead and its workers run on each repo's main checkout, its workers in
+  worktrees beside it; a Space (a folder holding a worktree of each repo of a piece of work)
+  is the owner's view, never a lead's or a worker's working directory; and the owner trusts
+  each repo's parent folder once before the lead's first dispatch, which trusting the Space
+  does not cover (#147).
+
 - **A lead quotes a repo's grant before it merges or releases there.** Merge and release
   authority is per repo. Before a merge to the default branch or a release, the lead skill
   now has the lead name the repo and quote that repo's grant on the board (its SDLC, or
