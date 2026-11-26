@@ -799,7 +799,7 @@ Haiku), and the text is copied by a model, so it may not arrive verbatim.
 
 A worker at a prompt (any of its Claude sessions blocked in the terminal's list, looked up
 afresh just before the send) is sent nothing: the send fails "at a permission prompt (approve Bash:
-...)", naming the kind and what it asks. How a send went is read from the relay's own
+...)", naming the kind and, with Rex, what it asks. How a send went is read from the relay's own
 events, never from what the model says, and from a relay stopped at its 60 second limit the
 events it printed until then are read too. A SendMessage to any other session is a
 misroute: it always posts its own item for the owner naming who got it, whatever failure
