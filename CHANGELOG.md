@@ -9,6 +9,8 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-26
+
 ### Added
 
 - **Keys for the dashboard in Rex: its own tab and a popup.** brew installs two Rex
