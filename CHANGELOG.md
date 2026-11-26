@@ -9,47 +9,48 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-26
+
 ### Changed
+
+- **control-tower works on its own; Rex is optional.** By the owner's decision, control-tower
+  no longer needs Rex: the board, the watch with its stuck, stopped and orphaned workers,
+  live delivery, the lead-listening check, the hooks and the dashboard work in any
+  terminal, reading worker state from Claude Code's session list. Rex adds the text of the
+  prompt a worker waits at, quoted in its owner item; the dashboard's `n` and its two keys,
+  `tower space` and `tower popup`; and starting workers as visible tabs. The spec, README,
+  the brew caveat and `tower watch --help` say so (#162, #165).
 
 - **The core reads worker state from Claude Code's session list; a terminal module may
   override it.** The terminal interface's live workers and its prompt to one now have the
   core's own versions: `claude agents --json`, where `busy` is working, `idle` idle and
   `waiting` at a prompt (a permission prompt or a question, by what it waits for), and a
   worker at a prompt is sent nothing. Rex overrides the list and keeps what it does today,
-  the text of the prompt included. With Rex installed nothing changes (#163; the watch
-  running without Rex is #164).
+  the text of the prompt included. With Rex running nothing changes (#163).
+
 - **One reader of Claude Code's session list.** The lead-listening check, a lead's attach
   and delivery's checks read `claude agents --json` through the same reader as the core's
   worker list, and the lead check judges a session's status by the same mapping. Each entry
   in the list stands alone: a status that is not a string is nothing to judge by, where the
   lead check failed to read the list, and a session whose name, pid or session id is not
   the type Claude lists is no one, where it failed the workers' look for every session. A
-  name, pid or session id that no session gives as that type is Claude's format changed:
+  name, pid or session id that no session gives as that type means Claude's format changed:
   the list cannot be read, so nothing is judged by it (#167).
-- **With no Rex, the watch runs every look.** When rex is not found (at the path
-  `TOWER_REX` names, else in `REX_BIN_DIR`, else on the PATH), the watch and its delivery
-  read the workers from Claude Code's session list instead of skipping the look, and the
-  log says once what Rex would add: the text of the prompt a worker waits at in its owner
-  item, the dashboard's n and its keys, and starting workers as visible tabs. When rex is
-  found again, the watch uses it with no restart (#164).
-- **The docs say control-tower works on its own and what Rex adds.** The spec, README, the
-  brew caveat and `tower watch --help` no longer say control-tower needs Rex: it works in
-  any terminal, reading worker state from Claude Code's session list, and Rex adds the text
-  of the prompt a worker waits at, the dashboard's `n`, `tower space` and `tower popup`,
-  and starting workers as visible tabs (#165).
-- **A lead outside Rex is told what the watch sees.** With rex found, the notice of
-  `tower lead attach` and the SessionStart hook is as before: the board does not see the
-  workers it starts, to raise with the owner. With no rex found, it says the watch reads
-  those workers from Claude Code's session list (it sees them, judges their prompts without
-  the prompt's text and delivers to them) and what Rex would add (#170).
-- **With Rex installed but not running, the watch uses the core.** Before each look the
-  watch asks Rex for its sessions; while that fails (the app not running, or no answer
-  within 3 s), the look and its delivery read the workers from Claude Code's session list
-  instead of skipping every look, and the log says once why and what Rex would add. When
-  Rex answers again, the watch uses it with no restart. A lead outside Rex is told the same:
-  with rex found but not answering, the notice of `tower lead attach` and the SessionStart
-  hook says the watch reads its workers from Claude Code's session list, as with no rex
-  found. The spec, README and brew caveat say so (#174).
+
+- **Without Rex, the watch runs every look.** When rex is not found (at the path
+  `TOWER_REX` names, else in `REX_BIN_DIR`, else on the PATH), or is found but does not
+  answer (the app not running, or no answer within 3 s), the watch and its delivery read
+  the workers from Claude Code's session list instead of skipping every look, and the log
+  says once why and what Rex would add. When rex is found and answers again, the watch uses
+  it with no restart (#164, #174).
+
+- **A lead outside Rex is told what the watch sees.** When the watch uses Rex, the notice
+  of `tower lead attach` and the SessionStart hook is as before: the board does not see
+  the workers the lead starts. With no rex found, or rex found but not answering, it says
+  the watch reads those workers from Claude Code's session list (it sees them, judges
+  their prompts without the prompt's text and delivers to them) and what Rex would add.
+  The lead skill says starting workers needs Rex, to raise with the owner before starting
+  any (#170, #174).
 
 ## [0.7.0] - 2026-11-26
 
