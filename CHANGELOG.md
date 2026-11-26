@@ -28,6 +28,10 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **`tower task show` lists a standalone task's threads in a repo with no milestone**
+  (#153). It found a standalone task's threads through a milestone of its repo, so in a
+  repo with none it printed "threads none" while the repo's board held threads linked to
+  the task. It now reads them from the task's repo board, whatever milestones it has.
 - **A blocker reaching Done in one repo wakes the lead of a task it blocks in another**
   (#144). `tower task blocked-by add` took a blocker in another repo, but moving it to Done
   posted nothing on the blocked task's board, so that repo's lead, which hears only its own
