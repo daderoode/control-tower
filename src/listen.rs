@@ -52,7 +52,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 
-use crate::board::{RepoId, RepoOf};
+use crate::board::{Lead, RepoId, RepoOf, Stage};
 use crate::deliver::{Post, sanitise};
 use crate::store::Store;
 
@@ -67,6 +67,8 @@ const PROBE_WAIT: Duration = Duration::from_millis(500);
 const STOP_WAIT: Duration = Duration::from_secs(3);
 /// The most posts a Stop hook names; the rest are counted.
 const HOOK_NAMES: usize = 50;
+/// The most in-progress tasks a compacted lead is told of; the rest are counted.
+const COMPACT_TASKS: usize = 10;
 
 /// How long the watch sees a registered lead with no attached Claude session and no
 /// listener before it says the lead is not listening: long enough for a lead the
@@ -528,7 +530,11 @@ pub const LISTED_ASK: Duration = Duration::from_secs(5);
 /// - `clear` (no conversation, but background commands outlive it, as they do a
 ///   compaction): while its board waiter runs, that its waiters still run, not to arm them
 ///   again, and to ask the owner for the skill if it needs it again; else as `startup`;
-/// - `compact`: nothing while its board waiter runs, else as `resume`;
+/// - `compact` (its conversation is a summary, which keeps the work but not its rules):
+///   what to re-read (the lead skill at `skill`, the lead skill's file, when given; its
+///   repo's `SDLC.md` when the checkout has one), its board's state as `compacted` gives it,
+///   and that its waiters still run, not to arm them again, or how to arm them when its
+///   board waiter does not run;
 /// - `resume`, `fork` and anything else: to read and arm its board waiter and its forge
 ///   waiter, which ended with the old session (its conversation still holds the skill).
 ///
@@ -541,13 +547,14 @@ pub const LISTED_ASK: Duration = Duration::from_secs(5);
 /// turns as the lead. A `/clear` and a compaction are the same process going on, so they
 /// attach whatever the list says of the old id. A session that attaches is also told
 /// `outside`, the terminal module's notice for a session outside its terminal, when given:
-/// after the rest, or alone after a compaction that would otherwise say nothing. Errors (a
+/// after the rest. Errors (a
 /// board needing `tower upgrade`, `claude` failing) are the caller's to keep quiet: a hook
 /// can never stop a session from starting.
 pub fn session_start(
     db: &Path,
     input: &str,
     outside: Option<&str>,
+    skill: Option<&Path>,
     mut agents: impl FnMut() -> Result<String>,
 ) -> Result<Option<String>> {
     let input: StartInput = serde_json::from_str(input)
@@ -586,7 +593,8 @@ pub fn session_start(
             lead.session, lead.name
         ))));
     }
-    Store::open(db)?.attach_lead(repo, &input.session_id)?;
+    let mut store = Store::open(db)?;
+    store.attach_lead(repo, &input.session_id)?;
     let resume = format!(
         "control-tower: re-attached as {}, the lead of {repo}; your waiters ended with the \
          old session. Run tower lead unread {repo}, then tower lead wait {repo} with Bash \
@@ -603,10 +611,7 @@ pub fn session_start(
     // Background commands outlive a compaction and a /clear: its waiters may still run.
     let waiting = same_process && listening(db, repo)?;
     let mut text = match (source, waiting) {
-        (Some("compact"), true) => match outside {
-            Some(notice) => return Ok(Some(start_context(notice))),
-            None => return Ok(None),
-        },
+        (Some("compact"), _) => compacted(&mut store, repo, &lead, skill, &json, waiting)?,
         (Some("clear"), true) => format!(
             "control-tower: this session is {}, the lead of {repo}, and is attached again \
              after /clear. Your board waiter and forge waiter still run (background commands \
@@ -622,6 +627,110 @@ pub fn session_start(
         text.push_str(notice);
     }
     Ok(Some(start_context(&text)))
+}
+
+/// What the lead `lead` of `repo` is told after a compaction: what to re-read, by `skill`
+/// (the lead skill's file, when known) and its checkout's `SDLC.md` (when it has one); its
+/// board now: open milestones, its in-progress tasks (at most `COMPACT_TASKS`, the rest
+/// counted) each with its assignee, live when `agents` (`claude agents --json`) lists a
+/// session of that name, and its PR, and its unread posts, counted and never told, so the
+/// lead still reads them; then its waiters: still running when `waiting`, else how to arm
+/// them.
+fn compacted(
+    store: &mut Store,
+    repo: RepoId,
+    lead: &Lead,
+    skill: Option<&Path>,
+    agents: &str,
+    waiting: bool,
+) -> Result<String> {
+    let board = store.load()?;
+    let checkout = (board.repos.iter())
+        .find(|r| r.id == repo)
+        .and_then(|r| r.path.as_deref());
+    let place = match checkout {
+        Some(path) => format!("{repo} ({path})"),
+        None => repo.to_string(),
+    };
+    let skill = match skill {
+        Some(path) => path.display().to_string(),
+        None => "skills/lead/SKILL.md in the control-tower plugin".to_string(),
+    };
+    let sdlc = checkout
+        .map(|path| Path::new(path).join("SDLC.md"))
+        .filter(|path| path.is_file());
+    let sdlc = match sdlc {
+        Some(path) => format!("the repo's SDLC ({})", path.display()),
+        None => "the repo's SDLC, if it has one".to_string(),
+    };
+    let mut text = format!(
+        "control-tower: your context was just compacted; you are {}, the lead of {place}, \
+         still attached. The summary keeps the work, not your rules: before you go on, \
+         re-read the lead skill's Who you are table and Principles ({skill}), {sdlc}, the \
+         standing context of each open milestone (tower milestone show), and your memory.\n\
+         Board of {repo} now:",
+        lead.name
+    );
+    let milestones: Vec<_> = (board.milestones.iter())
+        .filter(|m| m.repo == Some(repo))
+        .collect();
+    let open: Vec<String> = (milestones.iter())
+        .filter(|m| m.stage() != Stage::Done)
+        .map(|m| format!("{} {}", m.id, m.title))
+        .collect();
+    text.push_str("\n- open milestones: ");
+    text.push_str(&if open.is_empty() {
+        "none".to_string()
+    } else {
+        open.join(", ")
+    });
+    let tasks: Vec<_> = (milestones.iter())
+        .flat_map(|m| &m.tasks)
+        .chain(board.standalone.iter().filter(|t| t.repo == Some(repo)))
+        .filter(|t| t.stage == Stage::InProgress)
+        .collect();
+    if tasks.is_empty() {
+        text.push_str("\n- no task in progress");
+    }
+    for task in tasks.iter().take(COMPACT_TASKS) {
+        let who = match task.details.assignee.as_deref() {
+            Some(name) if crate::deliver::named(agents, name)? => format!("{name} (live)"),
+            Some(name) => format!("{name} (gone)"),
+            None => "unassigned".to_string(),
+        };
+        let pr = match task.details.mr.as_deref() {
+            Some(mr) => format!("PR {mr}"),
+            None => "no PR".to_string(),
+        };
+        text.push_str(&format!(
+            "\n- {} {}: in progress, {who}, {pr}",
+            task.id, task.title
+        ));
+    }
+    if tasks.len() > COMPACT_TASKS {
+        text.push_str(&format!(
+            "\n- and {} more: tower repo show {repo}",
+            tasks.len() - COMPACT_TASKS
+        ));
+    }
+    text.push_str(&match store.unread_count(repo)? {
+        0 => "\n- unread: none".to_string(),
+        1 => format!("\n- unread: 1 post, read it with tower lead unread {repo}"),
+        n => format!("\n- unread: {n} posts, read them with tower lead unread {repo}"),
+    });
+    text.push('\n');
+    text.push_str(&if waiting {
+        "Your board waiter and forge waiter still run (background commands outlive a \
+         compaction): do not arm them again."
+            .to_string()
+    } else {
+        format!(
+            "Your board waiter is not running: run tower lead unread {repo}, then tower lead \
+             wait {repo} with Bash run_in_background, and arm your forge waiter again if it \
+             ended (lead skill, New issues and idle)."
+        )
+    });
+    Ok(text)
 }
 
 /// A SessionStart hook's reply adding `text` to the session's context.
@@ -832,7 +941,7 @@ fn check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::{BoardOf, ThreadId};
+    use crate::board::{BoardOf, MilestoneId, TaskId, ThreadId};
 
     /// A temp board: M1 in R1 led by Catalogue (session cat-lead) with thread T1, M2 in R2 led
     /// by Other (session other-lead) with thread T2.
@@ -1549,17 +1658,23 @@ mod tests {
         // session): all pass at once.
         for title in [None, Some("  "), Some("dev-4"), Some("Catalogue")] {
             let reply =
-                session_start(&db, &start("sess-9", "startup", title), None, never).unwrap();
+                session_start(&db, &start("sess-9", "startup", title), None, None, never).unwrap();
             assert_eq!(reply, None, "{title:?}");
         }
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-1"));
         // A board that does not exist is not made.
         let none = dir.path().join("none.db");
-        let reply = session_start(&none, &start("s", "startup", Some("cat-lead")), None, never);
+        let reply = session_start(
+            &none,
+            &start("s", "startup", Some("cat-lead")),
+            None,
+            None,
+            never,
+        );
         assert_eq!(reply.unwrap(), None);
         assert!(!none.exists());
         // Input that is not a SessionStart's is an error for the caller to keep quiet.
-        assert!(session_start(&db, "{}", None, never).is_err());
+        assert!(session_start(&db, "{}", None, None, never).is_err());
     }
 
     #[test]
@@ -1577,6 +1692,21 @@ mod tests {
                       ended with the old session. Run tower lead unread R1, then tower lead \
                       wait R1 with Bash run_in_background, and arm your forge waiter (lead \
                       skill, New issues and idle).";
+        // A compaction keeps the conversation as a summary: told what to re-read, the board,
+        // and, with no board waiter running, how to arm its waiters (not that they ended).
+        let compact = "control-tower: your context was just compacted; you are Catalogue, \
+                       the lead of R1, still attached. The summary keeps the work, not your \
+                       rules: before you go on, re-read the lead skill's Who you are table and \
+                       Principles (skills/lead/SKILL.md in the control-tower plugin), the \
+                       repo's SDLC, if it has one, the standing context of each open milestone \
+                       (tower milestone show), and your memory.\n\
+                       Board of R1 now:\n\
+                       - open milestones: M1 MVP\n\
+                       - no task in progress\n\
+                       - unread: none\n\
+                       Your board waiter is not running: run tower lead unread R1, then tower \
+                       lead wait R1 with Bash run_in_background, and arm your forge waiter \
+                       again if it ended (lead skill, New issues and idle).";
         // sess-1 is gone; each new session under the lead's name (any case) takes over. After
         // a /clear only the new id is listed: the old one has left.
         for (n, source, want) in [
@@ -1584,13 +1714,17 @@ mod tests {
             (3, "clear", startup),
             (4, "resume", resume),
             (5, "fork", resume),
-            (6, "compact", resume),
+            (6, "compact", compact),
         ] {
             let id = format!("sess-{n}");
             let lists = claude_lists(&[(&id, "Cat-Lead"), ("other", "dev-1")]);
-            let reply = session_start(&db, &start(&id, source, Some("Cat-Lead")), None, || {
-                Ok(lists.clone())
-            });
+            let reply = session_start(
+                &db,
+                &start(&id, source, Some("Cat-Lead")),
+                None,
+                None,
+                || Ok(lists.clone()),
+            );
             assert_eq!(context(reply.unwrap()).as_deref(), Some(want), "{source}");
             assert_eq!(attached(&mut store, 1), Some(id.clone()), "{source}");
         }
@@ -1603,16 +1737,25 @@ mod tests {
             held.contains("[T1] dev-1: status: while it restarted"),
             "{held}"
         );
-        // A compaction with its board waiter still running: nothing to say.
+        // A compaction with its board waiter still running: told so, not to arm them again.
         let _held = waiter_runs(&db, 1);
         let lists = claude_lists(&[("sess-6", "cat-lead")]);
         let reply = session_start(
             &db,
             &start("sess-6", "compact", Some("cat-lead")),
             None,
+            None,
             || Ok(lists.clone()),
         );
-        assert_eq!(reply.unwrap(), None);
+        let said = context(reply.unwrap()).unwrap();
+        assert!(
+            said.starts_with("control-tower: your context was just compacted;")
+                && said.ends_with(
+                    "\n- unread: none\nYour board waiter and forge waiter still run \
+                     (background commands outlive a compaction): do not arm them again."
+                ),
+            "{said}"
+        );
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-6"));
         // A /clear with its waiters still running (they outlive it): attached again, and
         // told not to arm them again.
@@ -1620,6 +1763,7 @@ mod tests {
         let reply = session_start(
             &db,
             &start("sess-7", "clear", Some("cat-lead")),
+            None,
             None,
             || Ok(lists.clone()),
         );
@@ -1638,9 +1782,13 @@ mod tests {
         for (n, source) in [(8, "clear"), (9, "compact")] {
             let (old, id) = (format!("sess-{}", n - 1), format!("sess-{n}"));
             let lists = claude_lists(&[(&old, "cat-lead"), (&id, "cat-lead")]);
-            let reply = session_start(&db, &start(&id, source, Some("cat-lead")), None, || {
-                Ok(lists.clone())
-            });
+            let reply = session_start(
+                &db,
+                &start(&id, source, Some("cat-lead")),
+                None,
+                None,
+                || Ok(lists.clone()),
+            );
             assert!(
                 !context(reply.unwrap())
                     .unwrap_or_default()
@@ -1654,6 +1802,167 @@ mod tests {
     }
 
     #[test]
+    fn a_compacted_lead_is_told_what_to_re_read_and_its_board_without_being_told_its_posts() {
+        let (dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        // R1's checkout has an SDLC.md, named by its path.
+        let checkout = dir.path().join("catalogue");
+        std::fs::create_dir_all(checkout.join(".git")).unwrap();
+        std::fs::write(checkout.join("SDLC.md"), "steps").unwrap();
+        store.set_repo(RepoId(1), Some(&checkout), None).unwrap();
+        let checkout = checkout.canonicalize().unwrap();
+        let task = |store: &mut Store, m, title, stage, who: Option<&str>, mr: Option<&str>| {
+            let n = store.add_task(m, title).unwrap();
+            if who.is_some() || mr.is_some() {
+                let fields = crate::store::TaskFields {
+                    assignee: who,
+                    mr,
+                    ..Default::default()
+                };
+                store.set_task(n, fields).unwrap();
+            }
+            if stage != Stage::Waiting {
+                store.set_task_stage(n, stage).unwrap();
+            }
+            n
+        };
+        // R1: M1 MVP open; M3 Export open with no tasks; M4 Login done.
+        let export = store.add_milestone("Export", "g", Some(RepoId(1))).unwrap();
+        let login = store.add_milestone("Login", "g", Some(RepoId(1))).unwrap();
+        let (mvp, other) = (MilestoneId(1), MilestoneId(2));
+        task(
+            &mut store,
+            login,
+            "Sign in",
+            Stage::Done,
+            Some("dev-1-auth"),
+            None,
+        );
+        store.mark_milestone_done(login).unwrap();
+        let mr = Some("!12 draft · pipeline running");
+        let fuzzy = task(
+            &mut store,
+            mvp,
+            "Fuzzy search",
+            Stage::InProgress,
+            Some("dev-3-search"),
+            mr,
+        );
+        let sort = task(
+            &mut store,
+            mvp,
+            "Fix sort",
+            Stage::InProgress,
+            Some("dev-5-sort"),
+            None,
+        );
+        task(
+            &mut store,
+            mvp,
+            "Paging",
+            Stage::Waiting,
+            Some("dev-6-page"),
+            None,
+        );
+        // R2's task in progress is not R1's.
+        task(
+            &mut store,
+            other,
+            "Elsewhere",
+            Stage::InProgress,
+            Some("dev-9-x"),
+            None,
+        );
+        // A standalone task of R1, in progress with no one on it.
+        let notes = store
+            .add_standalone_task("Release notes", Some(RepoId(1)))
+            .unwrap();
+        store.set_task_stage(notes, Stage::InProgress).unwrap();
+        for text in ["status: one", "status: two"] {
+            store.post(ThreadId(1), "dev-3-search", text).unwrap();
+        }
+        let _held = waiter_runs(&db, 1);
+        // dev-3-search is listed (in another case); dev-5-sort is not.
+        let lists = claude_lists(&[("sess-2", "cat-lead"), ("w", "Dev-3-Search")]);
+        let skill = Path::new("/plugins/control-tower/skills/lead/SKILL.md");
+        let reply = session_start(
+            &db,
+            &start("sess-2", "compact", Some("cat-lead")),
+            None,
+            Some(skill),
+            || Ok(lists.clone()),
+        );
+        let (path, sdlc) = (checkout.display(), checkout.join("SDLC.md"));
+        let want = format!(
+            "control-tower: your context was just compacted; you are Catalogue, the lead of R1 \
+             ({path}), still attached. The summary keeps the work, not your rules: before you go \
+             on, re-read the lead skill's Who you are table and Principles \
+             (/plugins/control-tower/skills/lead/SKILL.md), the repo's SDLC ({}), the standing \
+             context of each open milestone (tower milestone show), and your memory.\n\
+             Board of R1 now:\n\
+             - open milestones: M1 MVP, {export} Export\n\
+             - {fuzzy} Fuzzy search: in progress, dev-3-search (live), PR !12 draft · pipeline \
+             running\n\
+             - {sort} Fix sort: in progress, dev-5-sort (gone), no PR\n\
+             - {notes} Release notes: in progress, unassigned, no PR\n\
+             - unread: 2 posts, read them with tower lead unread R1\n\
+             Your board waiter and forge waiter still run (background commands outlive a \
+             compaction): do not arm them again.",
+            sdlc.display()
+        );
+        assert_eq!(context(reply.unwrap()), Some(want));
+        assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-2"));
+        // Counted, never told: the Stop hook still names both posts.
+        let held = hook(&db, &input("sess-2")).unwrap().unwrap();
+        assert!(
+            held.contains("[T1] dev-3-search: status: one")
+                && held.contains("[T1] dev-3-search: status: two"),
+            "{held}"
+        );
+    }
+
+    #[test]
+    fn a_compacted_lead_is_told_of_ten_tasks_in_progress_and_the_count_of_the_rest() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        let tasks: Vec<TaskId> = (1..=COMPACT_TASKS + 2)
+            .map(|i| {
+                let n = store
+                    .add_task(MilestoneId(1), &format!("Task {i}"))
+                    .unwrap();
+                store.set_task_stage(n, Stage::InProgress).unwrap();
+                n
+            })
+            .collect();
+        let lists = claude_lists(&[("sess-2", "cat-lead")]);
+        let reply = session_start(
+            &db,
+            &start("sess-2", "compact", Some("cat-lead")),
+            None,
+            None,
+            || Ok(lists.clone()),
+        );
+        let said = context(reply.unwrap()).unwrap();
+        let shown: Vec<&str> = (said.lines())
+            .filter(|l| l.contains(": in progress, unassigned, no PR"))
+            .collect();
+        assert_eq!(shown.len(), COMPACT_TASKS, "{said}");
+        let last = tasks[COMPACT_TASKS - 1];
+        assert!(
+            said.contains(&format!("- {last} Task {COMPACT_TASKS}: in progress")),
+            "{said}"
+        );
+        assert!(
+            !said.contains(&format!("Task {}:", COMPACT_TASKS + 1)),
+            "{said}"
+        );
+        assert!(
+            said.contains("\n- and 2 more: tower repo show R1\n- unread: none\n"),
+            "{said}"
+        );
+    }
+
+    #[test]
     fn a_session_that_attaches_outside_the_terminal_is_told_so_and_no_other_is() {
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
@@ -1664,6 +1973,7 @@ mod tests {
             &db,
             &start("sess-9", "startup", Some("dev-4")),
             notice,
+            None,
             never,
         );
         assert_eq!(reply.unwrap(), None);
@@ -1674,6 +1984,7 @@ mod tests {
             &db,
             &start("sess-2", "fork", Some("cat-lead")),
             notice,
+            None,
             || Ok(lists.clone()),
         );
         let said = context(reply.unwrap()).unwrap();
@@ -1687,6 +1998,7 @@ mod tests {
             &db,
             &start("sess-2", "resume", Some("cat-lead")),
             notice,
+            None,
             || Ok(lists.clone()),
         );
         let said = context(reply.unwrap()).unwrap();
@@ -1696,16 +2008,24 @@ mod tests {
             "{said}"
         );
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-2"));
-        // A compaction with its board waiter running says nothing else, but still tells it.
+        // A compaction with its board waiter running: told after the rest, on its own line.
         let _held = waiter_runs(&db, 1);
         let lists = claude_lists(&[("sess-3", "cat-lead")]);
         let reply = session_start(
             &db,
             &start("sess-3", "compact", Some("cat-lead")),
             notice,
+            None,
             || Ok(lists.clone()),
         );
-        assert_eq!(context(reply.unwrap()).as_deref(), notice);
+        let said = context(reply.unwrap()).unwrap();
+        assert!(
+            said.starts_with("control-tower: your context was just compacted;")
+                && said.ends_with(
+                    "do not arm them again.\noutside: the board cannot see your workers."
+                ),
+            "{said}"
+        );
         assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-3"));
     }
 
@@ -1727,6 +2047,7 @@ mod tests {
             &db,
             &start("sess-2", "startup", Some("cat-lead")),
             None,
+            None,
             agents,
         );
         assert!(context(reply.unwrap()).unwrap().ends_with(
@@ -1744,6 +2065,7 @@ mod tests {
         let err = session_start(
             &db,
             &start("sess-3", "startup", Some("cat-lead")),
+            None,
             None,
             never,
         );
@@ -1766,6 +2088,7 @@ mod tests {
             &db,
             &start("sess-2", "startup", Some("cat-lead")),
             None,
+            None,
             || Ok(lists.clone()),
         )
         .unwrap_err();
@@ -1775,6 +2098,7 @@ mod tests {
             &db,
             &start("sess-2", "startup", Some("cat-lead")),
             None,
+            None,
             || Ok("[]".into()),
         )
         .unwrap_err();
@@ -1782,6 +2106,7 @@ mod tests {
         let err = session_start(
             &db,
             &start("sess-2", "startup", Some("cat-lead")),
+            None,
             None,
             || anyhow::bail!("claude agents failed"),
         )
@@ -1794,6 +2119,7 @@ mod tests {
         let reply = session_start(
             &db,
             &start("sess-2", "fork", Some("cat-lead")),
+            None,
             None,
             || Ok(lists.clone()),
         );
@@ -1811,6 +2137,7 @@ mod tests {
         let reply = session_start(
             &db,
             &start("sess-2", "fork", Some("cat-lead")),
+            None,
             None,
             || Ok(lists.clone()),
         );

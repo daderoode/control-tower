@@ -240,6 +240,9 @@ implement, test or review.
    itself (the checks `tower lead attach` makes) and says at once what to do; do what it
    says. After a fresh start or a `/clear` it has you arm your board waiter and ask the
    owner to run this skill again (`/control-tower:lead <R>`): only the owner starts it.
+   After a compaction it names what to re-read (this skill's Who you are table and
+   Principles, the repo's SDLC, the standing context, your memory) and your board's state:
+   re-read them before you go on.
    If your turn would end with posts unread (no waiter
    was running, or a post landed as you finished), the Stop hook holds it and names them;
    read and answer them, and arm the waiter if it says it is not running. If you end a turn

@@ -872,7 +872,17 @@ fn lead_hook() -> Result<()> {
                 )
             };
             let outside = control_tower::terminal::outside_from_env();
-            control_tower::listen::session_start(&path, &input, outside.as_deref(), agents)
+            // Claude Code gives a plugin's hooks its install folder, where the lead skill is.
+            let skill = std::env::var_os("CLAUDE_PLUGIN_ROOT")
+                .filter(|root| !root.is_empty())
+                .map(|root| PathBuf::from(root).join("skills/lead/SKILL.md"));
+            control_tower::listen::session_start(
+                &path,
+                &input,
+                outside.as_deref(),
+                skill.as_deref(),
+                agents,
+            )
         })();
         match started {
             Ok(Some(reply)) => println!("{reply}"),

@@ -878,8 +878,16 @@ and an idle lead is never woken while nothing is posted:
   the checks `tower lead attach` makes (`claude agents --json`, or `TOWER_CLAUDE`, lists it
   under that name), and told at once what to do. After a resume or fork, it reads with
   `tower lead unread <R>` and arms `tower lead wait <R>` and the forge waiter itself; after
-  a compaction, or a `/clear` while its board waiter runs (background commands outlive
-  both), nothing is to arm again. After a fresh start, or a `/clear` with no waiter running,
+  a `/clear` while its board waiter runs (background commands outlive it), nothing is to arm
+  again. After a compaction its conversation is a summary, which keeps the work but not the
+  lead's rules, so it is handed them back in a few lines: what to re-read (the lead skill's
+  Who you are table and Principles, by the plugin's `CLAUDE_PLUGIN_ROOT` when Claude Code
+  gives it, the checkout's `SDLC.md` when it has one, each open milestone's standing
+  context, its memory); its board now (the repo and its checkout, the open milestones, each
+  task in progress with its assignee, live when `claude agents --json` lists a session of
+  that name, and its PR, at most 10 and the rest counted, and how many posts are unread,
+  counted, never told); and that its waiters still run, or, with no board waiter running,
+  how to arm them. After a fresh start, or a `/clear` with no waiter running,
   it has no conversation, and the lead skill is started only by the owner, so it arms its
   board waiter itself (never deaf) and asks you to run `/control-tower:lead <R>`, which arms
   the forge waiter too. On a start, resume or fork, while the lead's attached session is a
@@ -894,7 +902,7 @@ and an idle lead is never woken while nothing is posted:
   attached all the same, by `tower lead attach` and by the SessionStart hook, and both tell
   it that the board's team runs in Rex and what the board does not see from outside it (the
   workers it starts there: their prompts, and delivery to them), to raise with you. The hook
-  says so even after a compaction that has nothing else to say. With `REX_SESSION` set,
+  says so after the rest, a compaction's reply too. With `REX_SESSION` set,
   nothing more is said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
