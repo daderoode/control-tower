@@ -227,7 +227,9 @@ marks one met, `uncheck` marks it not met again, and `remove` takes it off, movi
 after it up a number (it says so). `tower task unassign` takes a task's assignee away.
 `tower task blocked-by add` records that a task is blocked by another task, a dependency it
 waits for, refusing the task itself, a task it is already blocked by and one that would
-close a loop; `blocked-by remove` takes it back. Blocked by is not the blocked flag a worker
+close a loop; `blocked-by remove` takes it back. When a task reaches Done, each task it
+blocks in another repo gets a `system` line in its thread on its own repo's board, so that
+board's lead is woken (spec, section 7). Blocked by is not the blocked flag a worker
 sets when stuck (see GLOSSARY.md). `tower task remove 12` removes an abandoned standalone
 task, Done or not, with its subtasks, criteria, blocked-by records and the threads linked to
 it with their messages (a task's thread is on the board through its task), in one go, and
@@ -317,11 +319,12 @@ doing line.
     tower post T1 --by dev-2 --handoff "done: staged, tests and checks below"
 
 A hand-off post, posted with `tower post --handoff`, says the work now waits on the lead:
-a worker's done post, or a post saying it waits on the lead's answer. While it is the
-assignee's latest post in the task's threads, the watch does not nudge the assignee for
-being stopped (The watch). It is refused in a thread linked to no task and with
-`--progress`, and is never a doing line. A plain done post is a plain post: its worker is
-nudged after 5 quiet minutes, as before.
+a worker's done post, a post saying it waits on the lead's answer, and any
+acknowledgement it posts while it still waits. While it is the assignee's latest post in
+the task's threads, the watch does not nudge the assignee for being stopped (The watch).
+It is refused in a thread linked to no task and with `--progress`, and is never a doing
+line. A plain done post is a plain post: its worker is nudged after 5 quiet minutes, as
+before.
 
 A milestone's stage shows in the output of `tower task stage` and `tower milestone done`,
 for example "M1 is in progress, 1/5 tasks done (20%)", and in the dashboard's milestone
