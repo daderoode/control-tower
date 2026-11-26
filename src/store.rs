@@ -2088,15 +2088,53 @@ impl Store {
             "SELECT id FROM thread_board WHERE repo_id = ?2",
             repo.0,
         )?;
-        // Its lead leaves any item it shared with other leads, on another board; one on this
-        // board goes with it, and the others' `told_thread` with it (ON DELETE SET NULL).
+        // Its lead leaves any item it shared with other leads, on another board.
+        let at = now()?;
         if let Some(lead) = &lead {
             let evidence = format!(
                 "{}, the lead of {repo}, was taken off with {repo}.",
                 lead.name
             );
-            leave_told(&tx, repo, &evidence, now()?, &cannot_write)?;
+            leave_told(&tx, repo, &evidence, at, &cannot_write)?;
         }
+        // An item on this board shared with leads of other repos goes with it: each of them
+        // still not listening is told in its own thread, so it is its own item again.
+        let named: Vec<(i64, String, i64)> = tx
+            .prepare(
+                "SELECT l.repo_id, l.name, l.deaf_thread FROM lead l \
+                 JOIN thread_board b ON b.id = l.told_thread \
+                 JOIN thread t ON t.id = l.deaf_thread \
+                 WHERE b.repo_id = ?1 AND l.repo_id != ?1 AND t.resolved_at IS NULL",
+            )
+            .and_then(|mut q| {
+                q.query_map(params![repo.0], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect()
+            })
+            .context(cannot_write.clone())?;
+        for (other, name, deaf) in named {
+            let text = format!(
+                "@manager {name}, the lead of {}, is still not listening; the item that named \
+                 it went with {repo}.",
+                RepoId(other)
+            );
+            let text = check_message("message", &text)?;
+            let deaf = ThreadId(deaf);
+            append(
+                &tx,
+                deaf,
+                SYSTEM_AUTHOR,
+                &text,
+                Kind::Plain,
+                at,
+                &cannot_write,
+            )?;
+        }
+        tx.execute(
+            "UPDATE lead SET told_thread = NULL WHERE told_thread IN \
+             (SELECT id FROM thread_board WHERE repo_id = ?1)",
+            params![repo.0],
+        )
+        .context(cannot_write.clone())?;
         for sql in [
             "DELETE FROM lead WHERE repo_id = ?1",
             "DELETE FROM message \
@@ -3749,13 +3787,13 @@ impl Store {
     /// text of its own item, and that text as a plain record) with none open, in one write:
     /// a new thread about the whole repo, "Lead not listening", posted by `system`, which is
     /// the lead's `deaf_thread` until it listens again. Refuses a repo with no lead. When it
-    /// opens one, its thread gets its item; when it opens
-    /// more (several leads stopped by one cause in one look, #146), each thread gets its
-    /// plain record and the owner one item, `shared` of the (index, thread) of those it
-    /// opened, in a new "Lead not listening" thread on the first's board, which is the
-    /// thread each is said to be told in (`told_thread`), resolved once the last of them
-    /// listens again or is taken off (`leave_told`). Returns, for each it opened, its index in `leads`
-    /// and the thread the owner was told in.
+    /// opens one, its thread gets its item; when it opens more (several leads stopped by one
+    /// cause in one look, #146), each thread gets its plain record and the owner one item,
+    /// `shared` of the (index, thread) of those it opened, in a new "Lead not listening"
+    /// thread on the first's board, which is the thread each is said to be told in
+    /// (`told_thread`), resolved once the last of them listens again or is taken off
+    /// (`leave_told`). Returns, for each it opened, its index in `leads` and the thread the
+    /// owner was told in.
     pub fn leads_deaf(
         &mut self,
         leads: &[(RepoId, &str, &str)],

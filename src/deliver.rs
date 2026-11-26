@@ -48,10 +48,11 @@
 //! storm. A round's item is per board, but the recipients it could not reach because the
 //! relay's own run ended on the same error (`Prompted::cause`: a provider outage, which
 //! stops every send at once) are one item for that error, naming each on every board. An
-//! item goes in the thread of the first recipient it names (#146). A send that may have arrived (stopped at its limit, no
-//! answer) is logged only, never resent and no item. A send that went to someone else
-//! (`Sent::Misrouted`) always posts its own item naming who got it, open episode or not
-//! (`Store::misrouted`), tower's replies too: it is worse than a lost send.
+//! item goes in the thread of the first recipient it names (#146). A send that may have
+//! arrived (stopped at its limit, no answer) is logged only, never resent and no item. A
+//! send that went to someone else (`Sent::Misrouted`) always posts its own item naming who
+//! got it, open episode or not (`Store::misrouted`), tower's replies too: it is worse than
+//! a lost send.
 //!
 //! A worker the board knew that the terminal no longer has is the owner's item only while it
 //! can still need the posts: it is the assignee of a task not done, or a post in the send is

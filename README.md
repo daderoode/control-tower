@@ -827,27 +827,26 @@ since it posted) is only logged, never an item for the owner. A reply is never w
 tower's own posts, nor on a thread resolved meanwhile (the log says so).
 
 Any other send that fails (a worker at a prompt, a worker the board knew that Rex no longer
-has, a relay that sent nothing) opens a failure episode for that recipient and posts an
-item for the owner's awareness (not need-you), a `system` message starting "@manager could
-not deliver to" in the thread of the first post to the first recipient it names (or a new
-"Delivery failed" thread when that one is resolved). A round posts one item per board, naming each recipient
-newly failing there and why, so a post naming several gone workers is one item. Recipients
-the relay could not reach because its own run ended on the same error (a provider outage:
-the run exits on an error result and sends nothing) are one item for that error instead,
-on whatever board: "@manager could not deliver to 3 recipients,
-all on one error: the relay's run ended on "...". Their posts stay on the board:", then
-each as "dev-1 (R1)". A recipient
-Rex has no worker for that is the assignee of a task not done on that board has its line
-end with how to clear it ("if it was closed: tower task unassign N, or set the next
-worker"). One Rex has no worker for that is the assignee of no task not done is the
-owner's item only when a post in the send is less than an hour old; an older one is a closed
-worker's, found by a watch catching up after a stop, and is only logged, opening no episode:
-"could not deliver 2 post(s) to dev-24: Rex has no agent named dev-24, a worker with no task
-not done and no post to it in the last hour; no item for the owner". A worker Rex lists is
-sent its posts however old they are. While an episode is open, further failures to that
-recipient are only logged; a send that gets through ends it, and one still failing after an
-hour is told again with a new item. A send that may have arrived (the relay stopped at its
-limit, or a SendMessage with no answer) is logged only, and never resent.
+has, a relay that sent nothing) opens a failure episode for that recipient and posts an item
+for the owner's awareness (not need-you), a `system` message starting "@manager could not
+deliver to" in the thread of the first post to the first recipient it names (or a new
+"Delivery failed" thread when that one is resolved). A round posts one item per board,
+naming each recipient newly failing there and why, so a post naming several gone workers is
+one item. Recipients the relay could not reach because its own run ended on the same error
+(a provider outage: the run exits on an error result and sends nothing) are one item for
+that error instead, on whatever board: "@manager could not deliver to 3 recipients, all on
+one error: the relay's run ended on "...". Their posts stay on the board:", then each as
+"dev-1 (R1)". A recipient Rex has no worker for that is the assignee of a task not done on
+that board has its line end with how to clear it ("if it was closed: tower task unassign N,
+or set the next worker"). One Rex has no worker for that is the assignee of no task not done
+is the owner's item only when a post in the send is less than an hour old; an older one is a
+closed worker's, found by a watch catching up after a stop, and is only logged, opening no
+episode: "could not deliver 2 post(s) to dev-24: Rex has no agent named dev-24, a worker
+with no task not done and no post to it in the last hour; no item for the owner". A worker
+Rex lists is sent its posts however old they are. While an episode is open, further failures
+to that recipient are only logged; a send that gets through ends it, and one still failing
+after an hour is told again with a new item. A send that may have arrived (the relay stopped
+at its limit, or a SendMessage with no answer) is logged only, and never resent.
 
 ### How posts reach a lead
 
@@ -977,7 +976,9 @@ and an idle lead is never woken while nothing is posted:
   carries the item, "@manager one error stopped 2 leads, so none of them is listening:
   "...". Not listening: Catalogue, the lead of R1 (T3); ...". Each lead's thread still
   resolves on its own, and the item's thread resolves, with a line saying so, once the last
-  lead it names listens again or is taken off.
+  lead it names listens again or is taken off. When the repo whose board holds that item is
+  removed (`tower repo remove`), each lead it named that is still not listening gets an
+  `@manager` line in its own thread, so it is its own item again.
 
 ## The board
 

@@ -1619,6 +1619,52 @@ mod tests {
     }
 
     #[test]
+    fn a_lead_whose_shared_item_goes_with_a_removed_repo_is_its_own_item_again() {
+        // R1 goes with its lead, or after its lead was taken off.
+        for lead_first in [false, true] {
+            let (_dir, db, mut store) = board();
+            store.attach_lead(RepoId(1), "sess-1").unwrap();
+            store.attach_lead(RepoId(2), "sess-2").unwrap();
+            let idle = agents(&[("sess-1", "idle"), ("sess-2", "idle")]);
+            assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+            turn_fails(&db, "sess-1", OVERLOADED);
+            turn_fails(&db, "sess-2", OVERLOADED);
+            // T3 (R1) and T4 (R2) are the leads' own threads, T5 on R1's board the item.
+            assert_eq!(look_with(&mut store, &db, &idle, 30).len(), 2);
+            if lead_first {
+                store
+                    .remove_lead(RepoId(1), "nobody leads R1 any more")
+                    .unwrap();
+            }
+            // R1 must hold no milestone to go: M1 moves to R2.
+            let to_r2 = crate::store::MilestoneFields {
+                repo: Some(RepoId(2)),
+                ..Default::default()
+            };
+            store.set_milestone(MilestoneId(1), to_r2).unwrap();
+            store.remove_repo(RepoId(1)).unwrap();
+            // T5 went with R1. R2 is still not listening: its own thread is its item now.
+            // Before, R2 was left with no item at all.
+            assert_eq!(
+                items(&mut store),
+                [
+                    "@manager Other, the lead of R2, is still not listening; the item that named \
+                  it went with R1."
+                ],
+                "lead first: {lead_first}"
+            );
+            // Once it listens again, its thread resolves and nothing is left.
+            let held = waiter_runs(&db, 2);
+            assert_eq!(
+                look_with(&mut store, &db, &idle, 40),
+                ["Other, the lead of R2, listens again; resolved T4"]
+            );
+            drop(held);
+            assert!(items(&mut store).is_empty(), "lead first: {lead_first}");
+        }
+    }
+
+    #[test]
     fn leads_stopped_by_different_errors_or_none_are_an_item_each() {
         for second in [Some("Rate limited until 10:00."), None] {
             let (_dir, db, mut store) = board();
