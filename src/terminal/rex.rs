@@ -606,6 +606,15 @@ impl Terminal for Rex {
         )
     }
 
+    /// Asks for its sessions, the call a look starts with, and says why when that fails
+    /// (the app not running, a timeout, a reply it cannot read).
+    fn silent(&self, db: &Path, timeout: Duration) -> Option<String> {
+        let deadline = Instant::now() + timeout;
+        let none = serde_json::json!({});
+        let listed = self.call::<Sessions>(db, "session.list", none, deadline, timeout);
+        listed.err().map(|e| format!("Rex does not answer: {e}"))
+    }
+
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
         let deadline = Instant::now() + timeout;
         let none = serde_json::json!({});

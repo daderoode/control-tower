@@ -1697,7 +1697,7 @@ mod tests {
         }
         fn prompt(
             &self,
-            _db: &Path,
+            db: &Path,
             _name: &str,
             _text: &str,
             _t: Duration,
@@ -1708,7 +1708,7 @@ mod tests {
                 .get()
                 .and_then(std::sync::Weak::upgrade)
                 .unwrap();
-            assert!(chosen.choose(None).is_some(), "Rex is chosen until now");
+            assert!(chosen.choose(db, None).is_some(), "Rex is chosen until now");
             Sent::Delivered.into()
         }
         fn start_lead(

@@ -253,6 +253,13 @@ pub trait Terminal: AsTerminal + Send + Sync {
     fn adds(&self) -> Option<&'static str> {
         None
     }
+    /// The one line saying the terminal, found, does not answer within `timeout` (it cannot
+    /// list its sessions, for the reason given); `None` when it answers. Whoever says it
+    /// adds how often (the watch: once, until it answers). The core's: it always answers,
+    /// since its list is asked fresh each look.
+    fn silent(&self, _db: &Path, _timeout: Duration) -> Option<String> {
+        None
+    }
     /// The Claude Code it asks (`register::claude_path`): for the core's list and the relay.
     fn claude(&self) -> &Path;
     /// The live named workers, within `timeout`. The core's: each session Claude's list

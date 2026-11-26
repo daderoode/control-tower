@@ -37,6 +37,12 @@ tag's date, and a new empty Unreleased goes above it.
   any terminal, reading worker state from Claude Code's session list, and Rex adds the text
   of the prompt a worker waits at, the dashboard's `n`, `tower space` and `tower popup`,
   and starting workers as visible tabs (#165).
+- **With Rex installed but not running, the watch uses the core.** Before each look the
+  watch asks Rex for its sessions; while that fails (the app not running, or no answer
+  within 3 s), the look and its delivery read the workers from Claude Code's session list
+  instead of skipping every look, and the log says once why and what Rex would add. When
+  Rex answers again, the watch uses it with no restart. The spec, README and brew caveat say
+  so (#174).
 
 ## [0.7.0] - 2026-11-26
 
