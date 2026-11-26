@@ -14,7 +14,8 @@ tag's date, and a new empty Unreleased goes above it.
 - **Where a lead and its workers run when the owner sets up a Space.** The spec and the lead
   skill now say a lead and its workers run on each repo's main checkout, its workers in
   worktrees beside it; a Space (a folder holding a worktree of each repo of a piece of work)
-  is the owner's view, never a lead's or a worker's working directory; and the owner trusts
+  is the owner's view, never a lead's or a worker's working directory, so a lead started in
+  one asks the owner to start it again on the main checkout; and the owner trusts
   each repo's parent folder once before the lead's first dispatch, which trusting the Space
   does not cover (#147).
 

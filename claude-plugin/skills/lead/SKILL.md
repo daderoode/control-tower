@@ -165,7 +165,10 @@ implement, test or review.
    a Space (a folder holding a worktree of each repo it touches): the Space is the owner's
    view of the work, never your working directory or a worker's, and the board refuses a
    linked worktree as a repo path. A path in a Space names the repo whose main checkout
-   holds that worktree, found from it in step 1.
+   holds that worktree, found from it in step 1. Started inside a Space (your working
+   directory is not the main checkout), find that checkout as step 1 does, ask the owner
+   once to start you again there, and stop until then: a `cd` out of the folder you were
+   started in does not hold.
 1. Register yourself on the repo, as your first step, since only you know your own Claude
    session name. A lead registers on a repo, the main checkout you run on, and leads every
    milestone and standalone task in it. First find `<you>`: `claude agents --json` lists
