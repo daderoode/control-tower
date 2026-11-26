@@ -9,6 +9,13 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Workers leave the lead's Rex session its name.** Rex's start hook tells every Claude
+  session to name its Rex session after its work, and a worker shares its lead's, so each
+  worker relabelled the lead's whole session. The lead skill's worker recipes and every
+  brief now say a worker never renames the Rex session: its tab is already named (#137).
+
 ## [0.6.2] - 2026-11-26
 
 ### Added
