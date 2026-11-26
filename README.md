@@ -767,6 +767,14 @@ took, its cost and turns, each SendMessage it made with the tool's answer and wh
 text went verbatim (and what went if not), the model's closing words, any stderr, and the
 text tower asked it to send, so the relay can be checked in use.
 
+A send to a name Rex has no worker for waits first, until its oldest post is a minute old:
+a lead posts a worker's brief, then starts it, and Rex lists the new session a few seconds
+later. Each round logs "1 post(s) for qa-7 wait: Rex has no agent named qa-7 yet; a worker
+may be starting" and tries again, and the round Rex lists the name, the send goes, with no
+item and no reply. Only that name's posts wait: every other recipient's go at once. A name
+still unlisted after the minute is one of the failures below. A send made only of tower's
+replies to an author never waits, since their author had started.
+
 A name Rex has no worker for, that no worker on the board ever had (no task's assignee has
 had it and nobody has posted under it, in any case), is a name the post only seemed to give:
 an example like `@name`, a CSS rule like `@media`, or a worker's name misspelt. A lead
