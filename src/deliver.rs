@@ -59,12 +59,11 @@
 //! author, who had started.
 //!
 //! A post's author is told of every name in it no worker has had in one reply (#135): a send
-//! to such a name, past its grace, is judged only for the posts before the first that waits
-//! (`waiting`): one another send holds for a starting worker, or one this rule holds for
-//! another such name. That post and the ones after it wait with it, and are judged in the
-//! round the post's last hold ends. A post is held so only while it is under `START_GRACE`
-//! old, so its reply comes a grace after it at the latest, whatever names are posted after
-//! it.
+//! to such a name, past its grace, is judged one post at a time, each once it is
+//! `START_GRACE` old, and the posts from the first under that wait. So every such name in a
+//! post is judged in the same round, a grace and up to a round after the post, whatever is
+//! posted after it, and a worker listed after an older post to it was judged still gets the
+//! newer ones.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -262,50 +261,6 @@ pub fn plan(pending: &Pending) -> Vec<Batch> {
     }
     workers.retain(|b| !b.posts.is_empty());
     workers
-}
-
-/// Whether the terminal's agent names (`agents`) have one by `to`'s name, ignoring case.
-fn lists(agents: &[String], to: &Recipient) -> bool {
-    match to {
-        Recipient::Worker(name) => agents.iter().any(|a| a.eq_ignore_ascii_case(name)),
-    }
-}
-
-/// Whether `batch` waits at `now` for a worker that may be starting (#133): the terminal's
-/// agents (`agents`) have none by its name, it is not made only of tower's replies (they go
-/// to a post's author, who had started), and its oldest post is under `START_GRACE` old.
-fn starting(pending: &Pending, batch: &Batch, agents: &[String], now: i64) -> bool {
-    let posts = || batch.posts.iter().map(|&i| &pending.posts[i]);
-    let replies = posts().all(|p| p.author.eq_ignore_ascii_case(SYSTEM_AUTHOR));
-    let oldest = posts().map(|p| p.posted_at).min().unwrap_or(now);
-    !lists(agents, &batch.to) && !replies && now - oldest < START_GRACE
-}
-
-/// The posts (indexes) that wait this round at `now` so that each author is told of every
-/// name in a post no worker has had in one reply (#135): every post of a send that is
-/// `starting`, and, of each send to such a name (not in `agents`, not `Pending::knows`), its
-/// first post that waits and every post after it, until no send adds one. Each pass adds a
-/// post or ends, so it ends. A post waits only behind one no newer, of a `starting` send, so
-/// only while it is under `START_GRACE` old.
-fn waiting(pending: &Pending, batches: &[Batch], agents: &[String], now: i64) -> BTreeSet<usize> {
-    let mut wait: BTreeSet<usize> = (batches.iter())
-        .filter(|b| starting(pending, b, agents, now))
-        .flat_map(|b| b.posts.iter().copied())
-        .collect();
-    let unseen: Vec<&Batch> = (batches.iter())
-        .filter(|b| !lists(agents, &b.to) && !pending.knows(&b.to.key()))
-        .collect();
-    loop {
-        let before = wait.len();
-        for b in &unseen {
-            if let Some(at) = b.posts.iter().position(|i| wait.contains(i)) {
-                wait.extend(&b.posts[at..]);
-            }
-        }
-        if wait.len() == before {
-            return wait;
-        }
-    }
 }
 
 /// The author tower's reply `text` is for, when it is one (`UNKNOWN_NAME`).
@@ -540,12 +495,8 @@ impl Deliver {
         let mut failed: Vec<Failed> = Vec::new();
         // The names no worker on the board has had, by post (index): its author is told.
         let mut unknown: Vec<(usize, Vec<String>)> = Vec::new();
-        let batches = plan(&pending);
-        // The posts that wait for every name in them to be judged at once (`waiting`), worked
-        // out on the first send to a name no worker has had.
-        let mut wait: Option<BTreeSet<usize>> = None;
-        for batch in &batches {
-            let mut batch = batch.clone();
+        for mut batch in plan(&pending) {
+            let mut posts: Vec<&Post> = batch.posts.iter().map(|&i| &pending.posts[i]).collect();
             let remaining = deadline.saturating_duration_since(Instant::now());
             let waits = self.stop.load(Ordering::Relaxed) || remaining.is_zero();
             if !waits && agents.is_none() {
@@ -557,53 +508,55 @@ impl Deliver {
                 );
                 self.say_unread(agents.as_ref(), &mut log);
             }
-            let names = match (&agents, waits) {
-                (Some(Ok(names)), false) => names.as_slice(),
-                _ => {
-                    held.extend(&batch.posts);
-                    continue;
-                }
-            };
+            let unread = matches!(agents, Some(Err(_)));
+            if waits || unread {
+                held.extend(&batch.posts);
+                continue;
+            }
             let key = batch.to.key();
-            if starting(&pending, &batch, names, now) {
+            // Whether the terminal has an agent by the name: only one it has not can have
+            // been closed, or be starting still.
+            let listed = match &batch.to {
+                Recipient::Worker(name) => matches!(&agents,
+                    Some(Ok(a)) if a.iter().any(|a| a.eq_ignore_ascii_case(name))),
+            };
+            // Tower's replies, each to the author of a post: one that had started.
+            let replies = (posts.iter()).all(|p| p.author.eq_ignore_ascii_case(SYSTEM_AUTHOR));
+            let oldest = posts.iter().map(|p| p.posted_at).min().unwrap_or(now);
+            if !listed && !replies && now - oldest < START_GRACE {
                 // A worker started just after its brief was posted (#133): nothing is marked
                 // sent, so the send goes the round the terminal lists it, and is judged as
                 // any other once its oldest post is `START_GRACE` old.
                 log.push(format!(
                     "{} post(s) for {key} wait: {} has no agent named {key} yet; a worker may \
                      be starting",
-                    batch.posts.len(),
+                    posts.len(),
                     self.terminal.name()
                 ));
                 held.extend(&batch.posts);
                 continue;
             }
-            // Whether the terminal has an agent by the name: only one it has not can have
-            // been closed, or be starting still.
-            let listed = lists(names, &batch.to);
-            // A name no worker has had is told to each post's author in one reply naming
-            // every such name in the post (#135): so it is judged only for the posts before
-            // the first that waits (`waiting`, worked out once a round, before any is
-            // judged), and that post and the ones after it wait with it.
-            if !listed && !pending.knows(&key) {
-                let wait = wait.get_or_insert_with(|| waiting(&pending, &batches, names, now));
-                if let Some(at) = batch.posts.iter().position(|i| wait.contains(i)) {
-                    let rest = batch.posts.split_off(at);
-                    log.push(format!(
-                        "{} post(s) for {key} wait until every name in them is past its grace, \
-                         so each author is told once",
-                        rest.len()
-                    ));
-                    held.extend(&rest);
-                    if batch.posts.is_empty() {
-                        continue;
-                    }
+            // A name no worker has had is judged one post at a time, each once it is
+            // `START_GRACE` old (#135): the posts from the first under that wait. So every
+            // such name in a post is judged in the same round, and its author gets one reply.
+            if !listed
+                && !replies
+                && !pending.knows(&key)
+                && let Some(at) = posts.iter().position(|p| now - p.posted_at < START_GRACE)
+            {
+                let rest = batch.posts.split_off(at);
+                posts.truncate(at);
+                log.push(format!(
+                    "{} post(s) for {key} wait until each is a grace old, so each author is \
+                     told of every name in a post at once",
+                    rest.len()
+                ));
+                held.extend(&rest);
+                if posts.is_empty() {
+                    continue;
                 }
             }
-            let posts: Vec<&Post> = batch.posts.iter().map(|&i| &pending.posts[i]).collect();
             let n = posts.len();
-            // Tower's replies, each to the author of a post: one that had started.
-            let replies = (posts.iter()).all(|p| p.author.eq_ignore_ascii_case(SYSTEM_AUTHOR));
             let last = posts.last().map_or(0, |p| p.id);
             match store.mark_sent(&key, last) {
                 Ok(true) => {}
@@ -1789,8 +1742,8 @@ mod tests {
         assert_eq!(
             f.drain_at(1_060),
             [
-                "1 post(s) for qa-x wait until every name in them is past its grace, so each \
-                 author is told once",
+                "1 post(s) for qa-x wait until each is a grace old, so each author is told of \
+                 every name in a post at once",
                 "could not deliver 1 post(s) to qa-x: Rex has no agent named qa-x, a name no \
                  worker on the board has had; no item for the owner",
                 "1 post(s) for qa-y wait: Rex has no agent named qa-y yet; a worker may be \
@@ -1842,12 +1795,10 @@ mod tests {
         assert_eq!(f.replies().len(), 3, "{:?}", f.replies());
     }
 
-    /// senior-69's case on PR #139: a post that waits only because another send was cut at
-    /// an older post still waits for every send to a name no worker has had, so it is told
-    /// once. At 1060 `qa-y` waits at q for `qa-z`, so p waits for `qa-x` too; p's send to
-    /// `qa-x` then starts from p, so p is told a grace after it.
+    /// senior-69's case on PR #139: posts whose names no worker has had overlap three ways,
+    /// and each is told once, a grace after it, naming every such name in it.
     #[test]
-    fn a_post_waiting_behind_another_cut_is_told_once() {
+    fn posts_whose_names_no_worker_has_had_overlap_three_ways_are_each_told_once() {
         let f = Fixture::new();
         f.post_at("dev-2", "@qa-x @qa-y a", 1_000);
         f.post_at("dev-2", "@qa-y @qa-z q", 1_030);
@@ -1868,25 +1819,58 @@ mod tests {
         assert_eq!(f.replies().len(), 3, "{:?}", f.replies());
     }
 
-    /// Only a name no worker has had waits for the other names in its posts: a known worker
-    /// that is gone is judged whole once its oldest post is a grace old, the owner's item as
-    /// before, though a starting worker shares its newer post.
+    /// Only a name no worker has had is judged one post at a time: a known worker that is
+    /// gone is judged whole once its oldest post is a grace old, the owner's item as before,
+    /// though a newer post to it is under a grace.
     #[test]
-    fn a_gone_known_worker_sharing_a_post_with_a_starting_one_is_judged_at_once() {
+    fn a_gone_known_worker_is_judged_whole_though_a_post_is_under_its_grace() {
         let f = Fixture::new();
         f.post("qa-9", "done");
         f.post_at("dev-2", "@qa-9 old", 1_000);
-        f.post_at("dev-2", "@qa-9 @qa-7 new", 1_030);
+        f.post_at("dev-2", "@qa-9 new", 1_030);
         let log = f.drain_at(1_060);
+        assert_eq!(log.len(), 1, "{log:?}");
         assert!(
-            log.iter().any(|l| l.starts_with(
+            log[0].starts_with(
                 "could not deliver 2 post(s) to qa-9: Rex has no agent named qa-9; told the \
                  owner in "
-            )),
+            ),
             "{log:?}"
         );
-        assert!(!log.iter().any(|l| l.contains("for qa-9 wait")), "{log:?}");
         assert_eq!(f.items().len(), 1, "{:?}", f.items());
+    }
+
+    /// A worker named a grace before Rex lists it, and briefed since, still gets the brief:
+    /// the older post is judged at its grace, the brief waits for its own.
+    #[test]
+    fn a_name_listed_after_its_first_post_was_judged_still_gets_the_newer_ones() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-7 are you there?", 1_000);
+        f.post_at("dev-2", "@qa-7 your brief", 1_050);
+        let log = f.drain_at(1_060);
+        assert!(
+            log.contains(
+                &"could not deliver 1 post(s) to qa-7: Rex has no agent named qa-7, a name no \
+                  worker on the board has had; no item for the owner"
+                    .to_string()
+            ),
+            "{log:?}"
+        );
+        f.agents(&["dev-1", "dev-2", "qa-1", "qa-2", "qa-7"]);
+        assert_eq!(
+            f.drain_at(1_065),
+            [
+                "delivered 1 post(s) to qa-7",
+                "delivered 1 post(s) to dev-2"
+            ]
+        );
+        let prompts = f.prompts();
+        let brief = (prompts.iter()).find(|p| p.starts_with("qa-7|"));
+        assert!(
+            brief.is_some_and(|p| p.ends_with("[T1 #1] dev-2: @qa-7 your brief")),
+            "{prompts:?}"
+        );
+        assert!(f.items().is_empty(), "{:?}", f.items());
     }
 
     /// Names no worker on the board has had (an example, a misspelt
