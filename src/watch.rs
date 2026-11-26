@@ -786,6 +786,17 @@ impl Chosen {
         ))
     }
 
+    /// What the one chosen reads the workers from, for the log: the module's executable, else
+    /// the core's session list and the claude it runs.
+    fn reads(&self) -> String {
+        if self.found.load(Ordering::Relaxed) {
+            self.module.exe().display().to_string()
+        } else {
+            let core = &self.core;
+            format!("{}'s session list ({})", core.name(), core.exe().display())
+        }
+    }
+
     /// The one chosen.
     fn now(&self) -> &dyn Terminal {
         if self.found.load(Ordering::Relaxed) {
@@ -848,6 +859,17 @@ impl Terminal for Chosen {
     }
 }
 
+/// The first line `tower watch` logs, after its first choice: the board, what this round
+/// reads the workers from (`Chosen::reads`), and how often it looks.
+fn watching(db: &Path, chosen: &Chosen) -> String {
+    let every = TICK.as_secs();
+    format!(
+        "watching {} with {} every {every} s",
+        db.display(),
+        chosen.reads()
+    )
+}
+
 /// One round of `tower watch` at `now`, `path` its PATH: chooses the terminal
 /// (`Chosen::choose`), checks the leads (asking `claude`) and looks over the workers. A line
 /// per thing to log.
@@ -891,12 +913,10 @@ pub fn run(db: &Path) -> Result<()> {
         let at = chrono::Local::now().format("%H:%M:%S");
         eprintln!("{at} tower watch: {line}");
     };
-    log(&format!(
-        "watching {} with {} every {} s",
-        db.display(),
-        terminal.exe().display(),
-        TICK.as_secs()
-    ));
+    // The first choice comes first, so the first line names what this round reads.
+    let first = chosen.choose(std::env::var_os("PATH").as_deref());
+    log(&watching(db, &chosen));
+    first.iter().for_each(|l| log(l));
     let mut skill = crate::register::Skill::new(
         claude.clone(),
         crate::register::skill_dir(),
@@ -1549,6 +1569,116 @@ mod tests {
         assert_eq!(nudged, format!("nudged dev-1 on #1 (stopped): {text}"));
         let sent = std::fs::read_to_string(f.dir.path().join("rex/prompts.log")).unwrap();
         assert_eq!(sent, format!("dev-1|{text}\n"));
+    }
+
+    /// The watch over the fixture through `Chosen`, over `module` and the core asking the
+    /// fake claude.
+    fn chosen(f: &mut Fixture, module: Arc<dyn Terminal>) -> Arc<Chosen> {
+        let core = crate::terminal::Core::new(f.rex.dir.join("claude"));
+        let chosen = Arc::new(Chosen::new(module, Arc::new(core)));
+        let terminal = Arc::clone(&chosen) as Arc<dyn Terminal>;
+        f.watch = Watch::new(&f.db, terminal, Arc::default());
+        chosen
+    }
+
+    /// What the watch says once when Rex, at `rex`, goes missing from no PATH.
+    fn rex_would_add(rex: &Path) -> String {
+        let missing = crate::terminal::module(rex.to_path_buf()).missing(None);
+        format!(
+            "{}. Until Rex is found, the watch reads its workers from Claude Code (said once); \
+             Rex would add the text of the prompt a worker waits at in its owner item, the \
+             dashboard's n and its keys, and starting workers as visible tabs",
+            missing.unwrap()
+        )
+    }
+
+    #[test]
+    fn with_no_rex_every_look_runs_and_the_watch_says_once_what_rex_would_add() {
+        let mut f = Fixture::new();
+        let no_rex = f.dir.path().join("no-rex");
+        let chosen = chosen(&mut f, crate::terminal::module(no_rex.clone()));
+        let claude = f.rex.dir.join("claude");
+        listed(&f, &[("dev-1", "waiting", Some("permission prompt"))]);
+        let round_at = |f: &mut Fixture, mins: i64| {
+            round(&mut f.watch, &chosen, &claude, None, f.t0 + mins * MIN)
+        };
+        assert_eq!(
+            round_at(&mut f, 0),
+            [
+                rex_would_add(&no_rex),
+                "flagged dev-1 on #1 (prompt) in T1".into()
+            ]
+        );
+        // Each later look runs, judging from Claude's list: said once, never skipped.
+        for m in 1..4 {
+            assert_eq!(round_at(&mut f, m), [] as [String; 0], "look {m}");
+        }
+        listed(&f, &[("dev-1", "busy", None)]);
+        assert_eq!(round_at(&mut f, 4), ["#1's prompt episode for dev-1 ended"]);
+    }
+
+    #[test]
+    fn rex_is_asked_again_once_it_is_found_with_no_restart() {
+        let mut f = Fixture::new();
+        let rex = f.rex.dir.join("rex");
+        let module = Arc::new(f.rex.module());
+        let chosen = chosen(&mut f, module);
+        let claude = f.rex.dir.join("claude");
+        let rex_calls = |f: &Fixture| {
+            (f.rex.calls().into_iter())
+                .filter(|c| !c.starts_with("claude|"))
+                .count()
+        };
+        let away = f.rex.dir.join("rex.away");
+        let none: [String; 0] = [];
+        // Found: Rex is asked, and nothing is said.
+        assert_eq!(round(&mut f.watch, &chosen, &claude, None, f.t0), none);
+        assert_eq!(chosen.name(), "Rex");
+        let asked = rex_calls(&f);
+        assert!(asked > 0);
+        // Gone: said once, and the core is asked, Rex never.
+        std::fs::rename(&rex, &away).unwrap();
+        let said = round(&mut f.watch, &chosen, &claude, None, f.t0 + MIN);
+        assert_eq!(said, [rex_would_add(&rex)]);
+        assert_eq!(chosen.name(), "Claude Code");
+        let said = round(&mut f.watch, &chosen, &claude, None, f.t0 + 2 * MIN);
+        assert_eq!(said, none);
+        assert_eq!(rex_calls(&f), asked);
+        // Found again: Rex is asked, with nothing said.
+        std::fs::rename(&away, &rex).unwrap();
+        let said = round(&mut f.watch, &chosen, &claude, None, f.t0 + 3 * MIN);
+        assert_eq!(said, none);
+        assert_eq!(chosen.name(), "Rex");
+        assert!(rex_calls(&f) > asked);
+        // Gone again: said again.
+        std::fs::rename(&rex, &away).unwrap();
+        let said = round(&mut f.watch, &chosen, &claude, None, f.t0 + 4 * MIN);
+        assert_eq!(said, [rex_would_add(&rex)]);
+    }
+
+    #[test]
+    fn the_first_line_names_rex_or_claudes_session_list_as_first_chosen() {
+        let mut f = Fixture::new();
+        let claude = f.rex.dir.join("claude");
+        let db = f.db.display().to_string();
+        let no_rex = crate::terminal::module(f.dir.path().join("no-rex"));
+        let chosen_now = chosen(&mut f, no_rex);
+        assert!(chosen_now.choose(None).is_some());
+        assert_eq!(
+            watching(&f.db, &chosen_now),
+            format!(
+                "watching {db} with Claude Code's session list ({}) every 20 s",
+                claude.display()
+            )
+        );
+        let rex = f.rex.dir.join("rex");
+        let module = Arc::new(f.rex.module());
+        let chosen_now = chosen(&mut f, module);
+        assert_eq!(chosen_now.choose(None), None);
+        assert_eq!(
+            watching(&f.db, &chosen_now),
+            format!("watching {db} with {} every 20 s", rex.display())
+        );
     }
 
     #[test]
