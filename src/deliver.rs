@@ -671,6 +671,8 @@ impl Deliver {
 
     /// One round of `drain`, its gate held: the lines to log.
     fn send_round(&self, now: i64) -> Result<Vec<String>> {
+        // One terminal for the whole round: its list, its texts and its sends agree.
+        let terminal = self.terminal.current();
         let mut store = Store::open(&self.db)?;
         let pending = store.take_pending()?;
         let mut log = Vec::new();
@@ -691,12 +693,12 @@ impl Deliver {
             let waits = self.stop.load(Ordering::Relaxed) || remaining.is_zero();
             if !waits && agents.is_none() {
                 let timeout = remaining.min(crate::terminal::terminal_timeout());
-                let listed = self.terminal.agents(&self.db, timeout);
+                let listed = terminal.agents(&self.db, timeout);
                 agents = Some(
                     (listed.map(|a| a.into_iter().map(|a| a.name).collect()))
                         .map_err(|e| e.to_string()),
                 );
-                self.say_unread(agents.as_ref(), &mut log);
+                self.say_unread(terminal.name(), agents.as_ref(), &mut log);
             }
             let unread = matches!(agents, Some(Err(_)));
             if waits || unread {
@@ -760,7 +762,7 @@ impl Deliver {
                     "{} post(s) for {key} wait: {} has no agent named {key} yet; a worker may \
                      be starting",
                     posts.len(),
-                    self.terminal.name()
+                    terminal.name()
                 ));
                 held.extend(&batch.posts);
                 continue;
@@ -802,13 +804,11 @@ impl Deliver {
                         // A send that starts has its whole limit: the budget only stops the
                         // next one starting, so none is cut short and lost.
                         let text = worker_text(&posts);
-                        let prompted =
-                            (self.terminal).prompt(&self.db, name, &text, self.send_limit);
+                        let prompted = terminal.prompt(&self.db, name, &text, self.send_limit);
                         log.extend(prompted.trace);
                         (prompted.sent, prompted.cause)
                     } else {
-                        let terminal = self.terminal.name();
-                        let why = format!("{terminal} has no agent named {name}");
+                        let why = format!("{} has no agent named {name}", terminal.name());
                         (Sent::Failed(why), None)
                     };
                     (name.clone(), sent, !listed, cause)
@@ -901,7 +901,7 @@ impl Deliver {
                 ));
                 continue;
             }
-            let text = reply_text(&post.author, tell, self.terminal.name());
+            let text = reply_text(&post.author, tell, terminal.name());
             let what = match (tell.names.is_empty(), tell.leads.is_empty()) {
                 (false, true) => "the name(s) no worker has had",
                 (true, _) => "the lead(s) of another board it named",
@@ -954,16 +954,20 @@ impl Deliver {
         Ok(log)
     }
 
-    /// Logs why the terminal's agent list failed, once until it answers or the reason
-    /// changes.
-    fn say_unread(&self, agents: Option<&Result<Vec<String>, String>>, log: &mut Vec<String>) {
+    /// Logs why the agent list of the terminal named `terminal` failed, once until it answers
+    /// or the reason changes.
+    fn say_unread(
+        &self,
+        terminal: &str,
+        agents: Option<&Result<Vec<String>, String>>,
+        log: &mut Vec<String>,
+    ) {
         let mut said = self
             .unread_said
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         match agents {
             Some(Err(why)) if said.as_ref() != Some(why) => {
-                let terminal = self.terminal.name();
                 log.push(format!(
                     "{why}; posts for workers wait until {terminal} answers"
                 ));
@@ -1664,6 +1668,109 @@ mod tests {
         let prompts = f.prompts();
         assert_eq!(prompts.len(), 1, "{prompts:?}");
         assert!(prompts[0].starts_with("dev-1|"), "{prompts:?}");
+    }
+
+    /// The fake Rex, but its prompt takes Rex off the PATH and has the watch's `Chosen`
+    /// choose again, as the watch's thread can mid-round, then sends nothing.
+    struct Flips {
+        rex: crate::terminal::rex::Rex,
+        gone: AtomicBool,
+        chosen: std::sync::OnceLock<std::sync::Weak<crate::watch::Chosen>>,
+    }
+
+    impl Terminal for Flips {
+        fn name(&self) -> &'static str {
+            self.rex.name()
+        }
+        fn exe(&self) -> &Path {
+            self.rex.exe()
+        }
+        fn missing(&self, _path: Option<&std::ffi::OsStr>) -> Option<String> {
+            self.gone
+                .load(Ordering::Relaxed)
+                .then(|| "rex is gone".into())
+        }
+        fn claude(&self) -> &Path {
+            self.rex.claude()
+        }
+        fn agents(
+            &self,
+            db: &Path,
+            timeout: Duration,
+        ) -> Result<Vec<crate::terminal::Agent>, crate::terminal::Unread> {
+            self.rex.agents(db, timeout)
+        }
+        fn prompt(
+            &self,
+            _db: &Path,
+            _name: &str,
+            _text: &str,
+            _t: Duration,
+        ) -> crate::terminal::Prompted {
+            self.gone.store(true, Ordering::Relaxed);
+            let chosen = self
+                .chosen
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .unwrap();
+            assert!(chosen.choose(None).is_some(), "Rex is chosen until now");
+            Sent::Delivered.into()
+        }
+        fn start_lead(
+            &self,
+            _db: &Path,
+            _lead: &crate::terminal::LeadStart,
+        ) -> Result<crate::terminal::Handle> {
+            unreachable!("delivery starts no lead")
+        }
+        fn undo(&self, _db: &Path, _handle: &crate::terminal::Handle) -> Result<String> {
+            unreachable!("delivery starts no lead")
+        }
+        fn space(
+            &self,
+            _db: &Path,
+            _here: &crate::terminal::Here,
+            _back: &Path,
+            _dashboard: &[String],
+        ) -> Result<crate::terminal::Answer> {
+            unreachable!("delivery has no key")
+        }
+        fn popup(&self, _db: &Path, _here: &crate::terminal::Here, _dash: &[String]) -> Result<()> {
+            unreachable!("delivery has no key")
+        }
+    }
+
+    #[test]
+    fn a_round_names_the_terminal_whose_list_it_read_though_the_choice_changes_mid_round() {
+        let mut f = Fixture::new();
+        let flips = Arc::new(Flips {
+            rex: f.rex.module(),
+            gone: AtomicBool::new(false),
+            chosen: std::sync::OnceLock::new(),
+        });
+        let core = crate::terminal::Core::new(f.dir.path().join("claude"));
+        let module = Arc::clone(&flips) as Arc<dyn Terminal>;
+        let chosen = Arc::new(crate::watch::Chosen::new(module, Arc::new(core)));
+        flips.chosen.set(Arc::downgrade(&chosen)).unwrap();
+        let terminal = Arc::clone(&chosen) as Arc<dyn Terminal>;
+        f.deliver = Deliver {
+            budget: TEST_WAIT,
+            send_limit: TEST_WAIT,
+            ..Deliver::new(&f.db, terminal, Arc::default())
+        };
+        // qa-9 worked on the board and is gone; dev-1 is listed, and its send takes Rex off
+        // the PATH before qa-9's batch is judged.
+        f.post("qa-9", "done");
+        f.post("dev-2", "@dev-1 first");
+        f.post("dev-2", "@qa-9 then");
+        let log = f.drain();
+        assert_eq!(log.len(), 2, "{log:?}");
+        assert_eq!(log[0], "delivered 1 post(s) to dev-1");
+        // Rex's list was read, so Rex is named, never Claude Code, which is chosen now.
+        let want = "could not deliver 1 post(s) to qa-9: Rex has no agent named qa-9; told the \
+                    owner in ";
+        assert!(log[1].starts_with(want), "{log:?}");
+        assert_eq!(chosen.name(), "Claude Code");
     }
 
     #[test]

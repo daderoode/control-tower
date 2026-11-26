@@ -220,9 +220,26 @@ pub struct Answer {
     pub passed_over: Vec<String>,
 }
 
+/// A terminal as a `Terminal` object: what `Terminal::current`'s default returns, given to
+/// every terminal.
+pub trait AsTerminal {
+    fn as_terminal(&self) -> &dyn Terminal;
+}
+
+impl<T: Terminal> AsTerminal for T {
+    fn as_terminal(&self) -> &dyn Terminal {
+        self
+    }
+}
+
 /// The terminal module interface. `db` is the board, passed to what the module runs as
 /// `TOWER_DB`.
-pub trait Terminal: Send + Sync {
+pub trait Terminal: AsTerminal + Send + Sync {
+    /// The terminal to ask for one piece of work that must ask a single one throughout (a
+    /// delivery round: its list, its texts, its sends). The core's: itself.
+    fn current(&self) -> &dyn Terminal {
+        self.as_terminal()
+    }
     /// The terminal's name in texts and logs.
     fn name(&self) -> &'static str;
     /// Its executable, as the module was given it.

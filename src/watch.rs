@@ -752,8 +752,10 @@ fn restart(exe: &Path) -> std::io::Error {
 }
 
 /// The watch's terminal: the module while it is found on the PATH, else the core (`Core`),
-/// as the last `choose` set it, so a look, its texts and the delivery thread all ask the
-/// same one, and the module is asked again once it is found, with no restart.
+/// as the last `choose` set it, and the module is asked again once it is found, with no
+/// restart. A look asks the same one throughout, since `choose` runs between looks on the
+/// look's own thread; a delivery round, on its own thread, asks the one chosen when it
+/// starts (`current`) throughout, so its list, its texts and its sends agree.
 pub(crate) struct Chosen {
     module: Arc<dyn Terminal>,
     core: Arc<dyn Terminal>,
@@ -808,6 +810,9 @@ impl Chosen {
 }
 
 impl Terminal for Chosen {
+    fn current(&self) -> &dyn Terminal {
+        self.now()
+    }
     fn name(&self) -> &'static str {
         self.now().name()
     }
