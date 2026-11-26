@@ -18,7 +18,7 @@ Keep it light.
 
 | Role | Does |
 |---|---|
-| Owner | Signs off a new goal's or milestone's spec and tickets before building starts. UI sign-off. Has given the lead authority to merge to master in this repo. Has given the lead authority to cut releases in this repo, its timing and scope included: "you are free to release" (2026-11-20), "I already gave you authority to handle releases" (2026-11-21), "you have the authority for decisions" (2026-11-25) |
+| Owner | Signs off a new goal's or milestone's spec and tickets before building starts. UI sign-off. Has given the lead authority to merge to master in this repo. Has given the lead authority to cut releases in this repo, its timing and scope included: "you are free to release" (2026-11-20), "I already gave you authority to handle releases" (2026-11-21), confirmed "Yes, record it" (2026-11-26, #143) |
 | Lead | Only coordinates: never implements, tests or reviews, whatever the size. Picks the path, commits, opens the PR, delivers: merges, or hands the PR to the named reviewer when a peer review is asked for |
 | Dev | Implements; stages the change and reports. Only the lead commits and pushes |
 | QA | Tests |

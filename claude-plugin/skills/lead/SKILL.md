@@ -358,8 +358,8 @@ implement, test or review.
    `tower task set N --context "..."`; a milestone's with `tower milestone set <M> --context "..."`.
 9. **The merge task**: while the spec and tickets are written, before work
    starts, create the task or subtask that waits on the owner's merge, so progress never
-   shows 100% while the owner's review is pending, unless the repo's SDLC or the standing
-   context gives you the master merge:
+   shows 100% while the owner's review is pending, unless that repo's SDLC or standing
+   context grants you the master merge (principle 7):
    - in a milestone, the merge is its own task:
      `MERGE=$(tower task add --milestone <M> "merge")`;
    - in a task with subtasks, the merge is its own subtask:

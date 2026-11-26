@@ -60,7 +60,7 @@ This file is the product spec, and the repo is its one source of truth (owner de
   | Triage | Bugs: labels them ready-for-agent or needs-info, closes duplicates with a link | Features (new, changed, rejected) and wontfix: the lead asks once, as a need-you item |
   | Picking up work | Takes ready-for-agent work without being told | |
   | Order | With release milestones, release by release first; then blockers first, then bugs before features, then oldest first; the order is shown on the board | A `priority` label on an issue runs it first |
-  | Merges | As the repo's SDLC says (see Finishing) | As the repo's SDLC says |
+  | Merges | As that repo's SDLC or standing context says, its grant quoted first (see Finishing) | As the repo's SDLC says |
   | Releases | With the owner's permission for that repo (its SDLC or standing context), quoted first, cuts the release itself; otherwise proposes one | The go, unless given to the lead |
   | UI | Builds only to a signed-off design | Signs off the design before it is built; approves the change's new and changed snapshots in its PR before it merges |
 
