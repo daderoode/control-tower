@@ -61,7 +61,7 @@ This file is the product spec, and the repo is its one source of truth (owner de
   | Picking up work | Takes ready-for-agent work without being told | |
   | Order | With release milestones, release by release first; then blockers first, then bugs before features, then oldest first; the order is shown on the board | A `priority` label on an issue runs it first |
   | Merges | As the repo's SDLC says (see Finishing) | As the repo's SDLC says |
-  | Releases | With the owner's permission (the repo's SDLC or standing context), cuts the release itself; otherwise proposes one | The go, unless given to the lead |
+  | Releases | With the owner's permission for that repo (its SDLC or standing context), quoted first, cuts the release itself; otherwise proposes one | The go, unless given to the lead |
   | UI | Builds only to a signed-off design | Signs off the design before it is built; approves the change's new and changed snapshots in its PR before it merges |
 
 - **Sub-leads by exception only** (owner decision, 2026-11-05). A lead may decide to start a sub-lead for a piece too big for its own context. The sub-lead reports on the repo's board like a worker. The board has no support for sub-leads until one has been used.
@@ -169,7 +169,7 @@ flowchart TD
 
 - **A task that is part of a larger MR** waits until every task that MR needs is done; a standalone task finishes on its own.
 - **MR into a working branch** (the ticket's or integration branch): the lead merges it, then marks the task Done.
-- **MR into master or main: the owner's gate by default** (owner decision, 2026-11-05). The lead takes the MR out of draft and asks the owner, as a `question:` post that mentions @manager, to review and merge it; the owner does peer review and merges. A repo's SDLC, or a milestone's or task's standing context, can give the lead that merge (control-tower's `SDLC.md` does).
+- **MR into master or main: the owner's gate by default** (owner decision, 2026-11-05). The lead takes the MR out of draft and asks the owner, as a `question:` post that mentions @manager, to review and merge it; the owner does peer review and merges. A repo's SDLC, or a milestone's or task's standing context, can give the lead that merge (control-tower's `SDLC.md` does). Authority is per repo: before a merge to the default branch or a release, the lead names the repo and quotes that repo's grant on the board (its SDLC, or standing context quoting the owner, dated); with none, it asks. A grant for one repo never carries to another, and one held only in the lead's memory is none.
 - **Waiting on the owner's merge, by scope:**
   - the "merge" task or subtask is created during spec and ticketing, before work starts, so progress never shows 100% while the owner's review is pending;
   - in a milestone, the merge is its own task: every other task can be Done while the "merge" task waits;
