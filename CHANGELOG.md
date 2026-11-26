@@ -18,6 +18,11 @@ tag's date, and a new empty Unreleased goes above it.
   worker at a prompt is sent nothing. Rex overrides the list and keeps what it does today,
   the text of the prompt included. With Rex installed nothing changes (#163; the watch
   running without Rex is #164).
+- **With no Rex, the watch runs every look.** When rex is not found on the PATH, the watch
+  and its delivery read the workers from Claude Code's session list instead of skipping the
+  look, and the log says once what Rex would add: the text of the prompt a worker waits at
+  in its owner item, the dashboard's n and its keys, and starting workers as visible tabs.
+  When rex is found again, the watch uses it with no restart (#164).
 
 ## [0.7.0] - 2026-11-26
 

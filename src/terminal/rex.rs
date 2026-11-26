@@ -599,6 +599,13 @@ impl Terminal for Rex {
         }
     }
 
+    fn adds(&self) -> Option<&'static str> {
+        Some(
+            "the text of the prompt a worker waits at in its owner item, the dashboard's n and \
+             its keys, and starting workers as visible tabs",
+        )
+    }
+
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
         let deadline = Instant::now() + timeout;
         let none = serde_json::json!({});

@@ -231,6 +231,11 @@ pub trait Terminal: Send + Sync {
     /// naming what was tried and how to name it; `None` when it is found. Whoever says it
     /// adds how often (the watch: once, until it is found).
     fn missing(&self, path: Option<&OsStr>) -> Option<String>;
+    /// What the module adds to the core, for the line the watch says when it goes missing
+    /// ("the text of ..., and ..."). The core's: nothing.
+    fn adds(&self) -> Option<&'static str> {
+        None
+    }
     /// The Claude Code it asks (`register::claude_path`): for the core's list and the relay.
     fn claude(&self) -> &Path;
     /// The live named workers, within `timeout`. The core's: each session Claude's list

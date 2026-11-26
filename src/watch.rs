@@ -1,7 +1,8 @@
 //! The stuck-worker watch, `tower watch`: a long-running process that every `TICK` reads the
-//! board and the live workers (through the terminal module, `terminal`: Claude Code's
-//! session list, or the module's own list, Rex's) and flags a stuck worker by the spec's
-//! fixed rules (section 4, "While work runs"). It runs on its own, dashboard open or not.
+//! board and the live workers (through the terminal module, `terminal`: the module's own
+//! list, Rex's, while Rex is found on the PATH, else Claude Code's session list, the core's;
+//! `Chosen`) and flags a stuck worker by the spec's fixed rules (section 4, "While work
+//! runs"). It runs on its own, dashboard open or not, Rex or not.
 //!
 //! A worker is linked to its live Claude session in the terminal by name: a task's assignee
 //! is the Claude session name of the worker on it, compared ignoring ASCII case. Only
@@ -750,6 +751,122 @@ fn restart(exe: &Path) -> std::io::Error {
         .exec()
 }
 
+/// The watch's terminal: the module while it is found on the PATH, else the core (`Core`),
+/// as the last `choose` set it, so a look, its texts and the delivery thread all ask the
+/// same one, and the module is asked again once it is found, with no restart.
+pub(crate) struct Chosen {
+    module: Arc<dyn Terminal>,
+    core: Arc<dyn Terminal>,
+    found: AtomicBool,
+}
+
+impl Chosen {
+    /// Over `module` and `core`, the module chosen until the first `choose`.
+    pub(crate) fn new(module: Arc<dyn Terminal>, core: Arc<dyn Terminal>) -> Chosen {
+        Chosen {
+            module,
+            core,
+            found: AtomicBool::new(true),
+        }
+    }
+
+    /// Chooses by `path` (a PATH value): the module when it is found there, else the core.
+    /// The line to log when the module goes missing, the first choice included: what was
+    /// tried, that the core is asked until it is found, and what the module would add.
+    pub(crate) fn choose(&self, path: Option<&std::ffi::OsStr>) -> Option<String> {
+        let missing = self.module.missing(path);
+        let was_found = self.found.swap(missing.is_none(), Ordering::Relaxed);
+        let line = missing.filter(|_| was_found)?;
+        let module = self.module.name();
+        let adds =
+            (self.module.adds()).map_or(String::new(), |a| format!("; {module} would add {a}"));
+        Some(format!(
+            "{line}. Until {module} is found, the watch reads its workers from {} (said once){adds}",
+            self.core.name()
+        ))
+    }
+
+    /// The one chosen.
+    fn now(&self) -> &dyn Terminal {
+        if self.found.load(Ordering::Relaxed) {
+            &*self.module
+        } else {
+            &*self.core
+        }
+    }
+}
+
+impl Terminal for Chosen {
+    fn name(&self) -> &'static str {
+        self.now().name()
+    }
+    fn exe(&self) -> &Path {
+        self.now().exe()
+    }
+    fn missing(&self, path: Option<&std::ffi::OsStr>) -> Option<String> {
+        self.now().missing(path)
+    }
+    fn adds(&self) -> Option<&'static str> {
+        self.now().adds()
+    }
+    fn claude(&self) -> &Path {
+        self.now().claude()
+    }
+    fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, crate::terminal::Unread> {
+        self.now().agents(db, timeout)
+    }
+    fn prompt(
+        &self,
+        db: &Path,
+        name: &str,
+        text: &str,
+        timeout: Duration,
+    ) -> crate::terminal::Prompted {
+        self.now().prompt(db, name, text, timeout)
+    }
+    fn start_lead(
+        &self,
+        db: &Path,
+        lead: &crate::terminal::LeadStart,
+    ) -> Result<crate::terminal::Handle> {
+        self.now().start_lead(db, lead)
+    }
+    fn undo(&self, db: &Path, handle: &crate::terminal::Handle) -> Result<String> {
+        self.now().undo(db, handle)
+    }
+    fn space(
+        &self,
+        db: &Path,
+        here: &crate::terminal::Here,
+        back: &Path,
+        dashboard: &[String],
+    ) -> Result<crate::terminal::Answer> {
+        self.now().space(db, here, back, dashboard)
+    }
+    fn popup(&self, db: &Path, here: &crate::terminal::Here, dashboard: &[String]) -> Result<()> {
+        self.now().popup(db, here, dashboard)
+    }
+}
+
+/// One round of `tower watch` at `now`, `path` its PATH: chooses the terminal
+/// (`Chosen::choose`), checks the leads (asking `claude`) and looks over the workers. A line
+/// per thing to log.
+fn round(
+    watch: &mut Watch,
+    chosen: &Chosen,
+    claude: &Path,
+    path: Option<&std::ffi::OsStr>,
+    now: i64,
+) -> Vec<String> {
+    let mut lines: Vec<String> = chosen.choose(path).into_iter().collect();
+    lines.extend(watch.leads(claude, now));
+    match watch.tick(now) {
+        Ok(looked) => lines.extend(looked),
+        Err(e) => lines.push(format!("skipped a look: {e:#}")),
+    }
+    lines
+}
+
 /// `tower watch`: looks every `TICK` until SIGTERM or Ctrl-C, logging one line per action
 /// to stderr.
 pub fn run(db: &Path) -> Result<()> {
@@ -764,7 +881,11 @@ pub fn run(db: &Path) -> Result<()> {
     // The lead check's claude agents --json does run in the look (`Watch::leads`), bounded by
     // CLAUDE_TIMEOUT, and so does the terminal's (Rex names its Claude sessions by it).
     let claude = crate::register::claude_path();
-    let terminal = crate::terminal::module(crate::terminal::exe_from_env());
+    let chosen = Arc::new(Chosen::new(
+        crate::terminal::module(crate::terminal::exe_from_env()),
+        Arc::new(crate::terminal::Core::new(claude.clone())),
+    ));
+    let terminal: Arc<dyn Terminal> = Arc::clone(&chosen) as Arc<dyn Terminal>;
     let mut watch = Watch::new(db, Arc::clone(&terminal), Arc::clone(&stop));
     let log = |line: &str| {
         let at = chrono::Local::now().format("%H:%M:%S");
@@ -781,7 +902,6 @@ pub fn run(db: &Path) -> Result<()> {
         crate::register::skill_dir(),
         Arc::clone(&stop),
     );
-    let mut said_missing = false;
     // The path as started, kept unresolved: the brew `opt` symlink outlives an upgrade.
     let me = std::env::current_exe()
         .and_then(std::path::absolute)
@@ -797,23 +917,8 @@ pub fn run(db: &Path) -> Result<()> {
     let delivering = std::thread::spawn(move || deliver.run(log));
     while !stop.load(Ordering::Relaxed) {
         let path = std::env::var_os("PATH");
-        match terminal.missing(path.as_deref()) {
-            None => said_missing = false,
-            Some(line) if !said_missing => {
-                log(&format!(
-                    "{line} (said once, until {} is found)",
-                    terminal.name()
-                ));
-                said_missing = true;
-            }
-            Some(_) => {}
-        }
         let now = chrono::Utc::now().timestamp();
-        watch.leads(&claude, now).iter().for_each(|l| log(l));
-        match watch.tick(now) {
-            Ok(lines) => lines.iter().for_each(|l| log(l)),
-            Err(e) => log(&format!("skipped a look: {e:#}")),
-        }
+        (round(&mut watch, &chosen, &claude, path.as_deref(), now).iter()).for_each(|l| log(l));
         let until = std::time::Instant::now() + TICK;
         let mut check_at = std::time::Instant::now();
         while !stop.load(Ordering::Relaxed) && std::time::Instant::now() < until {
