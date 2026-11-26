@@ -887,22 +887,22 @@ and an idle lead is never woken while nothing is posted:
   Who you are table and Principles, by the plugin's `CLAUDE_PLUGIN_ROOT` when Claude Code
   gives it, the checkout's `SDLC.md` when it has one, each open milestone's standing
   context, its memory); its board now (the repo and its checkout, the open milestones, each
-  task in progress, or blocked, with its assignee, live when `claude agents --json` lists a
-  session of that name, and its PR, at most 10, the rest counted with the command that
-  shows each place holding one; the live workers, everyone who posted on its open threads
-  whom `claude agents --json` lists, the lead aside, at most 10, left out when there are
-  none; and how many posts are unread, counted, never told); and that its waiters still
-  run, or, with no board waiter running, how to arm them. After a fresh start, or a
-  `/clear` with no waiter running, it has no conversation, and the lead skill is started
-  only by the owner, so it arms its board waiter itself (never deaf) and asks you to run
-  `/control-tower:lead <R>`, which arms the forge waiter too. On a start, resume or fork, while the lead's attached session is a
-  different one that `claude agents --json` still lists (a fork, or a second `claude -n`
-  with the name), it stays attached, and the new session is told it is not the lead's; a
-  `/clear` and a compaction are the same process, so they always attach. Any other session,
-  one with no name, and any session when the board does not exist, passes before `claude` is
-  asked (each ask bounded to 5 s) or the board opened to write. A hook cannot stop a session
-  from starting: a board that needs `tower upgrade`, or `claude` failing, prints nothing and
-  goes to Claude Code's debug log.
+  task in progress (blocked ones marked) with its assignee, live when `claude agents --json`
+  lists a session of that name, and its PR, at most 10, the rest counted with the command
+  that shows each place holding one; the live workers, everyone who posted on its open
+  threads whom `claude agents --json` lists, the lead aside, at most 10, left out when there
+  are none; and how many posts are unread, counted, never told); and that its waiters still
+  run, or, with no board waiter running, how to arm them. After a fresh start, or a `/clear`
+  with no waiter running, it has no conversation, and the lead skill is started only by the
+  owner, so it arms its board waiter itself (never deaf) and asks you to run
+  `/control-tower:lead <R>`, which arms the forge waiter too. On a start, resume or fork,
+  while the lead's attached session is a different one that `claude agents --json` still
+  lists (a fork, or a second `claude -n` with the name), it stays attached, and the new
+  session is told it is not the lead's; a `/clear` and a compaction are the same process, so
+  they always attach. Any other session, one with no name, and any session when the board
+  does not exist, passes before `claude` is asked (each ask bounded to 5 s) or the board
+  opened to write. A hook cannot stop a session from starting: a board that needs
+  `tower upgrade`, or `claude` failing, prints nothing and goes to Claude Code's debug log.
 - **A lead outside Rex:** a lead's session with no `REX_SESSION` (not run in a Rex tab) is
   attached all the same, by `tower lead attach` and by the SessionStart hook, and both tell
   it that the board's team runs in Rex and what the board does not see from outside it (the
