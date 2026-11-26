@@ -633,12 +633,20 @@ impl Terminal for Rex {
     }
 
     /// Asks for its sessions, the call a look starts with, and says why when that fails
-    /// (the app not running, a timeout, a reply it cannot read).
+    /// (the app not running, a timeout, a reply it cannot read). A timeout stops this check,
+    /// not a look, and says so.
     fn silent(&self, db: &Path, timeout: Duration) -> Option<String> {
         let deadline = Instant::now() + timeout;
         let none = serde_json::json!({});
-        let listed = self.call::<Sessions>(db, "session.list", none, deadline, timeout);
-        listed.err().map(|e| format!("Rex does not answer: {e}"))
+        let why = match self.call::<Sessions>(db, "session.list", none, deadline, timeout) {
+            Ok(_) => return None,
+            Err(e) if e == out_of_time(timeout) => format!(
+                "it did not list its sessions within {} s and the check was stopped",
+                timeout.as_secs()
+            ),
+            Err(e) => e.to_string(),
+        };
+        Some(format!("Rex does not answer: {why}"))
     }
 
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
@@ -1368,6 +1376,28 @@ mod tests {
             Err(Unread::Failed(
                 "Rex did not answer within 1 s and the look was stopped".into()
             ))
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_check_that_rex_answers_stopped_for_time_says_the_check_was_stopped_not_a_look() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("rex");
+        executable(&exe, "#!/bin/sh\nexec sleep 5\n");
+        let rex = Rex::new(exe, dir.path().join("claude"));
+        let began = Instant::now();
+        assert_eq!(
+            rex.silent(&dir.path().join("board.db"), Duration::from_secs(1))
+                .as_deref(),
+            Some(
+                "Rex does not answer: it did not list its sessions within 1 s and the check \
+                 was stopped"
+            )
         );
         assert!(
             began.elapsed() < Duration::from_secs(4),

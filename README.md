@@ -1046,9 +1046,10 @@ use Rex, the watch finds rex on the Homebrew PATH. Rex keeps `rex` in `$REX_BIN_
 on the PATH, so the log says once which path it tried: link it into Homebrew's bin (`ln -s
 "$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with `REX_BIN_DIR` as a Rex tab has it);
 the next look finds it. Once rex is linked, the watch reads only the workers in Rex while
-Rex runs, and reads them from Claude Code's session list while Rex is not running. A watch run by hand takes its full path in
-`TOWER_REX`. Brew does not restart the service on `brew upgrade`; the watch notices its
-binary changed and restarts itself between looks, logging one line.
+Rex runs, and reads them from Claude Code's session list while Rex is not running. A watch
+run by hand takes its full path in `TOWER_REX`. Brew does not restart the service on `brew
+upgrade`; the watch notices its binary changed and restarts itself between looks, logging
+one line.
 
 The lead skill is a Claude Code plugin in `claude-plugin/`, `control-tower`; this repo is
 its marketplace, also `control-tower`. A lead starts it with `/control-tower:lead M1`.
