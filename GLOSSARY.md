@@ -93,7 +93,8 @@ terms; where two words are easy to mix up, the entry says which is which.
 - **Nudge**: the watch prompting a stopped or silent worker directly through the terminal
   to post its status, recorded as a plain `system` message in the task's thread (saying so
   when the terminal refused delivery). Unanswered for 2 minutes, it becomes a flag to the lead. A task
-  flagged blocked is never nudged: its worker said it is stuck and the lead owns it.
+  flagged blocked is never nudged: its worker said it is stuck and the lead owns it; an
+  assignee whose latest post is a **hand-off post** is never nudged for being stopped.
 - **Flag**: a signal raised on a task, remembered on the board until its **episode** ends
   (the condition clears, or a post answers a nudge), so it is never repeated every tick.
 
@@ -120,6 +121,12 @@ terms; where two words are easy to mix up, the entry says which is which.
 - **Progress post**: a message posted with `tower post --progress` in a thread linked to a
   task, by anyone on the team, saying what is being done now. Plain messages (a "copy")
   are not progress posts: a worker who forgets `--progress` gets no doing line.
+- **Hand-off post**: a message posted with `tower post --handoff` in a thread linked to a
+  task: the work now waits on the lead (a worker's done post, or one saying it waits on
+  the lead). While it is the assignee's own latest post on the task, and no later post
+  there @mentions the assignee, the watch does not nudge the assignee for being stopped.
+  It is not `SDLC.md`'s hand-off, the commit a step
+  hands to the next.
 - **Doing line**: a task's latest progress post: where the task's home thread stands, in
   that thread's header on the board. While the task is blocked, "blocked: <reason>" shows
   there instead.

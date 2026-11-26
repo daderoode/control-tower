@@ -1423,6 +1423,38 @@ fn blocks_and_unblocks_a_task_and_shows_its_doing_post() {
         shown.contains("  doing      step 1: layout done\n"),
         "{shown}"
     );
+    // A hand-off post is said to be one, is no doing line, and is never a progress post too.
+    assert_eq!(
+        ok(
+            &db,
+            &["post", "T1", "--by", "dev-2", "--handoff", "done: staged"]
+        ),
+        "posted hand-off to T1, 4 replies\n"
+    );
+    let shown = ok(&db, &["task", "show", "2"]);
+    assert!(
+        shown.contains("  doing      step 1: layout done\n"),
+        "{shown}"
+    );
+    assert_refused(
+        &tower(&db, &["post", "T2", "--by", "qa", "--handoff", "x"]),
+        "T2 is linked to no task",
+    );
+    assert_refused(
+        &tower(
+            &db,
+            &[
+                "post",
+                "T1",
+                "--by",
+                "dev-2",
+                "--handoff",
+                "--progress",
+                "x",
+            ],
+        ),
+        "cannot be used with",
+    );
 
     assert_eq!(
         ok(
