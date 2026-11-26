@@ -471,9 +471,10 @@ pub fn exe_from_env() -> PathBuf {
 }
 
 /// What `tower lead attach` and the SessionStart hook tell a lead whose session runs outside
-/// the built-in module's terminal, by this process's environment; `None` inside it.
-pub fn outside_from_env() -> Option<String> {
-    rex::outside(|name| std::env::var_os(name))
+/// the built-in module's terminal, by this process's environment (whether that module is
+/// found and answers included, asked with `db` as the board); `None` inside it.
+pub fn outside_from_env(db: &Path) -> Option<String> {
+    rex::outside(|name| std::env::var_os(name), db)
 }
 
 /// What the dashboard on `board` in a tab of its own writes to its terminal, by this
@@ -496,6 +497,24 @@ const TERMINAL_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) fn terminal_timeout() -> Duration {
     crate::watch::TEST_WAIT
 }
+
+/// How long the module is given to answer (`Terminal::silent`), by the watch before each
+/// look and by a lead's notice outside it (`rex::outside`): `ANSWERS_WITHIN`, a local call,
+/// so a module that takes longer is not answering, and one that hangs holds the caller this
+/// long at most. In unit tests, and in a debug build given `TOWER_TERMINAL_TIMEOUT` (the
+/// integration tests), it is `terminal_timeout`, since a fake's first run can stall for
+/// seconds on a busy machine.
+pub(crate) fn answers_within() -> Duration {
+    let knob = cfg!(debug_assertions) && std::env::var_os("TOWER_TERMINAL_TIMEOUT").is_some();
+    if cfg!(test) || knob {
+        terminal_timeout()
+    } else {
+        ANSWERS_WITHIN
+    }
+}
+
+/// How long a module has to answer, outside tests (`answers_within`).
+const ANSWERS_WITHIN: Duration = Duration::from_secs(3);
 
 /// How long one terminal command may take before it is stopped: `TERMINAL_TIMEOUT`.
 ///

@@ -84,10 +84,6 @@ use crate::terminal::{Agent, SEND_TIMEOUT, Sent, Status, Terminal, terminal_time
 
 /// How often the watch looks.
 pub const TICK: Duration = Duration::from_secs(20);
-/// How long the choice before a look waits for the terminal module to answer
-/// (`Terminal::silent`): a local call, so a module that takes longer is not answering,
-/// and one that hangs holds a round this long at most before the core is asked.
-const ANSWERS_WITHIN: Duration = Duration::from_secs(3);
 /// No post this long from an idle or finished worker is "stopped without reporting".
 pub const STOPPED_AFTER: i64 = 5 * 60;
 /// No post this long from a working worker on an In progress task is "silent while working".
@@ -792,7 +788,7 @@ impl Chosen {
 
     /// Chooses by `path` (a PATH value): the module when its executable is found (a path as
     /// it is, a bare name on `path`) and it answers (asked with `db` as the board, within
-    /// `ANSWERS_WITHIN`), else the core. Choosing before the look, not falling back
+    /// `answers_within`), else the core. Choosing before the look, not falling back
     /// within it, keeps a module that does not answer from costing a failed look or a
     /// delivery round each time.
     /// The line to log when the module goes missing or stops answering, the first choice
@@ -801,7 +797,7 @@ impl Chosen {
     pub(crate) fn choose(&self, db: &Path, path: Option<&std::ffi::OsStr>) -> Option<String> {
         let (choice, line, until) = match self.module.missing(path) {
             Some(line) => (Choice::Missing, Some(line), "is found"),
-            None => match (self.module).silent(db, terminal_timeout().min(ANSWERS_WITHIN)) {
+            None => match (self.module).silent(db, crate::terminal::answers_within()) {
                 Some(line) => (Choice::Silent, Some(line), "answers"),
                 None => (Choice::Module, None, ""),
             },

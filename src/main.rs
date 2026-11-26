@@ -881,7 +881,7 @@ fn lead_hook() -> Result<()> {
                     control_tower::listen::LISTED_ASK,
                 )
             };
-            let outside = control_tower::terminal::outside_from_env();
+            let outside = control_tower::terminal::outside_from_env(&path);
             // Claude Code gives a plugin's hooks its install folder, where the lead skill is.
             let skill = std::env::var_os("CLAUDE_PLUGIN_ROOT")
                 .filter(|root| !root.is_empty())
@@ -1187,7 +1187,7 @@ fn run(cli: Cli) -> Result<()> {
                  it through its board waiter (tower lead wait {repo}) and its Stop hook",
                 lead.name
             );
-            if let Some(notice) = control_tower::terminal::outside_from_env() {
+            if let Some(notice) = control_tower::terminal::outside_from_env(&path) {
                 println!("{notice}");
             }
         }

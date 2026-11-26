@@ -2402,29 +2402,55 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
          its board waiter (tower lead wait R1) and its Stop hook\n"
     );
     // Outside Rex (no REX_SESSION, or an empty one): attached all the same, and told what the
-    // board does not see from there.
-    for outside in [None, Some("")] {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
-        cmd.args(["lead", "attach", "M1"])
-            .env("TOWER_DB", &db)
-            .env("TOWER_CLAUDE", &claude)
-            .env("CLAUDE_CODE_SESSION_ID", "sess-1");
-        match outside {
-            None => cmd.env_remove("REX_SESSION"),
-            Some(v) => cmd.env("REX_SESSION", v),
-        };
-        let out = cmd.output().unwrap();
-        assert!(out.status.success(), "{}", text(&out.stderr));
-        let said = text(&out.stdout);
-        assert!(
-            said.starts_with("attached Catalogue as Claude session sess-1; posts on the board")
-                && said.contains(
-                    " and its Stop hook\ncontrol-tower: this session runs outside Rex \
-                     (REX_SESSION is not set), but the board's team runs in Rex."
-                )
-                && said.ends_with("question: post to @manager.\n"),
-            "{outside:?}: {said}"
-        );
+    // watch sees from there: with rex found and answering, not the workers; with none, or
+    // one that does not answer, Claude Code's list.
+    let rex = dir.path().join("rex");
+    test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
+    let mute = dir.path().join("mute-rex");
+    test_exe::executable(&mute, "#!/bin/sh\nexit 2\n");
+    let no_rex = dir.path().join("no-rex");
+    let found = (
+        &rex,
+        " and its Stop hook\ncontrol-tower: this session runs outside Rex (REX_SESSION is not \
+         set), but the board's team runs in Rex.",
+        "question: post to @manager.\n",
+    );
+    let not_found = (
+        &no_rex,
+        " and its Stop hook\ncontrol-tower: this session runs outside Rex (REX_SESSION is not \
+         set) and rex is not found, so the watch reads the workers you start from Claude \
+         Code's session list:",
+        "and starting workers as visible tabs.\n",
+    );
+    let not_answering = (
+        &mute,
+        " and its Stop hook\ncontrol-tower: this session runs outside Rex (REX_SESSION is not \
+         set) and rex is found but does not answer, so the watch reads the workers you start \
+         from Claude Code's session list:",
+        "and starting workers as visible tabs.\n",
+    );
+    for (tower_rex, notice, end) in [found, not_found, not_answering] {
+        for outside in [None, Some("")] {
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
+            cmd.args(["lead", "attach", "M1"])
+                .env("TOWER_DB", &db)
+                .env("TOWER_CLAUDE", &claude)
+                .env("TOWER_REX", tower_rex)
+                .env("CLAUDE_CODE_SESSION_ID", "sess-1");
+            match outside {
+                None => cmd.env_remove("REX_SESSION"),
+                Some(v) => cmd.env("REX_SESSION", v),
+            };
+            let out = cmd.output().unwrap();
+            assert!(out.status.success(), "{}", text(&out.stderr));
+            let said = text(&out.stdout);
+            assert!(
+                said.starts_with("attached Catalogue as Claude session sess-1; posts on the board")
+                    && said.contains(notice)
+                    && said.ends_with(end),
+                "{tower_rex:?} {outside:?}: {said}"
+            );
+        }
     }
     assert!(
         ok(&["milestone", "show", "M1"]).contains("  session    attached, Claude session sess-1\n")
@@ -4008,12 +4034,12 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
          cat \"$d/sessions.json\"\n",
     );
     let asked = dir.path().join("asked");
-    // In Rex unless `rex` is false, when no REX_SESSION is set.
-    let hook_in = |input: serde_json::Value, rex: bool| {
+    // In Rex unless `outside` names a rex (TOWER_REX), when no REX_SESSION is set.
+    let hook_in = |input: serde_json::Value, outside: Option<&Path>| {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
         cmd.env("REX_SESSION", "session:7");
-        if !rex {
-            cmd.env_remove("REX_SESSION");
+        if let Some(rex) = outside {
+            cmd.env_remove("REX_SESSION").env("TOWER_REX", rex);
         }
         let mut child = cmd
             .args(["lead", "hook"])
@@ -4029,7 +4055,7 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
             .unwrap();
         child.wait_with_output().unwrap()
     };
-    let hook = |input: serde_json::Value| hook_in(input, true);
+    let hook = |input: serde_json::Value| hook_in(input, None);
     let start = |session: &str, title: &str| {
         serde_json::json!({
             "session_id": session, "hook_event_name": "SessionStart", "source": "resume",
@@ -4112,7 +4138,9 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
     let v: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
     assert_eq!(v["decision"], "block");
     // In Rex the reply ends where it did; outside Rex (no REX_SESSION) the same start is
-    // attached and told, after the rest, what the board does not see from there.
+    // attached and told, after the rest, what the watch sees from there: with rex found and
+    // answering, not the workers; with none, or one that does not answer, the workers
+    // through Claude Code's list.
     let context = |out: Output| {
         assert!(out.status.success(), "{}", text(&out.stderr));
         let v: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
@@ -4126,7 +4154,9 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
         inside.ends_with("(lead skill, New issues and idle).") && !inside.contains("Rex"),
         "{inside}"
     );
-    let outside = context(hook_in(start("sess-2", "Cat-Lead"), false));
+    let rex = dir.path().join("rex");
+    test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
+    let outside = context(hook_in(start("sess-2", "Cat-Lead"), Some(&rex)));
     assert_eq!(
         outside,
         format!(
@@ -4135,6 +4165,26 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
              you start: not their prompts, and posts and nudges are not delivered to them. \
              Raise it with the owner in a question: post to @manager."
         )
+    );
+    let no_rex = dir.path().join("no-rex");
+    let outside = context(hook_in(start("sess-2", "Cat-Lead"), Some(&no_rex)));
+    assert_eq!(
+        outside,
+        format!(
+            "{inside}\ncontrol-tower: this session runs outside Rex (REX_SESSION is not set) \
+             and rex is not found, so the watch reads the workers you start from Claude Code's \
+             session list: it sees them, judges their prompts (without the prompt's text) and \
+             delivers posts and nudges to them. Rex would add the text of the prompt a worker \
+             waits at in its owner item, the dashboard's n and its keys, and starting workers \
+             as visible tabs."
+        )
+    );
+    let mute = dir.path().join("mute-rex");
+    test_exe::executable(&mute, "#!/bin/sh\nexit 2\n");
+    let outside_mute = context(hook_in(start("sess-2", "Cat-Lead"), Some(&mute)));
+    assert_eq!(
+        outside_mute,
+        outside.replace("rex is not found", "rex is found but does not answer")
     );
     assert!(
         ok(&db, &["milestone", "show", "M1"])
