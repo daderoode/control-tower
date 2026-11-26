@@ -11,6 +11,13 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A blocker reaching Done in one repo wakes the lead of a task it blocks in another**
+  (#144). `tower task blocked-by add` took a blocker in another repo, but moving it to Done
+  posted nothing on the blocked task's board, so that repo's lead, which hears only its own
+  board, was never woken. A task reaching Done now posts a `system` line in the thread of
+  each task it blocks in another repo (its newest open thread, else a new "Blocked by #1"
+  one linked to it), saying whether the task can go on or what it is still blocked by. A
+  Done task, a task in the blocker's own repo and a repo with no lead get no line.
 - **A task's forge ticket stays in its own repo.** `tower task set --link` refused nothing,
   so another repo's issue could be filed under this repo's milestone, recorded as this
   repo's work with its threads on this repo's board. A link to a GitHub or GitLab issue,
