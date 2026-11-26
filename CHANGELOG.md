@@ -32,6 +32,11 @@ tag's date, and a new empty Unreleased goes above it.
   log says once what Rex would add: the text of the prompt a worker waits at in its owner
   item, the dashboard's n and its keys, and starting workers as visible tabs. When rex is
   found again, the watch uses it with no restart (#164).
+- **The docs say control-tower works on its own and what Rex adds.** The spec, README, the
+  brew caveat and `tower watch --help` no longer say control-tower needs Rex: it works in
+  any terminal, reading worker state from Claude Code's session list, and Rex adds the text
+  of the prompt a worker waits at, the dashboard's `n`, `tower space` and `tower popup`,
+  and starting workers as visible tabs (#165).
 - **A lead outside Rex is told what the watch sees.** With rex found, the notice of
   `tower lead attach` and the SessionStart hook is as before: the board does not see the
   workers it starts, to raise with the owner. With no rex found, it says the watch reads
