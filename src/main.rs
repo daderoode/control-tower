@@ -296,6 +296,10 @@ enum TaskCommand {
         /// For a standalone task: the repo it belongs to, like R2.
         #[arg(long)]
         repo: Option<RepoId>,
+        /// Its ticket in a tracker: an http or https URL. A forge issue, merge request or
+        /// pull request must be in the task's repo, the project its forge link names.
+        #[arg(long)]
+        link: Option<String>,
     },
     /// Hand a standalone task, with its subtasks, to a lead: it moves under the lead's
     /// milestone, which takes back that milestone's Done mark.
@@ -328,7 +332,8 @@ enum TaskCommand {
         /// What to do when picking it up, for this task only. As --description.
         #[arg(long)]
         context: Option<String>,
-        /// Its ticket in a tracker: an http or https URL.
+        /// Its ticket in a tracker: an http or https URL. A forge issue, merge request or
+        /// pull request must be in the task's repo, the project its forge link names.
         #[arg(long)]
         link: Option<String>,
         /// Its merge or pull request and pipeline, like "!44 draft into feat/bookmarks ·
@@ -1185,9 +1190,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Task(TaskCommand::Add {
             title,
             milestone: Some(milestone),
+            link,
             ..
         }) => {
-            let id = Store::open(&path)?.add_task(milestone, &title)?;
+            let id =
+                Store::open(&path)?.insert_task(Some(milestone), None, &title, link.as_deref())?;
             println!("{id}");
             eprintln!("added task {id} under {milestone}");
         }
@@ -1195,8 +1202,9 @@ fn run(cli: Cli) -> Result<()> {
             title,
             milestone: None,
             repo,
+            link,
         }) => {
-            let id = Store::open(&path)?.add_standalone_task(&title, repo)?;
+            let id = Store::open(&path)?.insert_task(None, repo, &title, link.as_deref())?;
             println!("{id}");
             let into = repo.map(|r| format!(" in {r}")).unwrap_or_default();
             eprintln!("added standalone task {id}{into}");
