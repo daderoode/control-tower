@@ -44,7 +44,8 @@ The owner starts work without typing `tower`, in either of two ways:
   and so is one whose main checkout is no longer a directory.
   With something in no repo selected (or nothing), the milestone is added in no repo yet and
   the session opens in your home directory, where the lead asks you for its repo's main
-  checkout and registers itself. The keys line says "started search-lead for M3 on
+  checkout, then to start it again there with `/control-tower:lead <M>` (the lead skill,
+  Where you run). The keys line says "started search-lead for M3 on
   search in Rex". When Rex fails, the keys line says why and the start is undone in one
   write: the milestone and the lead it registered are removed again (a milestone something
   already uses, or a lead that has attached, stays), so `n` can simply be pressed again.
