@@ -14,11 +14,11 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
 use crate::board::{
-    Board, BoardOf, Colour, Criterion, ForgeProject, Lead, Mention, Message, Milestone,
-    MilestoneDetails, MilestoneId, OWNER_AUTHOR, OWNER_HANDLE, Repo, RepoId, RepoOf, Resolution,
-    SYSTEM_AUTHOR, Stage, Subtask, Task, TaskDetails, TaskId, Thread, ThreadId, ThreadStatus, Tone,
-    check_author, check_line, check_link, check_message, check_session, check_text, mentioned,
-    no_lead_hint, tone_of,
+    Board, BoardOf, Colour, Criterion, FORGE_HOSTS, ForgeProject, Lead, Mention, Message,
+    Milestone, MilestoneDetails, MilestoneId, OWNER_AUTHOR, OWNER_HANDLE, Repo, RepoId, RepoOf,
+    Resolution, SYSTEM_AUTHOR, Stage, Subtask, Task, TaskDetails, TaskId, Thread, ThreadId,
+    ThreadStatus, Tone, check_author, check_line, check_link, check_message, check_session,
+    check_text, mentioned, no_lead_hint, tone_of,
 };
 use crate::deliver::{LeadBoard, Pending, Post};
 use crate::watch::{Flag, Named, Signal};
@@ -742,7 +742,9 @@ fn refuse_foreign_link(conn: &Connection, task: TaskId) -> rusqlite::Result<Resu
 /// Refuses `link` as the tracker link of a task in `repo` (`of` names what the task is or
 /// will be in, for the message: its id, or the milestone a new task goes under) when it is
 /// an issue, work item, or merge or pull request of a forge project that is not `repo`'s,
-/// so one repo's work is never filed under another's. Any other link passes (another
+/// so one repo's work is never filed under another's. A link is read as a forge's only on
+/// a forge host the board knows (`FORGE_HOSTS`, or the host of any repo's forge link), as
+/// the path alone cannot tell a forge from another tracker; any other link passes (another
 /// tracker, a document). A repo with no forge link cannot tell whose a forge ticket is, so
 /// it refuses one, and so does a repo whose link goes on past the ticket's project, which is
 /// then no project's address. Outer and inner results as in `refuse_missing`.
@@ -759,6 +761,12 @@ fn refuse_link_outside(
         .prepare("SELECT id, link FROM repo WHERE link IS NOT NULL ORDER BY id")?
         .query_map([], |r| Ok((RepoId(r.get(0)?), r.get::<_, String>(1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let known = FORGE_HOSTS.contains(&project.host())
+        || (repos.iter())
+            .any(|(_, l)| ForgeProject::of_repo(l).is_some_and(|p| p.host() == project.host()));
+    if !known {
+        return Ok(Ok(()));
+    }
     let Some((_, own)) = repos.iter().find(|(r, _)| *r == repo) else {
         return Ok(Err(anyhow::anyhow!(
             "{repo}, the repo of {of}, has no forge link, so tower cannot tell whose {link} \
@@ -5303,7 +5311,11 @@ mod tests {
         let link_of = |store: &mut Store, task: TaskId| store.task(task).unwrap().details.link;
         let web_mr = "https://gitlab.example.com/acme/shop/web/-/merge_requests/27";
         let jira = "https://acme.atlassian.net/browse/SHOP-12";
-        // The repo's own issue and pull request, in any case, and another tracker's link.
+        // The repo's own issue and pull request, in any case, and another tracker's link,
+        // even one shaped like a forge's path: a link is a forge's only on a forge host the
+        // board knows, so a self-hosted forge no repo links to is another tracker too.
+        let sentry = "https://sentry.io/organizations/acme/issues/4412873/";
+        let elsewhere = "https://git.acme.example/acme/shop/-/issues/9";
         for (task, link) in [
             (on_m1, "https://github.com/Example/Bookshop/issues/42"),
             (on_m1, "https://github.com/example/bookshop/pull/58"),
@@ -5311,6 +5323,9 @@ mod tests {
                 on_web,
                 "https://gitlab.example.com/acme/shop/web/-/issues/5",
             ),
+            (on_m1, sentry),
+            (on_bare, sentry),
+            (on_m1, elsewhere),
             (on_m1, jira),
             (on_bare, jira),
             (loose, web_mr),
@@ -5318,7 +5333,8 @@ mod tests {
             assert_eq!(set(&mut store, task, Some(link), None), Ok(()), "{link}");
         }
         // Another repo's ticket is refused naming that repo; one of no repo on the board,
-        // naming its project; the parent group's ticket, which makes the parent a project, so
+        // naming its project, on a repo's host or on github.com or gitlab.com with no repo
+        // there; the parent group's ticket, which makes the parent a project, so
         // the subgroup's link no project's address; one in a repo with no forge link, saying
         // to give it one. Nothing is written, the description given with it included.
         for (task, link, want) in [
@@ -5337,6 +5353,14 @@ mod tests {
                     "https://gitlab.example.com/acme/catalogue/-/issues/5 belongs to \
                      gitlab.example.com/acme/catalogue, which is no repo on the board, not to \
                      R2 ({web_link}), the repo of #2"
+                ),
+            ),
+            (
+                on_m1,
+                "https://gitlab.com/acme/other/-/issues/3",
+                format!(
+                    "https://gitlab.com/acme/other/-/issues/3 belongs to gitlab.com/acme/other, \
+                     which is no repo on the board, not to R1 ({shop_link}), the repo of #1"
                 ),
             ),
             (
@@ -5411,7 +5435,9 @@ mod tests {
         );
         assert_eq!(store.repo(bare).unwrap().standalone.len(), 1);
         let filed = (store.insert_task(Some(m1), None, "Filed", Some(shop_issue))).unwrap();
-        assert_eq!(milestone_of(&mut store, m1).tasks.len(), tasks + 1);
+        let crash = (store.insert_task(Some(m1), None, "Crash", Some(sentry))).unwrap();
+        assert_eq!(milestone_of(&mut store, m1).tasks.len(), tasks + 2);
+        assert_eq!(link_of(&mut store, crash).as_deref(), Some(sentry));
         assert_eq!(link_of(&mut store, filed).as_deref(), Some(shop_issue));
         // A change that sets neither link nor repo leaves a stored link alone.
         store.exec_sql(&format!(

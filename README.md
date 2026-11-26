@@ -205,14 +205,16 @@ its `--repo` (see repos above); each replaces what was stored, and the assignee 
 "unassigned" on the task's card. The link is where the dashboard and the listings take a
 task's ticket from: `tower milestone show` and `tower repo show` list each task with
 `ticket #64`, `ticket !19`, the link for another tracker, or "no ticket". A link to a forge
-issue or merge or pull request must be in the task's repo: it is refused when its project
-(host and path, in any case) is not the one the repo's forge link names, saying which repo
-it belongs to, when the repo has no forge link yet, and when the repo's link goes on past
-the ticket's project (a page of it, like `.../tree/main`), which is then no project's
-address. `tower task add --link` takes the link when the task is added, by the same check,
-so a refused link adds no task. `task set --repo` and `tower task hand` refuse a linked
-task into a repo that is not its link's. Any other link (Jira, a
-document) is taken for any task. `tower milestone
+issue or merge or pull request must be in the task's repo. A link is a forge's only on a
+host the board knows as a forge: `github.com`, `gitlab.com`, or the host of any repo's forge
+link; one on any other host is another tracker's, whatever its path, and is taken for any
+task, as is a link of any other shape (Jira, a document). A forge's link is refused when
+its project (host and path, in any case) is not the one the repo's forge link names, saying
+which repo it belongs to; when the repo has no forge link yet; and when the repo's link goes
+on past the ticket's project (a page of it, like `.../tree/main`), which is then no
+project's address. `tower task add --link` takes the link when the task is added, by the
+same check, so a refused link adds no task. `task set --repo` and `tower task hand` refuse a
+linked task into a repo that is not its link's. `tower milestone
 set` sets a milestone's `--title` and `--goal` (one line each, as `milestone add` takes
 them), `--context` (as a task's), `--spec` (one line, the spec it came from) and `--link`.
 Details belong to tasks, not subtasks. Acceptance criteria are one line each, a task has

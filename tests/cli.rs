@@ -2564,7 +2564,8 @@ fn repo_and_milestone_listings_give_each_tasks_ticket_from_its_link() {
         &link,
     ];
     ok(&db, &add);
-    // Another forge's issue is no ticket of this repo's.
+    // A github.com issue is a forge's though no repo here is on github.com, and no ticket of
+    // this repo's.
     assert_refused(
         &tower(
             &db,

@@ -1153,6 +1153,10 @@ fn forge_item(link: &str) -> Option<(Ticket, ForgeProject)> {
     Some((ticket, ForgeProject::new(&url, project)))
 }
 
+/// The forge hosts a link is read as a forge ticket on even when no repo on the board links
+/// there; the board also knows the host of each repo's forge link.
+pub const FORGE_HOSTS: [&str; 2] = ["github.com", "gitlab.com"];
+
 /// A project on a forge, read from a link: its host, with any port, and its path, in lower
 /// case, as GitHub and GitLab read both whatever their case. Written `host/path`, like
 /// `github.com/acme/bookshop`. The scheme is not part of it: http and https are one forge.
@@ -1176,6 +1180,11 @@ impl ForgeProject {
     /// `Ticket::of` reads it; `None` for any other link, such as another tracker's.
     pub fn of_ticket(link: &str) -> Option<ForgeProject> {
         forge_item(link).map(|(_, project)| project)
+    }
+
+    /// Its host, with any port, like `github.com` or `gitlab.example.com:8443`.
+    pub fn host(&self) -> &str {
+        self.0.split_once('/').map_or(&self.0, |(host, _)| host)
     }
 
     /// Whether this address goes on past `project`'s, as a link to a page of that project
