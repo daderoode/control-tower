@@ -23,7 +23,7 @@ on the machine it is written on: SDLC.md, Building and testing.
 
 The owner starts work without typing `tower`, in either of two ways:
 
-- **From the dashboard:** select a repo without a lead (or anything in it), press `n` (or
+- **From the dashboard, in Rex** (What Rex adds): select a repo without a lead (or anything in it), press `n` (or
   click "new lead (n) ▶" on the alert line), type the goal in one line (up to 200
   characters) and press Enter; Esc cancels and an empty goal is refused. The input says
   where the lead starts: "new lead on search, its goal:". In one write the dashboard adds
@@ -700,7 +700,7 @@ unassigned task.
   nudged through the relay (Live delivery), "no post on #N for M min, post your status",
   and the nudge is recorded as a plain message, "nudged dev-1: ...", saying so if the
   terminal refused delivery ("Rex refused delivery", or "Claude Code" without Rex) or "not
-  confirmed by Rex" when it may have arrived (a nudge sent to
+  confirmed by Rex" ("by Claude Code" without Rex) when it may have arrived (a nudge sent to
   another session is recorded as an item for the owner naming who got it), with the relay's
   line in the watch's log; with no post 2 minutes later, a message tells the lead. A task
   flagged blocked is never nudged: its worker already said it is stuck, and the lead owns
