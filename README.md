@@ -829,12 +829,12 @@ tower's own posts, nor on a thread resolved meanwhile (the log says so).
 Any other send that fails (a worker at a prompt, a worker the board knew that Rex no longer
 has, a relay that sent nothing) opens a failure episode for that recipient and posts an
 item for the owner's awareness (not need-you), a `system` message starting "@manager could
-not deliver to" in the thread of the first post it carried (or a new "Delivery failed"
-thread when that one is resolved). A round posts one item per board, naming each recipient
+not deliver to" in the thread of the first post to the first recipient it names (or a new
+"Delivery failed" thread when that one is resolved). A round posts one item per board, naming each recipient
 newly failing there and why, so a post naming several gone workers is one item. Recipients
 the relay could not reach because its own run ended on the same error (a provider outage:
 the run exits on an error result and sends nothing) are one item for that error instead,
-on whatever board, in the thread of the first: "@manager could not deliver to 3 recipients,
+on whatever board: "@manager could not deliver to 3 recipients,
 all on one error: the relay's run ended on "...". Their posts stay on the board:", then
 each as "dev-1 (R1)". A recipient
 Rex has no worker for that is the assignee of a task not done on that board has its line

@@ -3303,8 +3303,14 @@ fn repo_remove_refuses_a_repo_holding_work_and_removes_an_empty_one_with_its_lea
     );
     let mut store = Store::open(&db).unwrap();
     let r2 = control_tower::board::RepoId(2);
-    let deaf = store.lead_deaf(r2, "not listening", 5).unwrap();
-    assert_eq!(deaf.map(|t| t.to_string()).as_deref(), Some("T3"));
+    let deaf = (store.leads_deaf(&[(r2, "not listening", "not listening")], 5, |_| {
+        String::new()
+    }))
+    .unwrap();
+    assert_eq!(
+        deaf.first().map(|(_, t)| t.to_string()).as_deref(),
+        Some("T3")
+    );
     drop(store);
     rusqlite::Connection::open(&db)
         .unwrap()
@@ -4198,15 +4204,12 @@ fn lead_remove_takes_off_a_lead_nobody_runs_and_keeps_its_repos_work() {
     );
     // The watch had told the owner it was not listening: T2, open.
     let r1 = control_tower::board::RepoId(1);
-    let t2 = Store::open(&db)
+    let item = "@manager Catalogue, the lead of R1, is not listening";
+    let opened = Store::open(&db)
         .unwrap()
-        .lead_deaf(
-            r1,
-            "@manager Catalogue, the lead of R1, is not listening",
-            1,
-        )
-        .unwrap()
+        .leads_deaf(&[(r1, item, item)], 1, |_| String::new())
         .unwrap();
+    let t2 = opened[0].1;
     assert_eq!(t2.to_string(), "T2");
     let wait = || {
         Reaped(

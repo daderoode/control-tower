@@ -47,8 +47,8 @@
 //! is told again. The item is a `system` post, so it goes to no worker: it cannot start a
 //! storm. A round's item is per board, but the recipients it could not reach because the
 //! relay's own run ended on the same error (`Prompted::cause`: a provider outage, which
-//! stops every send at once) are one item for that error, naming each on every board, in
-//! the thread of the first (#146). A send that may have arrived (stopped at its limit, no
+//! stops every send at once) are one item for that error, naming each on every board. An
+//! item goes in the thread of the first recipient it names (#146). A send that may have arrived (stopped at its limit, no
 //! answer) is logged only, never resent and no item. A send that went to someone else
 //! (`Sent::Misrouted`) always posts its own item naming who got it, open episode or not
 //! (`Store::misrouted`), tower's replies too: it is worse than a lost send.
@@ -579,7 +579,8 @@ fn listing(mut text: String, lines: &[&str]) -> String {
 
 /// A recipient a round could not reach, for its failure item.
 struct Failure {
-    /// The board of its first post, and that post's thread, where its item goes.
+    /// The board of its first post, and that post's thread, where its item goes when it is
+    /// the first the item names.
     board: RepoId,
     thread: ThreadId,
     /// Its failure episode's key (`Recipient::key`).
@@ -918,8 +919,9 @@ impl Deliver {
         }
         for (cause, group) in items(&failed) {
             let failed: Vec<&Failure> = group.iter().map(|&i| &failed[i]).collect();
-            let thread = failed[0].thread;
-            let keys: Vec<&str> = failed.iter().map(|f| f.key.as_str()).collect();
+            let keys: Vec<(&str, ThreadId)> = (failed.iter())
+                .map(|f| (f.key.as_str(), f.thread))
+                .collect();
             let text = |opened: &[usize]| match cause {
                 Some(cause) if opened.len() > 1 => {
                     let names: Vec<&str> =
@@ -932,7 +934,7 @@ impl Deliver {
                     failure_text(&lines)
                 }
             };
-            match store.delivery_failed(&keys, thread, now, text) {
+            match store.delivery_failed(&keys, now, text) {
                 Ok(told) => {
                     for (i, f) in failed.iter().enumerate() {
                         let said = &f.said;
@@ -2643,6 +2645,50 @@ mod tests {
                 .any(|l| l.ends_with("(the owner was told already)"))
         );
         assert_eq!(f.items().len(), 1);
+    }
+
+    #[test]
+    fn an_item_goes_in_the_thread_of_the_first_recipient_it_names() {
+        let f = Fixture::new();
+        outage(&f, &["qa-1", "qa-2"], OVERLOADED);
+        // Round one: `qa-1` (R1) fails alone; its item is in T1.
+        f.post("dev-1", "@qa-1 look");
+        f.drain();
+        assert_eq!(f.items().len(), 1);
+        // Round two: `qa-1` again, its episode open, and `qa-2` on R2, on the same error.
+        f.post("dev-1", "@qa-1 again");
+        let mut store = f.store();
+        let m2 = store.add_milestone("Other", "goal", None).unwrap();
+        store
+            .lead_milestone(m2, "Other", "other-lead", None)
+            .unwrap();
+        let (t2, _) =
+            (store.open_thread(&BoardOf::Milestone(m2), "dev-2", None, "q", "@qa-2 hi")).unwrap();
+        let log = f.drain();
+        assert!(
+            log.iter()
+                .any(|l| l.contains("to qa-2") && l.ends_with(&format!("told the owner in {t2}"))),
+            "{log:?}"
+        );
+        // Only `qa-2` opened, so its item names it alone and is in its own thread, as one
+        // item per board put it. Taking the thread of the group's first, `qa-1`, put it in T1.
+        let board = f.store().load().unwrap();
+        let items: Vec<(ThreadId, &str)> = (board.inbox.awareness.iter())
+            .map(|a| (a.thread, a.message.text.as_str()))
+            .collect();
+        assert_eq!(items.len(), 2, "{items:?}");
+        let newest = (items.iter()).find(|(_, i)| i.contains("qa-2")).unwrap();
+        assert_eq!(
+            *newest,
+            (
+                t2,
+                format!(
+                    "@manager could not deliver to qa-2: the relay sent nothing; it said: \
+                     {OVERLOADED:?}. Its posts stay on the board."
+                )
+                .as_str()
+            )
+        );
     }
 
     #[test]

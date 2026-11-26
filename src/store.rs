@@ -1736,10 +1736,6 @@ fn tell_blocked_boards(tx: &Connection, blocker: TaskId, cannot_write: &str) -> 
     Ok(())
 }
 
-/// Adds a checked message by a checked author to an open thread at `at`, or after its
-/// latest message, resolving the thread by it when it is evidence. Refuses a thread that
-/// is not on the board, a resolved one, and a progress or hand-off post in a thread linked
-/// to no task.
 /// The lead of `repo` leaves the owner's item it shared with other leads (`told_thread`),
 /// if any, as its episode ends: once no other lead is named there, the item's thread is
 /// resolved by `system` at `at`, unless someone resolved it already, with a line saying so
@@ -1796,6 +1792,10 @@ fn leave_told(
     Ok(Some(thread))
 }
 
+/// Adds a checked message by a checked author to an open thread at `at`, or after its
+/// latest message, resolving the thread by it when it is evidence. Refuses a thread that
+/// is not on the board, a resolved one, and a progress or hand-off post in a thread linked
+/// to no task.
 fn append(
     tx: &Connection,
     thread: ThreadId,
@@ -3745,17 +3745,11 @@ impl Store {
         Ok(leads)
     }
 
-    /// Opens a "lead not listening" episode for the lead of `repo` at `at`, unless one is
-    /// open: a new thread about the whole repo, "Lead not listening", with `text` posted
-    /// by `system`. Returns the thread, or `None`, posting nothing, when one was open.
-    pub fn lead_deaf(&mut self, repo: RepoId, text: &str, at: i64) -> Result<Option<ThreadId>> {
-        let opened = self.leads_deaf(&[(repo, text, text)], at, |_| String::new())?;
-        Ok(opened.first().map(|&(_, thread)| thread))
-    }
-
-    /// Opens a "lead not listening" episode, as `lead_deaf` does, at `at`, for each lead of
-    /// `leads` (its repo, the text of its own item, and that text as a plain record) with
-    /// none open, in one write. When it opens one, its thread gets its item; when it opens
+    /// Opens a "lead not listening" episode at `at` for each lead of `leads` (its repo, the
+    /// text of its own item, and that text as a plain record) with none open, in one write:
+    /// a new thread about the whole repo, "Lead not listening", posted by `system`, which is
+    /// the lead's `deaf_thread` until it listens again. Refuses a repo with no lead. When it
+    /// opens one, its thread gets its item; when it opens
     /// more (several leads stopped by one cause in one look, #146), each thread gets its
     /// plain record and the owner one item, `shared` of the (index, thread) of those it
     /// opened, in a new "Lead not listening" thread on the first's board, which is the
@@ -4131,19 +4125,19 @@ impl Store {
     }
 
     /// Opens a delivery failure episode, at `at`, for each of `recipients`
-    /// (`Recipient::key`) that has none open, or one older than
-    /// `deliver::EPISODE_EXPIRES` (a recipient unreachable for hours is told again), and
+    /// (`Recipient::key`, with the thread of its first post) that has none open, or one older
+    /// than `deliver::EPISODE_EXPIRES` (a recipient unreachable for hours is told again), and
     /// when it opened any, posts one item for the owner's awareness
     /// (`board::DELIVERY_FAILURE`) as `system`: `text` of the indexes of those it opened, in
-    /// `thread`, or, when that thread is resolved, in a new thread on the same board linked to
-    /// the same task.
+    /// the thread of the first of them, so the item is where the first recipient it names
+    /// was posted to, or, when that thread is resolved, in a new thread on the same board
+    /// linked to the same task.
     /// Returns the thread posted in with those indexes, or `None`, posting nothing, when
     /// every one had an episode open: one item per drain and per episode, so repeated or
     /// many failures never flood the board.
     pub fn delivery_failed(
         &mut self,
-        recipients: &[&str],
-        thread: ThreadId,
+        recipients: &[(&str, ThreadId)],
         at: i64,
         text: impl FnOnce(&[usize]) -> String,
     ) -> Result<Option<(ThreadId, Vec<usize>)>> {
@@ -4153,7 +4147,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context(cannot_write.clone())?;
         let mut opened = Vec::new();
-        for (i, recipient) in recipients.iter().enumerate() {
+        for (i, (recipient, _)) in recipients.iter().enumerate() {
             let added = tx
                 .execute(
                     "INSERT INTO delivery_fail (recipient, since) VALUES (?1, ?2) \
@@ -4166,11 +4160,11 @@ impl Store {
                 opened.push(i);
             }
         }
-        if opened.is_empty() {
+        let Some(&first) = opened.first() else {
             return Ok(None);
-        }
+        };
         let text = check_message("message", &text(&opened))?;
-        let thread = failure_item(&tx, thread, &text, at, &cannot_write)?;
+        let thread = failure_item(&tx, recipients[first].1, &text, at, &cannot_write)?;
         tx.commit().context(cannot_write)?;
         Ok(Some((thread, opened)))
     }
@@ -5909,13 +5903,13 @@ mod tests {
             .unwrap();
         assert_eq!(store.take_pending().unwrap().posts.len(), 1);
         let say = |text: &'static str| move |_: &[usize]| text.to_string();
-        let failed = store.delivery_failed(&["Dev-One", "qa-one"], t, 5, say("@manager x"));
+        let failed = store.delivery_failed(&[("Dev-One", t), ("qa-one", t)], 5, say("@manager x"));
         assert_eq!(failed.unwrap(), Some((t, vec![0, 1])));
-        let failed = store.delivery_failed(&["dev-one", "Qa-One"], t, 6, say("@manager y"));
+        let failed = store.delivery_failed(&[("dev-one", t), ("Qa-One", t)], 6, say("@manager y"));
         assert_eq!(failed.unwrap(), None);
         assert!(store.delivered("Dev-One").unwrap());
         assert!(!store.delivered("dev-one").unwrap());
-        let failed = store.delivery_failed(&["qa-one", "dev-one"], t, 7, say("@manager z"));
+        let failed = store.delivery_failed(&[("qa-one", t), ("dev-one", t)], 7, say("@manager z"));
         assert_eq!(failed.unwrap(), Some((t, vec![1])));
         let texts: Vec<String> = (store.thread(t).unwrap().messages.into_iter())
             .filter(|m| m.author == SYSTEM_AUTHOR)
@@ -8481,7 +8475,7 @@ mod tests {
             .unwrap();
         // Posted the way the watch's drain posts one.
         let (at, _) = store
-            .delivery_failed(&["lead:M1"], t, 500, |_| {
+            .delivery_failed(&[("lead:M1", t)], 500, |_| {
                 format!(
                     "{}Catalogue, the lead of M1: it has not attached its Claude inbox. \
                      Its posts stay on the board.",
