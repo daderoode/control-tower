@@ -713,7 +713,7 @@ fn compacted(
             task.id, task.title
         ));
     }
-    if let Some(hidden) = tasks.get(COMPACT_TASKS..) {
+    if let Some(hidden) = tasks.get(COMPACT_TASKS..).filter(|h| !h.is_empty()) {
         let mut shows: Vec<&str> = Vec::new();
         for (_, show) in hidden {
             if !shows.contains(&show.as_str()) {
@@ -1932,6 +1932,43 @@ mod tests {
                 && held.contains("[T1] dev-3-search: status: two"),
             "{held}"
         );
+    }
+
+    #[test]
+    fn a_compacted_lead_with_ten_tasks_in_progress_is_told_of_all_and_with_eleven_of_one_more() {
+        for (n, more) in [
+            (COMPACT_TASKS, None),
+            (
+                COMPACT_TASKS + 1,
+                Some("\n- and 1 more: tower milestone show M1\n"),
+            ),
+        ] {
+            let (_dir, db, mut store) = board();
+            store.attach_lead(RepoId(1), "sess-1").unwrap();
+            for i in 1..=n {
+                let task = store
+                    .add_task(MilestoneId(1), &format!("Task {i}"))
+                    .unwrap();
+                store.set_task_stage(task, Stage::InProgress).unwrap();
+            }
+            let lists = claude_lists(&[("sess-2", "cat-lead")]);
+            let reply = session_start(
+                &db,
+                &start("sess-2", "compact", Some("cat-lead")),
+                None,
+                None,
+                || Ok(lists.clone()),
+            );
+            let said = context(reply.unwrap()).unwrap();
+            let shown = (said.lines())
+                .filter(|l| l.contains(": in progress, unassigned, no PR"))
+                .count();
+            assert_eq!(shown, COMPACT_TASKS, "{n}: {said}");
+            match more {
+                Some(line) => assert!(said.contains(line), "{n}: {said}"),
+                None => assert!(!said.contains(" more: "), "{n}: {said}"),
+            }
+        }
     }
 
     #[test]
