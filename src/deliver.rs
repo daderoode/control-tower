@@ -913,6 +913,8 @@ mod tests {
         db: PathBuf,
         rex: FakeRex,
         deliver: Deliver,
+        /// When `drain` last drained: each drain is a grace past it and past the clock.
+        drained: std::sync::atomic::AtomicI64,
     }
 
     impl Fixture {
@@ -946,6 +948,7 @@ mod tests {
                 dir,
                 db,
                 rex,
+                drained: Default::default(),
             };
             // Rex's live workers; a name not listed is not sent to.
             f.agents(&["dev-1", "dev-2", "qa-1", "qa-2", "qa-3"]);
@@ -1000,10 +1003,15 @@ mod tests {
             self.store().post_at(ThreadId(1), who, text, at);
         }
 
-        /// A drain a moment past every post's `START_GRACE` (`post` stamps the clock's time),
-        /// so a send to a name Rex does not list is judged at once.
+        /// A drain a moment past every post's `START_GRACE`, so a send to a name Rex does not
+        /// list is judged at once. `post` stamps the clock's time, but never before the
+        /// thread's latest message, and tower's items and replies carry the last drain's
+        /// time: so a drain is a grace past both the clock and the last drain.
         fn drain(&self) -> Vec<String> {
-            self.drain_at(chrono::Utc::now().timestamp() + START_GRACE)
+            let last = self.drained.load(Ordering::Relaxed);
+            let now = chrono::Utc::now().timestamp().max(last) + START_GRACE;
+            self.drained.store(now, Ordering::Relaxed);
+            self.drain_at(now)
         }
 
         /// A drain at `now`: its lines but the relay's traces (`drain_traced`).
