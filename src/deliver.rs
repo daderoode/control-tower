@@ -367,13 +367,26 @@ fn unknown_text(author: &str, names: &[String], terminal: &str) -> String {
 }
 
 /// What tower's reply says of `leads`, the leads of other boards a post named, starting
-/// with `OTHER_LEAD`: each lead and the board to post on to reach it. Empty for none.
+/// with `OTHER_LEAD`: each lead, by its session (with `@` when that is a mention; a session
+/// with a space is not), and the board to post on to reach it, with the command quoting a
+/// session with a space so it can be typed as given. Empty for none.
 fn lead_text(leads: &[LeadBoard]) -> String {
-    let quoted: Vec<String> = leads
-        .iter()
-        .map(|l| format!("`@{}`", l.lead.session))
+    let quoted: Vec<String> = (leads.iter().map(|l| &l.lead.session))
+        .map(|s| {
+            if mentioned(&format!("@{s}")) == [s.as_str()] {
+                format!("`@{s}`")
+            } else {
+                format!("`{s}`")
+            }
+        })
         .collect();
-    let new = |l: &LeadBoard| format!("`tower thread new {}`", l.lead.session);
+    let new = |l: &LeadBoard| {
+        if l.lead.session.contains(char::is_whitespace) {
+            format!("`tower thread new \"{}\"`", l.lead.session)
+        } else {
+            format!("`tower thread new {}`", l.lead.session)
+        }
+    };
     match leads {
         [] => String::new(),
         [one] => format!(
@@ -2158,6 +2171,15 @@ mod tests {
                 "{OTHER_LEAD}`@shop-lead` or `@pay-lead`: post on each one's board instead, R2 \
                  for `@shop-lead` (`tower thread new shop-lead`), R3 for `@pay-lead` (`tower \
                  thread new pay-lead`), or `tower post` to a thread there."
+            )
+        );
+        // A session with a space is no mention, and is quoted so the command works as typed.
+        let spaced = lead_text(&[lead(2, "Shop", "Shop Lead")]);
+        assert_eq!(
+            spaced,
+            format!(
+                "{OTHER_LEAD}`Shop Lead`: post on its board, R2, instead (`tower thread new \
+                 \"Shop Lead\"`, or `tower post` to a thread there)."
             )
         );
     }
