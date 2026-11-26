@@ -1123,30 +1123,79 @@ impl Ticket {
     /// merge request's `/diffs`, a pull request's `/files`, a comment's `#...`); any other
     /// link, or one that is no URL, is `Link`.
     pub fn of(link: &str) -> Ticket {
-        let Ok(url) = url::Url::parse(link.trim()) else {
-            return Ticket::Link;
-        };
-        let parts: Vec<&str> = url
+        forge_item(link).map_or(Ticket::Link, |(ticket, _)| ticket)
+    }
+}
+
+/// The forge ticket `link` names, as `Ticket::of` reads it, with the project it is in:
+/// GitLab's is the path before its "-" segment, GitHub's the first two segments. `None`
+/// for any other link.
+fn forge_item(link: &str) -> Option<(Ticket, ForgeProject)> {
+    let url = url::Url::parse(link.trim()).ok()?;
+    let parts: Vec<&str> = url
+        .path_segments()
+        .map(|p| p.filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    let number = |s: &str| s.parse::<u64>().ok();
+    // GitLab puts a project's pages after a "-" segment; GitHub's are the third.
+    let (project, after) = match parts.iter().position(|s| *s == "-") {
+        Some(dash) => (&parts[..dash], &parts[dash + 1..]),
+        None if parts.len() >= 2 => parts.split_at(2),
+        None => return None,
+    };
+    let gitlab = parts.contains(&"-");
+    let ticket = match after {
+        ["issues" | "work_items", n, ..] if gitlab => Ticket::Issue(number(n)?),
+        ["merge_requests", n, ..] if gitlab => Ticket::MergeRequest(number(n)?),
+        ["issues" | "pull", n, ..] if !gitlab => Ticket::Issue(number(n)?),
+        _ => return None,
+    };
+    Some((ticket, ForgeProject::new(&url, project)))
+}
+
+/// A project on a forge, read from a link: its host, with any port, and its path, in lower
+/// case, as GitHub and GitLab read both whatever their case. Written `host/path`, like
+/// `github.com/acme/bookshop`. The scheme is not part of it: http and https are one forge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgeProject(String);
+
+impl ForgeProject {
+    fn new(url: &url::Url, path: &[&str]) -> ForgeProject {
+        let mut at = url.host_str().unwrap_or_default().to_string();
+        if let Some(port) = url.port() {
+            at.push_str(&format!(":{port}"));
+        }
+        for segment in path {
+            at.push('/');
+            at.push_str(segment);
+        }
+        ForgeProject(at.to_ascii_lowercase())
+    }
+
+    /// The project a forge issue, work item, or merge or pull request `link` is in, read as
+    /// `Ticket::of` reads it; `None` for any other link, such as another tracker's.
+    pub fn of_ticket(link: &str) -> Option<ForgeProject> {
+        forge_item(link).map(|(_, project)| project)
+    }
+
+    /// The project a repo's forge `link` names: its whole path, without a trailing `/` or
+    /// `.git`. `None` for a link that is no URL.
+    pub fn of_repo(link: &str) -> Option<ForgeProject> {
+        let url = url::Url::parse(link.trim()).ok()?;
+        let mut parts: Vec<&str> = url
             .path_segments()
             .map(|p| p.filter(|s| !s.is_empty()).collect())
             .unwrap_or_default();
-        let number = |s: &str| s.parse::<u64>().ok();
-        // GitLab puts a project's pages after a "-" segment; GitHub's are the third.
-        let after = match parts.iter().position(|s| *s == "-") {
-            Some(dash) => &parts[dash + 1..],
-            None => parts.get(2..).unwrap_or_default(),
-        };
-        let gitlab = parts.contains(&"-");
-        match after {
-            ["issues" | "work_items", n, ..] if gitlab => {
-                number(n).map_or(Ticket::Link, Ticket::Issue)
-            }
-            ["merge_requests", n, ..] if gitlab => {
-                number(n).map_or(Ticket::Link, Ticket::MergeRequest)
-            }
-            ["issues" | "pull", n, ..] if !gitlab => number(n).map_or(Ticket::Link, Ticket::Issue),
-            _ => Ticket::Link,
+        if let Some(last) = parts.pop() {
+            parts.push(last.strip_suffix(".git").unwrap_or(last));
         }
+        Some(ForgeProject::new(&url, &parts))
+    }
+}
+
+impl fmt::Display for ForgeProject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -2476,6 +2525,73 @@ mod tests {
         ] {
             assert_eq!(Ticket::of(link).to_string(), want, "{link}");
         }
+    }
+
+    #[test]
+    fn a_forge_ticket_is_in_the_project_its_repo_link_names_exactly() {
+        for (ticket, repo) in [
+            (
+                "https://github.com/example/bookshop/issues/42",
+                "https://github.com/example/bookshop",
+            ),
+            // Case, scheme, a trailing slash and `.git` on the repo link are the same project.
+            (
+                "https://github.com/Example/BookShop/pull/58/files",
+                "http://github.com/example/bookshop.git/",
+            ),
+            (
+                "https://gitlab.example.com/acme/shop/web/-/merge_requests/27",
+                "https://gitlab.example.com/acme/shop/web",
+            ),
+            (
+                "https://gitlab.example.com:8443/acme/web/-/work_items/3#note_1",
+                "https://gitlab.example.com:8443/acme/web",
+            ),
+        ] {
+            let project = ForgeProject::of_ticket(ticket);
+            assert!(project.is_some(), "{ticket} is a forge ticket");
+            assert_eq!(project, ForgeProject::of_repo(repo), "{ticket} in {repo}");
+        }
+        // Another project, host or port; a subgroup's project is not its parent group's.
+        for (ticket, repo) in [
+            (
+                "https://github.com/example/bookshop/issues/42",
+                "https://github.com/example/bookshop-web",
+            ),
+            (
+                "https://github.com/example/bookshop/issues/42",
+                "https://github.acme.example/example/bookshop",
+            ),
+            (
+                "https://gitlab.example.com/acme/shop/web/-/issues/1",
+                "https://gitlab.example.com/acme/shop",
+            ),
+            (
+                "https://gitlab.example.com/acme/shop/-/issues/1",
+                "https://gitlab.example.com/acme/shop/web",
+            ),
+            (
+                "https://gitlab.example.com:8443/acme/web/-/issues/3",
+                "https://gitlab.example.com/acme/web",
+            ),
+        ] {
+            let project = ForgeProject::of_ticket(ticket);
+            assert!(project.is_some(), "{ticket} is a forge ticket");
+            assert_ne!(project, ForgeProject::of_repo(repo), "{ticket} in {repo}");
+        }
+        // No forge ticket, so in no project: another tracker, a repo's own page, a ticket
+        // with no number.
+        for link in [
+            "https://acme.atlassian.net/browse/SHOP-12",
+            "https://github.com/example/bookshop",
+            "https://github.com/example/bookshop/tree/main/issues/9",
+            "https://gitlab.example.com/x/-/issues/abc",
+            "not a url",
+        ] {
+            assert_eq!(ForgeProject::of_ticket(link), None, "{link}");
+        }
+        let project = ForgeProject::of_ticket("https://GitHub.com/Example/Bookshop/issues/42");
+        assert_eq!(project.unwrap().to_string(), "github.com/example/bookshop");
     }
 
     #[test]

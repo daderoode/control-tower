@@ -701,6 +701,11 @@ fn sets_and_shows_task_details() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("board.db");
     detail_board(&db);
+    // The tracker link is an issue of the task's repo, so its repo carries that forge link.
+    ok(
+        &db,
+        &["repo", "set", "R1", "--link", "https://github.com/o/r"],
+    );
     let out = ok(
         &db,
         &[
@@ -2523,12 +2528,16 @@ fn repo_and_milestone_listings_give_each_tasks_ticket_from_its_link() {
     let db = dir.path().join("board.db");
     let checkout = dir.path().join("checkout");
     std::fs::create_dir_all(checkout.join(".git")).unwrap();
-    ok(&db, &["repo", "add", checkout.to_str().unwrap()]);
+    let gl = "https://gitlab.example.com/acme/bookshop";
+    ok(
+        &db,
+        &["repo", "add", checkout.to_str().unwrap(), "--link", gl],
+    );
     ok(
         &db,
         &["milestone", "add", "MVP", "--goal", "g", "--repo", "R1"],
     );
-    let gl = "https://gitlab.example.com/acme/bookshop/-";
+    let gl = format!("{gl}/-");
     for (title, link) in [
         ("Author index", Some(format!("{gl}/work_items/36"))),
         ("Spell check", Some(format!("{gl}/merge_requests/23"))),
@@ -2546,13 +2555,23 @@ fn repo_and_milestone_listings_give_each_tasks_ticket_from_its_link() {
     ok(&db, &["task", "add", "Sort the shelves", "--repo", "R1"]);
     ok(
         &db,
-        &[
-            "task",
-            "set",
-            "5",
-            "--link",
-            "https://github.com/example/bookshop/issues/41",
-        ],
+        &["task", "set", "5", "--link", &format!("{gl}/issues/41")],
+    );
+    // Another forge's issue is no ticket of this repo's.
+    assert_refused(
+        &tower(
+            &db,
+            &[
+                "task",
+                "set",
+                "4",
+                "--link",
+                "https://github.com/example/bookshop/issues/41",
+            ],
+        ),
+        "https://github.com/example/bookshop/issues/41 belongs to github.com/example/bookshop, \
+         which is no repo on the board, not to R1 (https://gitlab.example.com/acme/bookshop), \
+         the repo of #4",
     );
     let shown = ok(&db, &["milestone", "show", "M1"]);
     for want in [

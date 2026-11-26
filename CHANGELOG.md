@@ -9,6 +9,17 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A task's forge ticket stays in its own repo.** `tower task set --link` refused nothing,
+  so another repo's issue could be filed under this repo's milestone, recorded as this
+  repo's work with its threads on this repo's board. A link to a GitHub or GitLab issue,
+  merge request or pull request is now refused when it is not in the project the task's repo
+  link names, saying which repo it belongs to, and when the repo has no forge link yet;
+  `task set --repo` and `task hand` refuse a linked task into another repo the same way.
+  Other trackers' links are taken as before. The lead skill says to file a repo's issue only
+  under a milestone of that repo (#142).
+
 ## [0.6.3] - 2026-11-26
 
 ### Fixed

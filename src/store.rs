@@ -14,11 +14,11 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
 use crate::board::{
-    Board, BoardOf, Colour, Criterion, Lead, Mention, Message, Milestone, MilestoneDetails,
-    MilestoneId, OWNER_AUTHOR, OWNER_HANDLE, Repo, RepoId, RepoOf, Resolution, SYSTEM_AUTHOR,
-    Stage, Subtask, Task, TaskDetails, TaskId, Thread, ThreadId, ThreadStatus, Tone, check_author,
-    check_line, check_link, check_message, check_session, check_text, mentioned, no_lead_hint,
-    tone_of,
+    Board, BoardOf, Colour, Criterion, ForgeProject, Lead, Mention, Message, Milestone,
+    MilestoneDetails, MilestoneId, OWNER_AUTHOR, OWNER_HANDLE, Repo, RepoId, RepoOf, Resolution,
+    SYSTEM_AUTHOR, Stage, Subtask, Task, TaskDetails, TaskId, Thread, ThreadId, ThreadStatus, Tone,
+    check_author, check_line, check_link, check_message, check_session, check_text, mentioned,
+    no_lead_hint, tone_of,
 };
 use crate::deliver::{LeadBoard, Pending, Post};
 use crate::watch::{Flag, Named, Signal};
@@ -717,6 +717,51 @@ fn refuse_foreign_task(
                 None => format!("{task} is in no repo; a thread links to a task of its own repo"),
             }
         }
+    };
+    Ok(Err(anyhow::anyhow!(why)))
+}
+
+/// Refuses the tracker link of `task` when it is an issue, work item, or merge or pull
+/// request of a forge project that is not its repo's, so one repo's work is never filed
+/// under another's. Any other link passes (another tracker, a document), and so does a
+/// task in no repo, checked when it gets one. A repo with no forge link cannot tell whose a
+/// forge ticket is, so it refuses one. Outer and inner results as in `refuse_missing`.
+fn refuse_foreign_link(conn: &Connection, task: TaskId) -> rusqlite::Result<Result<()>> {
+    let (link, repo): (Option<String>, Option<i64>) = conn.query_row(
+        "SELECT t.link, coalesce(t.repo_id, m.repo_id) \
+         FROM task t LEFT JOIN milestone m ON m.id = t.milestone_id WHERE t.id = ?1",
+        params![task.0],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let (Some(link), Some(repo)) = (link, repo.map(RepoId)) else {
+        return Ok(Ok(()));
+    };
+    let Some(project) = ForgeProject::of_ticket(&link) else {
+        return Ok(Ok(()));
+    };
+    let repos = conn
+        .prepare("SELECT id, link FROM repo WHERE link IS NOT NULL ORDER BY id")?
+        .query_map([], |r| Ok((RepoId(r.get(0)?), r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let Some((_, own)) = repos.iter().find(|(r, _)| *r == repo) else {
+        return Ok(Err(anyhow::anyhow!(
+            "{repo}, the repo of {task}, has no forge link, so tower cannot tell whose {link} \
+             is; set it first: tower repo set {repo} --link <forge URL>"
+        )));
+    };
+    if ForgeProject::of_repo(own).as_ref() == Some(&project) {
+        return Ok(Ok(()));
+    }
+    let owner = (repos.iter()).find(|(_, l)| ForgeProject::of_repo(l).as_ref() == Some(&project));
+    let why = match owner {
+        Some((other, other_link)) => format!(
+            "{link} belongs to {other} ({other_link}), not to {repo} ({own}), the repo of \
+             {task}; file it in {other}"
+        ),
+        None => format!(
+            "{link} belongs to {project}, which is no repo on the board, not to {repo} \
+             ({own}), the repo of {task}"
+        ),
     };
     Ok(Err(anyhow::anyhow!(why)))
 }
@@ -2077,7 +2122,8 @@ impl Store {
     /// already under a milestone, a milestone not on the board, one without a lead, and a
     /// task in another repo (its threads stay on its repo's board, per the rule at
     /// MIGRATIONS[13]). The milestone's task set changes, so its Done mark goes, per the rule
-    /// at MIGRATIONS[2]. Returns the lead it went to.
+    /// at MIGRATIONS[2]. A task in no repo whose link is another repo's forge ticket is
+    /// refused (`refuse_foreign_link`). Returns the lead it went to.
     pub fn hand_task(&mut self, task: TaskId, milestone: MilestoneId) -> Result<Lead> {
         let cannot_write = self.cannot_write();
         let tx = self
@@ -2133,6 +2179,10 @@ impl Store {
             params![milestone.0, task.0],
         )
         .context(cannot_write.clone())?;
+        // A task in no repo gets the milestone's here, so its link is checked against it.
+        if in_repo.is_none() {
+            refuse_foreign_link(&tx, task).context(cannot_write.clone())??;
+        }
         // The milestone's task set changed: clear its Done mark, per the rule at MIGRATIONS[2].
         tx.execute(
             "UPDATE milestone SET done = 0 WHERE id = ?1",
@@ -2520,7 +2570,9 @@ impl Store {
     /// task only, as a milestone's task is in its milestone's repo; it is how a task the
     /// schema 14 upgrade left in no repo gets one (MIGRATIONS[13]). A task's threads follow
     /// it through `thread_board`, so a task with threads moves only to a repo with a lead,
-    /// as `set_milestone` rules for a milestone. Returns where it went when given a repo.
+    /// as `set_milestone` rules for a milestone. A link, or a repo for a linked task, is
+    /// refused when the link is another repo's forge ticket (`refuse_foreign_link`).
+    /// Returns where it went when given a repo.
     pub fn set_task(&mut self, task: TaskId, fields: TaskFields) -> Result<Option<Moved>> {
         let TaskFields {
             description,
@@ -2630,6 +2682,11 @@ impl Store {
             params![description, context, link, mr, assignee, task.0],
         )
         .context(cannot_write.clone())?;
+        // A new link, or a new repo for a linked task, must not file another repo's forge
+        // ticket here; a refusal drops the transaction, so nothing is written.
+        if link.is_some() || repo.is_some() {
+            refuse_foreign_link(&tx, task).context(cannot_write.clone())??;
+        }
         tx.commit().context(cannot_write)?;
         Ok(moved)
     }
@@ -5162,6 +5219,114 @@ mod tests {
         assert_eq!(err.to_string(), "nothing to change: give --path or --link");
         let err = store.set_repo(RepoId(7), None, link).unwrap_err();
         assert_eq!(err.to_string(), "there is no repo R7 on the board");
+    }
+
+    /// A task's forge ticket is its own repo's, so one repo's work is never filed under
+    /// another's (#142); any other link goes anywhere.
+    #[test]
+    fn a_tasks_forge_link_is_refused_outside_its_repo() {
+        let (dir, path) = temp_board();
+        let mut store = Store::open(&path).unwrap();
+        let repo = |store: &mut Store, name: &str, link: Option<&str>| {
+            let checkout = dir.path().join(name);
+            std::fs::create_dir_all(checkout.join(".git")).unwrap();
+            store.add_repo(&checkout, link).unwrap()
+        };
+        let shop_link = "https://github.com/example/bookshop.git";
+        let web_link = "https://gitlab.example.com/acme/shop/web";
+        let shop = repo(&mut store, "shop", Some(shop_link));
+        let web = repo(&mut store, "web", Some(web_link));
+        let bare = repo(&mut store, "bare", None);
+        let m1 = store.add_milestone("Shelves", "g", Some(shop)).unwrap();
+        store.lead_milestone(m1, "One", "one", None).unwrap();
+        let on_m1 = store.add_task(m1, "Shelf").unwrap();
+        let on_web = store.add_standalone_task("Web", Some(web)).unwrap();
+        let on_bare = store.add_standalone_task("Bare", Some(bare)).unwrap();
+        let loose = store.add_standalone_task("Loose", None).unwrap();
+        let set = |store: &mut Store, task: TaskId, link: Option<&str>, repo: Option<RepoId>| {
+            let fields = TaskFields {
+                description: Some("set with it"),
+                link,
+                repo,
+                ..TaskFields::default()
+            };
+            store
+                .set_task(task, fields)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
+        let link_of = |store: &mut Store, task: TaskId| store.task(task).unwrap().details.link;
+        let web_mr = "https://gitlab.example.com/acme/shop/web/-/merge_requests/27";
+        let jira = "https://acme.atlassian.net/browse/SHOP-12";
+        // The repo's own issue and pull request, in any case, and another tracker's link.
+        for (task, link) in [
+            (on_m1, "https://github.com/Example/Bookshop/issues/42"),
+            (on_m1, "https://github.com/example/bookshop/pull/58"),
+            (
+                on_web,
+                "https://gitlab.example.com/acme/shop/web/-/issues/5",
+            ),
+            (on_m1, jira),
+            (on_bare, jira),
+            (loose, web_mr),
+        ] {
+            assert_eq!(set(&mut store, task, Some(link), None), Ok(()), "{link}");
+        }
+        // Another repo's ticket is refused naming that repo; one of no repo on the board,
+        // naming its project; one in a repo with no forge link, saying to give it one.
+        // Nothing is written, the description given with it included.
+        for (task, link, want) in [
+            (
+                on_m1,
+                web_mr,
+                format!(
+                    "{web_mr} belongs to R2 ({web_link}), not to R1 ({shop_link}), the repo \
+                     of #1; file it in R2"
+                ),
+            ),
+            (
+                on_web,
+                "https://gitlab.example.com/acme/shop/-/issues/5",
+                format!(
+                    "https://gitlab.example.com/acme/shop/-/issues/5 belongs to \
+                     gitlab.example.com/acme/shop, which is no repo on the board, not to R2 \
+                     ({web_link}), the repo of #2"
+                ),
+            ),
+            (
+                on_bare,
+                "https://github.com/example/bookshop/issues/42",
+                "R3, the repo of #3, has no forge link, so tower cannot tell whose \
+                 https://github.com/example/bookshop/issues/42 is; set it first: tower repo \
+                 set R3 --link <forge URL>"
+                    .to_string(),
+            ),
+        ] {
+            let before = store.task(task).unwrap().details;
+            assert_eq!(set(&mut store, task, Some(link), None), Err(want), "{link}");
+            assert_eq!(store.task(task).unwrap().details, before, "{link}");
+        }
+        // A task in no repo keeps its link until it gets a repo, which must be the link's.
+        let err = set(&mut store, loose, None, Some(shop)).unwrap_err();
+        assert!(err.starts_with(&format!("{web_mr} belongs to R2")), "{err}");
+        assert_eq!(store.task(loose).unwrap().repo, None);
+        let err = store.hand_task(loose, m1).unwrap_err().to_string();
+        assert!(err.starts_with(&format!("{web_mr} belongs to R2")), "{err}");
+        assert_eq!(store.task(loose).unwrap().repo, None);
+        assert_eq!(milestone_of(&mut store, m1).tasks.len(), 1);
+        assert_eq!(set(&mut store, loose, None, Some(web)), Ok(()));
+        assert_eq!(store.task(loose).unwrap().repo, Some(web));
+        assert_eq!(link_of(&mut store, loose).as_deref(), Some(web_mr));
+        // A change that sets neither link nor repo leaves a stored link alone.
+        store.exec_sql(&format!(
+            "UPDATE task SET link = '{web_mr}' WHERE id = {}",
+            on_m1.0
+        ));
+        let fields = TaskFields {
+            assignee: Some("dev-1"),
+            ..TaskFields::default()
+        };
+        store.set_task(on_m1, fields).unwrap();
     }
 
     #[test]

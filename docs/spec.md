@@ -25,7 +25,7 @@ This file is the product spec, and the repo is its one source of truth (owner de
 - Each item can carry:
   - a small amount of **standing context** ("when picking this up, do ABC"), which belongs to that item only;
   - for a task: its **description** (what and why) and **acceptance criteria**, copied from the ticket when it is added (for example from `/to-tickets`), plus what it is **blocked by**;
-  - a **link to its ticket in whichever tracker it came from** (GitLab, GitHub, Jira or another). For example, the owner can send a lead to pick up a Jira ticket, draft a spec and start workers.
+  - a **link to its ticket in whichever tracker it came from** (GitLab, GitHub, Jira or another). For example, the owner can send a lead to pick up a Jira ticket, draft a spec and start workers. A task's issue or merge or pull request on a forge is its own repo's: the board refuses one whose project is not the one its repo's forge link names, so one repo's work is never filed under another's milestone (#142).
 - **Who adds items:** the owner adds items; leads can add items too; workers can propose items to their lead, and the lead decides.
 - The owner starts one lead per repo, and leads start workers. The board doesn't start anything; it's what they read when they pick work up.
 
