@@ -2425,8 +2425,11 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
     let not_answering = (
         &mute,
         " and its Stop hook\ncontrol-tower: this session runs outside Rex (REX_SESSION is not \
-         set) and rex is found but does not answer, so the watch reads the workers you start \
-         from Claude Code's session list:",
+         set) and rex is found but does not answer, so while it does not, the watch reads the \
+         workers you start from Claude Code's session list: it sees them, judges their prompts \
+         (without the prompt's text) and delivers posts and nudges to them. Once Rex answers, \
+         the watch reads only the workers in Rex, and the board does not see the workers you \
+         start here.",
         "and starting workers as visible tabs.\n",
     );
     for (tower_rex, notice, end) in [found, not_found, not_answering] {
@@ -4184,7 +4187,16 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
     let outside_mute = context(hook_in(start("sess-2", "Cat-Lead"), Some(&mute)));
     assert_eq!(
         outside_mute,
-        outside.replace("rex is not found", "rex is found but does not answer")
+        outside
+            .replace(
+                "rex is not found, so",
+                "rex is found but does not answer, so while it does not,"
+            )
+            .replace(
+                "delivers posts and nudges to them.",
+                "delivers posts and nudges to them. Once Rex answers, the watch reads only the \
+                 workers in Rex, and the board does not see the workers you start here."
+            )
     );
     assert!(
         ok(&db, &["milestone", "show", "M1"])

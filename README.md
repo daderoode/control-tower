@@ -646,7 +646,7 @@ what Rex would add (the text of the prompt a worker waits at, the dashboard's `n
 keys, and starting workers as visible tabs); every look still runs. Before each look, the
 watch asks a found rex for its sessions; when that fails or takes over 3 seconds (the Rex
 app not running), the log says once "Rex does not answer" with why, that the watch reads its
-workers from Claude Code until Rex answers, and what Rex would add, and that look and its
+workers from Claude Code until Rex answers, and what Rex would add. That look and its
 delivery read Claude Code's list. Once rex is found and answers, the next look uses it, with
 no restart.
 
@@ -969,9 +969,11 @@ and an idle lead is never woken while nothing is posted:
   workers (their prompts, and delivery to them), to raise with you. With rex not found or
   not answering: the watch reads them from Claude Code's session list, so it sees them,
   judges their prompts (without the prompt's text) and delivers to them, and what Rex would
-  add (What Rex adds). Either way the lead skill starts workers only in Rex, so the lead
-  raises it with you before it starts any. The hook gives the notice after the rest, a
-  compaction's reply too. With `REX_SESSION` set, nothing more is said.
+  add (What Rex adds); with rex not answering, that this lasts only until Rex answers, when
+  the watch reads only the workers in Rex and the board no longer sees them. Either way the
+  lead skill starts workers only in Rex, so the lead raises it with you before it starts
+  any. The hook gives the notice after the rest, a compaction's reply too. With
+  `REX_SESSION` set, nothing more is said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
   attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it
