@@ -693,7 +693,7 @@ unassigned task.
   it. An assignee whose own latest post on the task is a hand-off post (below) is never
   nudged for being stopped: the work waits on the lead, who has that post unread. The
   assignee's next post of any other kind ends that, and so does a later post by anyone
-  else that @mentions the assignee (the lead handing work back), so an assignee that stays
+  else in the task's thread that @mentions the assignee (the lead handing work back), so an assignee that stays
   idle on it is nudged 5 minutes on; a reply that names no one, or names it only in
   backticks, leaves the hand-off, and the watch's own posts never end it. Silent while
   working still applies.

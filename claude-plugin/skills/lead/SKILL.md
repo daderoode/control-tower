@@ -34,8 +34,8 @@ the repo's forge.
   | Triage | Bugs: label them ready-for-agent or needs-info, close duplicates with a link | Features (new, changed, rejected) and wontfix: you ask once, as a need-you item |
   | Picking up work | Take ready-for-agent work without being told | |
   | Order | With release milestones, release by release first (see The backlog); then blockers first, then bugs before features, then oldest first; the order is shown on the board | A `priority` label on an issue runs it first |
-  | Merges | As the repo's SDLC says (see Finishing) | As the repo's SDLC says |
-  | Releases | With the owner's permission (the repo's SDLC or standing context), cut the release yourself; otherwise propose one | The go, unless given to you |
+  | Merges | As that repo's SDLC or standing context says, its grant quoted first (see Finishing) | As the repo's SDLC says |
+  | Releases | With the owner's permission for that repo (its SDLC or standing context), quoted first (see Releases), cut the release yourself; otherwise propose one | The go, unless given to you |
   | Spec and tickets | For a new goal or milestone, ask the owner to run `/to-spec` and `/to-tickets` (never run them yourself); open the spec for the owner (see Starting, step 7). A ready-for-agent issue is a ticket in its own right | Runs them; signs off the spec and the tickets before building |
   | UI | Build only to a signed-off design (see Finishing) | Signs off the design before it is built; approves the change's new and changed snapshots in its PR before it merges |
 
@@ -106,11 +106,16 @@ implement, test or review.
    a class of question ("high-impact bugs join the release; low-priority ones get
    scheduled") or corrects how you work, record it as a durable rule in that same turn,
    quoting the owner, dated: in your memory, or the standing context of the milestone or
-   task it covers. Then do not ask that class again. Re-read these rules at every start
+   task it covers. A merge or release grant goes in that repo's SDLC or standing context,
+   quoting the owner, dated, naming the repo, never only in your memory: memory is keyed by
+   the folder you started in, so it can carry one repo's grant to another. Only the owner
+   grants one: record it from the owner's own words in this session or on the forge; a grant
+   you remember but cannot point to goes to the owner to confirm (principle 4) before you
+   record it. Then do not ask that class again. Re-read these rules at every start
    (Starting, step 2). Production approvals, phase or scope changes and anything the owner
-   has not decided still go to the owner. Why: fewer questions without overstepping, and
-   your quality compounds instead of resetting. Check: no correction lives only in the
-   conversation.
+   has not decided still go to the owner. Why: fewer questions without overstepping, and your quality compounds instead of
+   resetting. Check: no correction lives only in the conversation, and no merge or release
+   grant lives only in your memory.
 8. **Approvals that gate production are given where the action runs.** Never pass on the
    owner's approval of a production action in a way that looks as if the owner typed it,
    such as in a worker's brief or prompt. Either the owner approves in the acting worker's
@@ -355,8 +360,8 @@ implement, test or review.
    `tower task set N --context "..."`; a milestone's with `tower milestone set <M> --context "..."`.
 9. **The merge task**: while the spec and tickets are written, before work
    starts, create the task or subtask that waits on the owner's merge, so progress never
-   shows 100% while the owner's review is pending, unless the repo's SDLC or the standing
-   context gives you the master merge:
+   shows 100% while the owner's review is pending, unless that repo's SDLC or standing
+   context grants you the master merge (principle 7):
    - in a milestone, the merge is its own task:
      `MERGE=$(tower task add --milestone <M> "merge")`;
    - in a task with subtasks, the merge is its own subtask:
@@ -458,7 +463,8 @@ and `tower repo show <R>` lists threads by title.
 
     A worker never renames the Rex session (`rex session rename`): it runs in your session,
     so it shares your `$REX_SESSION`, and Rex's start hook tells every Claude session to name
-    its session after its work, which would relabel yours. Its tab is already named.
+    its session after its work, which would relabel yours. Its tab is already named; a tester
+    or reviewer runs as a pane in its implementer's tab.
     `-c` takes an absolute path (Rex does not resolve one against your folder). Keep the
     worktree's absolute path, the printed `.window_id` (its tab) and `.block_ids[0]` (its
     block). A tester or Stage 1 reviewer works as a block beside the implementer's, in its
@@ -574,10 +580,11 @@ and `tower repo show <R>` lists threads by title.
   the worker to stage its change and report, never to commit or push. A tester's or
   reviewer's brief names its risks (principle 2); one that uses a shared resource gives its
   protocol (principle 11). In Rex, every brief says the worker never renames the Rex
-  session (`rex session rename`), since its tab is already named, and ignores any hook that
-  tells it to. Every brief says that while the worker waits on you, each post it makes
-  carries `--handoff` (its done post, a question only you can answer, and any "copy" or
-  "staying open" while it still waits), or it posts nothing, and it posts no status.
+  session (`rex session rename`), since its tab is already named (a tester or reviewer runs
+  as a pane in its implementer's tab), and ignores any hook that tells it to. Every brief
+  says that while the worker waits on you, each post it makes carries `--handoff` (its done
+  post, a question only you can answer, and any "copy" or "staying open" while it still
+  waits), or it posts nothing, and it posts no status.
 - **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting).
   The plan is the signed-off tickets, or a ready-for-agent issue (Starting, step 7). Each
   ticket then goes through:
@@ -731,8 +738,8 @@ name (see Workers), like `dev-119-deliver`.
   While the worker's latest post on the task carries `--handoff`, the watch does not nudge
   it for being stopped, so it posts no "still waiting" status. Its next post without the
   flag, a "copy" included, starts the 5 minute clock again, as does a done post without
-  it. To hand work back, @mention the worker: a later post naming it starts the clock
-  again too, so a worker that stays idle on your request is nudged; a reply that names
+  it. To hand work back, @mention the worker in the task's thread: a later post there
+  naming it starts the clock again too, so a worker that stays idle on your request is nudged; a reply that names
   no one leaves it waiting on you. The flag says who the board waits on; it is not the
   lifecycle's commit hand-off.
 - **Acknowledge in words:** `tower post T --by "<you>" "copy"`, never emoji.
@@ -788,7 +795,12 @@ standalone task finishes on its own. Then the branch the MR targets decides:
   send it back with what to change), your recommendation, then the one question; the owner
   does peer review and merges. A repo's SDLC, or a milestone's or task's standing context,
   can give you that merge; when you hold it, take the PR out of draft and merge the approved
-  head once CI is green, as for a working branch, then mark the task Done.
+  head once CI is green, as for a working branch, then mark the task Done. Before that merge,
+  name the repo and quote its grant on the task's thread: the line in that repo's SDLC, or
+  the standing context quoting the owner, with its date and the repo it names; one that
+  names no repo is none. With none, ask as above. A grant is
+  for the repo it names and never carries to another; one held only in your memory or the
+  conversation is none.
 - **A UI change** is built only to a design the owner signed off (a prototype artifact
   linked from its issue, invented data only), and merges, wherever you hold the merge, only
   once the owner has approved its new and changed snapshots in the PR: ask in principle 4's
@@ -813,7 +825,9 @@ standalone task finishes on its own. Then the branch the MR targets decides:
 ## Releases
 
 When the repo's SDLC, or the standing context, gives you the release, cut it yourself, by
-the SDLC's mechanics (version, notes, tag). Otherwise propose one: a `question: @manager` post on
+the SDLC's mechanics (version, notes, tag). Before you cut it, name the repo and quote its
+grant on the thread of the board milestone it releases, or on a repo-wide thread when
+there is none, as Finishing says for a merge. Otherwise propose one: a `question: @manager` post on
 the board with what it would carry, and cut it when the owner gives the go. Either way it
 reaches the owner as the release report (principle 5), with where the time went
 (principle 10).
