@@ -26,6 +26,12 @@ tag's date, and a new empty Unreleased goes above it.
   the type Claude lists is no one, where it failed the workers' look for every session. A
   name, pid or session id that no session gives as that type is Claude's format changed:
   the list cannot be read, so nothing is judged by it (#167).
+- **With no Rex, the watch runs every look.** When rex is not found (at the path
+  `TOWER_REX` names, else in `REX_BIN_DIR`, else on the PATH), the watch and its delivery
+  read the workers from Claude Code's session list instead of skipping the look, and the
+  log says once what Rex would add: the text of the prompt a worker waits at in its owner
+  item, the dashboard's n and its keys, and starting workers as visible tabs. When rex is
+  found again, the watch uses it with no restart (#164).
 
 ## [0.7.0] - 2026-11-26
 

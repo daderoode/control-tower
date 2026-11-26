@@ -220,9 +220,26 @@ pub struct Answer {
     pub passed_over: Vec<String>,
 }
 
+/// A terminal as a `Terminal` object: what `Terminal::current`'s default returns, given to
+/// every terminal.
+pub trait AsTerminal {
+    fn as_terminal(&self) -> &dyn Terminal;
+}
+
+impl<T: Terminal> AsTerminal for T {
+    fn as_terminal(&self) -> &dyn Terminal {
+        self
+    }
+}
+
 /// The terminal module interface. `db` is the board, passed to what the module runs as
 /// `TOWER_DB`.
-pub trait Terminal: Send + Sync {
+pub trait Terminal: AsTerminal + Send + Sync {
+    /// The terminal to ask for one piece of work that must ask a single one throughout (a
+    /// delivery round: its list, its texts, its sends). The core's: itself.
+    fn current(&self) -> &dyn Terminal {
+        self.as_terminal()
+    }
     /// The terminal's name in texts and logs.
     fn name(&self) -> &'static str;
     /// Its executable, as the module was given it.
@@ -231,6 +248,11 @@ pub trait Terminal: Send + Sync {
     /// naming what was tried and how to name it; `None` when it is found. Whoever says it
     /// adds how often (the watch: once, until it is found).
     fn missing(&self, path: Option<&OsStr>) -> Option<String>;
+    /// What the module adds to the core, for the line the watch says when it goes missing
+    /// ("the text of ..., and ..."). The core's: nothing.
+    fn adds(&self) -> Option<&'static str> {
+        None
+    }
     /// The Claude Code it asks (`register::claude_path`): for the core's list and the relay.
     fn claude(&self) -> &Path;
     /// The live named workers, within `timeout`. The core's: each session Claude's list
