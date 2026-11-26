@@ -1,9 +1,9 @@
 //! The stuck-worker watch, `tower watch`: a long-running process that every `TICK` reads the
 //! board and the live workers (through the terminal module, `terminal`: the module's own
 //! list, Rex's, while rex is found, at the path `TOWER_REX` names, else in `REX_BIN_DIR`,
-//! else on the PATH; else Claude Code's session list, the core's; `Chosen`) and flags a
-//! stuck worker by the spec's fixed rules (section 4, "While work runs"). It runs on its
-//! own, dashboard open or not, Rex or not.
+//! else on the PATH, and Rex answers; else Claude Code's session list, the core's;
+//! `Chosen`) and flags a stuck worker by the spec's fixed rules (section 4, "While work
+//! runs"). It runs on its own, dashboard open or not, Rex or not.
 //!
 //! A worker is linked to its live Claude session in the terminal by name: a task's assignee
 //! is the Claude session name of the worker on it, compared ignoring ASCII case. Only
@@ -70,8 +70,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -753,15 +753,27 @@ fn restart(exe: &Path) -> std::io::Error {
 }
 
 /// The watch's terminal: the module while its executable is found (`Terminal::missing`: a
-/// path as it is, a bare name on the PATH), else the core (`Core`), as the last `choose` set
-/// it, and the module is asked again once it is found, with no restart. A look asks the
-/// same one throughout, since `choose` runs between looks on the look's own thread; a
-/// delivery round, on its own thread, asks the one chosen when it starts (`current`)
-/// throughout, so its list, its texts and its sends agree.
+/// path as it is, a bare name on the PATH) and it answers (`Terminal::silent`), else the
+/// core (`Core`), as the last `choose` set it, and the module is asked again once it is
+/// found and answers, with no restart. A look asks the same one throughout, since `choose`
+/// runs between looks on the look's own thread; a delivery round, on its own thread, asks
+/// the one chosen when it starts (`current`) throughout, so its list, its texts and its
+/// sends agree.
 pub(crate) struct Chosen {
     module: Arc<dyn Terminal>,
     core: Arc<dyn Terminal>,
-    found: AtomicBool,
+    state: Mutex<Choice>,
+}
+
+/// What the last `choose` found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Choice {
+    /// The module: found, and it answers.
+    Module,
+    /// The core: the module's executable is not found.
+    Missing,
+    /// The core: the module is found but does not answer.
+    Silent,
 }
 
 impl Chosen {
@@ -770,31 +782,47 @@ impl Chosen {
         Chosen {
             module,
             core,
-            found: AtomicBool::new(true),
+            state: Mutex::new(Choice::Module),
         }
     }
 
     /// Chooses by `path` (a PATH value): the module when its executable is found (a path as
-    /// it is, a bare name on `path`), else the core.
-    /// The line to log when the module goes missing, the first choice included: what was
-    /// tried, that the core is asked until it is found, and what the module would add.
-    pub(crate) fn choose(&self, path: Option<&std::ffi::OsStr>) -> Option<String> {
-        let missing = self.module.missing(path);
-        let was_found = self.found.swap(missing.is_none(), Ordering::Relaxed);
-        let line = missing.filter(|_| was_found)?;
+    /// it is, a bare name on `path`) and it answers (asked with `db` as the board, within
+    /// `answers_within`), else the core. Choosing before the look, not falling back
+    /// within it, keeps a module that does not answer from costing a failed look or a
+    /// delivery round each time.
+    /// The line to log when the module goes missing or stops answering, the first choice
+    /// included, once for each until the other or the module is chosen: why, that the core
+    /// is asked until then, and what the module would add.
+    pub(crate) fn choose(&self, db: &Path, path: Option<&std::ffi::OsStr>) -> Option<String> {
+        let (choice, line, until) = match self.module.missing(path) {
+            Some(line) => (Choice::Missing, Some(line), "is found"),
+            None => match (self.module).silent(db, crate::terminal::answers_within()) {
+                Some(line) => (Choice::Silent, Some(line), "answers"),
+                None => (Choice::Module, None, ""),
+            },
+        };
+        let was = std::mem::replace(&mut *self.choice(), choice);
+        let line = line.filter(|_| was != choice)?;
         let module = self.module.name();
         let adds =
             (self.module.adds()).map_or(String::new(), |a| format!("; {module} would add {a}"));
         Some(format!(
-            "{line}. Until {module} is found, the watch reads its workers from {} (said once){adds}",
+            "{line}. Until {module} {until}, the watch reads its workers from {} (said once){adds}",
             self.core.name()
         ))
+    }
+
+    /// The last choice, held.
+    fn choice(&self) -> std::sync::MutexGuard<'_, Choice> {
+        // A choice is one store: a panic elsewhere leaves it whole.
+        (self.state.lock()).unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// What the one chosen reads the workers from, for the log: the module's executable, else
     /// the core's session list and the claude it runs.
     fn reads(&self) -> String {
-        if self.found.load(Ordering::Relaxed) {
+        if *self.choice() == Choice::Module {
             self.module.exe().display().to_string()
         } else {
             let core = &self.core;
@@ -804,7 +832,7 @@ impl Chosen {
 
     /// The one chosen.
     fn now(&self) -> &dyn Terminal {
-        if self.found.load(Ordering::Relaxed) {
+        if *self.choice() == Choice::Module {
             &*self.module
         } else {
             &*self.core
@@ -888,7 +916,7 @@ fn round(
     path: Option<&std::ffi::OsStr>,
     now: i64,
 ) -> Vec<String> {
-    let mut lines: Vec<String> = chosen.choose(path).into_iter().collect();
+    let mut lines: Vec<String> = chosen.choose(&watch.db, path).into_iter().collect();
     lines.extend(watch.leads(claude, now));
     match watch.tick(now) {
         Ok(looked) => lines.extend(looked),
@@ -922,7 +950,7 @@ pub fn run(db: &Path) -> Result<()> {
         eprintln!("{at} tower watch: {line}");
     };
     // The first choice comes first, so the first line names what this round reads.
-    let first = chosen.choose(std::env::var_os("PATH").as_deref());
+    let first = chosen.choose(db, std::env::var_os("PATH").as_deref());
     log(&watching(db, &chosen));
     first.iter().for_each(|l| log(l));
     let mut skill = crate::register::Skill::new(
@@ -1669,24 +1697,117 @@ mod tests {
         let mut f = Fixture::new();
         let claude = f.rex.dir.join("claude");
         let db = f.db.display().to_string();
+        let on_core = format!(
+            "watching {db} with Claude Code's session list ({}) every 20 s",
+            claude.display()
+        );
         let no_rex = crate::terminal::module(f.dir.path().join("no-rex"));
         let chosen_now = chosen(&mut f, no_rex);
-        assert!(chosen_now.choose(None).is_some());
-        assert_eq!(
-            watching(&f.db, &chosen_now),
-            format!(
-                "watching {db} with Claude Code's session list ({}) every 20 s",
-                claude.display()
-            )
-        );
+        assert!(chosen_now.choose(&f.db, None).is_some());
+        assert_eq!(watching(&f.db, &chosen_now), on_core);
         let rex = f.rex.dir.join("rex");
         let module = Arc::new(f.rex.module());
         let chosen_now = chosen(&mut f, module);
-        assert_eq!(chosen_now.choose(None), None);
+        assert_eq!(chosen_now.choose(&f.db, None), None);
         assert_eq!(
             watching(&f.db, &chosen_now),
             format!("watching {db} with {} every 20 s", rex.display())
         );
+        // Found but not answering at the first choice: Claude's list, as with no rex.
+        f.rex.write("fail-session.list", NOT_RUNNING);
+        let module = Arc::new(f.rex.module());
+        let chosen_now = chosen(&mut f, module);
+        assert!(chosen_now.choose(&f.db, None).is_some());
+        assert_eq!(watching(&f.db, &chosen_now), on_core);
+    }
+
+    /// What the fake rex says, failing, while the Rex app is not running.
+    const NOT_RUNNING: &str = "Error: the server is not running";
+
+    /// What the watch says once when Rex is found but cannot list its sessions.
+    fn rex_does_not_answer() -> String {
+        format!(
+            "Rex does not answer: rex api call session.list exited 1: {NOT_RUNNING}. Until Rex \
+             answers, the watch reads its workers from Claude Code (said once); Rex would add \
+             the text of the prompt a worker waits at in its owner item, the dashboard's n and \
+             its keys, and starting workers as visible tabs"
+        )
+    }
+
+    /// How many of the fake rex's calls were a look's, past the choice's `session.list`.
+    fn rex_looks(f: &Fixture) -> usize {
+        (f.rex.calls().iter())
+            .filter(|c| c.contains("session.list_blocks"))
+            .count()
+    }
+
+    #[test]
+    fn with_rex_found_but_not_answering_the_core_looks_and_rex_is_used_again_once_it_answers() {
+        let mut f = Fixture::new();
+        let module = Arc::new(f.rex.module());
+        let chosen = chosen(&mut f, module);
+        let claude = f.rex.dir.join("claude");
+        let none: [String; 0] = [];
+        f.rex.write("fail-session.list", NOT_RUNNING);
+        listed(&f, &[("dev-1", "waiting", Some("permission prompt"))]);
+        let round_at = |f: &mut Fixture, mins: i64| {
+            round(&mut f.watch, &chosen, &claude, None, f.t0 + mins * MIN)
+        };
+        // Not answering: said once, and the look runs from Claude's list, never skipped.
+        assert_eq!(
+            round_at(&mut f, 0),
+            [
+                rex_does_not_answer(),
+                "flagged dev-1 on #1 (prompt) in T1".into()
+            ]
+        );
+        for m in 1..4 {
+            assert_eq!(round_at(&mut f, m), none, "look {m}");
+        }
+        listed(&f, &[("dev-1", "busy", None)]);
+        assert_eq!(round_at(&mut f, 4), ["#1's prompt episode for dev-1 ended"]);
+        // Delivery's round asks the core too, and no look asked Rex.
+        assert_eq!(chosen.current().name(), "Claude Code");
+        assert_eq!(rex_looks(&f), 0);
+        // Answering: Rex is asked, with nothing said and no restart.
+        std::fs::remove_file(f.rex.dir.join("fail-session.list")).unwrap();
+        f.asking(&[("dev-1", "blocked", Some("approve Bash: ls"))]);
+        assert_eq!(round_at(&mut f, 5), ["flagged dev-1 on #1 (prompt) in T1"]);
+        assert_eq!(chosen.current().name(), "Rex");
+        assert!(rex_looks(&f) > 0);
+        assert!(
+            (f.system(1).last()).is_some_and(|m| m.contains("approve Bash: ls")),
+            "{:?}",
+            f.system(1)
+        );
+        // Not answering again: said again, and Claude's list still has it at the prompt.
+        f.rex.write("fail-session.list", NOT_RUNNING);
+        listed(&f, &[("dev-1", "waiting", Some("permission prompt"))]);
+        assert_eq!(round_at(&mut f, 6), [rex_does_not_answer()]);
+    }
+
+    #[test]
+    fn rex_gone_then_found_not_answering_then_answering_says_each_why_once() {
+        let mut f = Fixture::new();
+        let rex = f.rex.dir.join("rex");
+        let away = f.rex.dir.join("rex.away");
+        let module = Arc::new(f.rex.module());
+        let chosen = chosen(&mut f, module);
+        let claude = f.rex.dir.join("claude");
+        let none: [String; 0] = [];
+        let round_at = |f: &mut Fixture, mins: i64| {
+            round(&mut f.watch, &chosen, &claude, None, f.t0 + mins * MIN)
+        };
+        std::fs::rename(&rex, &away).unwrap();
+        assert_eq!(round_at(&mut f, 0), [rex_would_add(&rex)]);
+        assert_eq!(round_at(&mut f, 1), none);
+        std::fs::rename(&away, &rex).unwrap();
+        f.rex.write("fail-session.list", NOT_RUNNING);
+        assert_eq!(round_at(&mut f, 2), [rex_does_not_answer()]);
+        assert_eq!(round_at(&mut f, 3), none);
+        std::fs::remove_file(f.rex.dir.join("fail-session.list")).unwrap();
+        assert_eq!(round_at(&mut f, 4), none);
+        assert_eq!(chosen.name(), "Rex");
     }
 
     #[test]

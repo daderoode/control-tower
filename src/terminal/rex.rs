@@ -46,7 +46,7 @@ use serde::de::DeserializeOwned;
 
 use super::{
     Agent, Answer, Handle, Here, LeadStart, Listed, Place, Shown, Status, Terminal, Unread,
-    find_exe, listed, not_found, terminal_timeout,
+    answers_within, find_exe, listed, not_found, terminal_timeout,
 };
 use crate::ui::runner::{Outcome, Run, run_now};
 
@@ -120,37 +120,54 @@ pub fn dashboard_status(
 }
 
 /// What Rex adds over the core (`Terminal::adds`), which a lead outside Rex with no rex
-/// found is also told.
+/// found, or one that does not answer, is also told.
 const ADDS: &str = "the text of the prompt a worker waits at in its owner item, the \
                     dashboard's n and its keys, and starting workers as visible tabs";
 
 /// What a lead running outside Rex is told, by `env`: `None` inside Rex, where Rex sets
 /// `REX_SESSION` (an empty one counts as unset). Outside it, what the watch sees of the
 /// workers the lead starts, by whether rex is found as the watch finds it (`path_in`, a bare
-/// name on `env`'s PATH): with rex, nothing outside Rex; without, Claude Code's session list,
-/// and what Rex would add. `env` is the lead's, not the watch's (the watch service runs with
-/// brew's PATH). With rex linked into Homebrew's bin, they agree unless the lead's env names
-/// another rex (`TOWER_REX`, `REX_BIN_DIR`). Where only the PATHs differ (rex on the lead's
-/// PATH only), rex counts as found, so the lead gets the text that claims less.
-pub fn outside(env: impl Fn(&str) -> Option<OsString>) -> Option<String> {
+/// name on `env`'s PATH) and answers as the watch asks it (`Terminal::silent`, within
+/// `answers_within`, with `db` as the board): with rex answering, nothing outside Rex; else
+/// Claude Code's session list (with rex not answering, only until it answers, when the watch
+/// reads only the workers in Rex), and what Rex would add. `env` is the lead's, not the watch's
+/// (the watch service runs with brew's PATH). With rex linked into Homebrew's bin, they agree
+/// unless the lead's env names another rex (`TOWER_REX`, `REX_BIN_DIR`); both ask the same
+/// local Rex server. Where only the PATHs differ (rex on the lead's PATH only), rex counts as
+/// found, so the lead gets the text that claims less.
+pub fn outside(env: impl Fn(&str) -> Option<OsString>, db: &Path) -> Option<String> {
     if env("REX_SESSION").is_some_and(|s| !s.is_empty()) {
         return None;
     }
-    if find_exe(&path_in(&env), env("PATH").as_deref()).is_none() {
-        return Some(format!(
-            "control-tower: this session runs outside Rex (REX_SESSION is not set) and rex is \
-             not found, so the watch reads the workers you start from Claude Code's session \
-             list: it sees them, judges their prompts (without the prompt's text) and delivers \
-             posts and nudges to them. Rex would add {ADDS}."
-        ));
-    }
-    Some(
-        "control-tower: this session runs outside Rex (REX_SESSION is not set), but the \
-         board's team runs in Rex. Outside Rex the board does not see the workers you start: \
-         not their prompts, and posts and nudges are not delivered to them. Raise it with the \
-         owner in a question: post to @manager."
-            .into(),
-    )
+    // Why the watch reads Claude Code's list, how long for, and what follows.
+    let (why, until, then) = match find_exe(&path_in(&env), env("PATH").as_deref()) {
+        None => ("rex is not found", "", ""),
+        // Only `session.list` is asked, so no claude.
+        Some(exe) => match Rex::new(exe, PathBuf::new()).silent(db, answers_within()) {
+            Some(_) => (
+                "rex is found but does not answer",
+                "while it does not, ",
+                " Once Rex answers, the watch reads only the workers in Rex, and the board does \
+                 not see the workers you start here.",
+            ),
+            None => {
+                return Some(
+                    "control-tower: this session runs outside Rex (REX_SESSION is not set), but \
+                     the board's team runs in Rex. Outside Rex the board does not see the \
+                     workers you start: not their prompts, and posts and nudges are not \
+                     delivered to them. Raise it with the owner in a question: post to \
+                     @manager."
+                        .into(),
+                );
+            }
+        },
+    };
+    Some(format!(
+        "control-tower: this session runs outside Rex (REX_SESSION is not set) and {why}, so \
+         {until}the watch reads the workers you start from Claude Code's session list: it sees \
+         them, judges their prompts (without the prompt's text) and delivers posts and nudges \
+         to them.{then} Rex would add {ADDS}."
+    ))
 }
 
 /// Rex as the terminal module, run from `exe`, asking the `claude` at `claude` for the
@@ -620,6 +637,23 @@ impl Terminal for Rex {
 
     fn adds(&self) -> Option<&'static str> {
         Some(ADDS)
+    }
+
+    /// Asks for its sessions, the call a look starts with, and says why when that fails
+    /// (the app not running, a timeout, a reply it cannot read). A timeout stops this check,
+    /// not a look, and says so.
+    fn silent(&self, db: &Path, timeout: Duration) -> Option<String> {
+        let deadline = Instant::now() + timeout;
+        let none = serde_json::json!({});
+        let why = match self.call::<Sessions>(db, "session.list", none, deadline, timeout) {
+            Ok(_) => return None,
+            Err(e) if e == out_of_time(timeout) => format!(
+                "it did not list its sessions within {} s and the check was stopped",
+                timeout.as_secs()
+            ),
+            Err(e) => e.to_string(),
+        };
+        Some(format!("Rex does not answer: {why}"))
     }
 
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
@@ -1358,19 +1392,53 @@ mod tests {
     }
 
     #[test]
-    fn a_session_without_rex_session_is_told_what_the_watch_sees_by_whether_rex_is_found() {
+    fn a_check_that_rex_answers_stopped_for_time_says_the_check_was_stopped_not_a_look() {
         let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("rex");
+        executable(&exe, "#!/bin/sh\nexec sleep 5\n");
+        let rex = Rex::new(exe, dir.path().join("claude"));
+        let began = Instant::now();
+        assert_eq!(
+            rex.silent(&dir.path().join("board.db"), Duration::from_secs(1))
+                .as_deref(),
+            Some(
+                "Rex does not answer: it did not list its sessions within 1 s and the check \
+                 was stopped"
+            )
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_session_without_rex_session_is_told_what_the_watch_sees_by_whether_rex_answers() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("board.db");
+        // Found and answering: it lists its sessions, as `rex api call session.list` does.
         let rex = dir.path().join("rex");
-        executable(&rex, "#!/bin/sh\n");
+        executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
         let found = rex.as_os_str();
+        // Found and not answering, as while the Rex app is not running.
+        let mute = dir.path().join("mute").join("rex");
+        std::fs::create_dir(mute.parent().unwrap()).unwrap();
+        executable(
+            &mute,
+            "#!/bin/sh\necho 'Error: the server is not running' >&2\nexit 1\n",
+        );
+        let silent = mute.as_os_str();
         let gone = dir.path().join("gone");
         let gone = gone.as_os_str();
         let empty = OsStr::new("");
         let with = |vars: &[(&str, &OsStr)]| {
-            outside(|name| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.to_os_string()))
+            let env =
+                |name: &str| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.to_os_string());
+            outside(env, &db)
         };
-        // Inside Rex: nothing, whether rex is found or not.
-        for rex in [found, gone] {
+        // Inside Rex: nothing, whether rex is found, answering or not.
+        for rex in [found, silent, gone] {
             assert_eq!(
                 with(&[("REX_SESSION", OsStr::new("session:7")), ("TOWER_REX", rex)]),
                 None
@@ -1406,6 +1474,26 @@ mod tests {
                  session list: it sees them, judges their prompts (without the prompt's text) \
                  and delivers posts and nudges to them. Rex would add {ADDS}."
             )
+        );
+        // Found but not answering (named, or on the PATH): as with none, saying so.
+        let unanswered = with(&[("TOWER_REX", silent)]).unwrap();
+        let empty_session = with(&[("REX_SESSION", empty), ("TOWER_REX", silent)]);
+        assert_eq!(empty_session.as_deref(), Some(unanswered.as_str()));
+        let mute_path = mute.parent().unwrap().as_os_str();
+        let on_path = with(&[("PATH", mute_path)]);
+        assert_eq!(on_path.as_deref(), Some(unanswered.as_str()));
+        assert_eq!(
+            unanswered,
+            unfound
+                .replace(
+                    "rex is not found, so",
+                    "rex is found but does not answer, so while it does not,"
+                )
+                .replace(
+                    "delivers posts and nudges to them.",
+                    "delivers posts and nudges to them. Once Rex answers, the watch reads only \
+                     the workers in Rex, and the board does not see the workers you start here."
+                )
         );
         assert_eq!(Rex::new("rex".into(), "claude".into()).adds(), Some(ADDS));
     }

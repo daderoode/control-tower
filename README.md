@@ -634,17 +634,21 @@ background service (see "Install"), so it keeps going whether the dashboard or t
 terminal is open or not: every 20 seconds it reads the board and the terminal's live
 workers, logs one line per action to stderr, and stops cleanly on SIGTERM or Ctrl-C.
 
-The watch reads the live workers through the terminal module, Rex, while rex is found, and
-otherwise from Claude Code's session list (the core's own way, with no terminal):
-`claude agents --json`, where a session's name is the worker's and its status `busy` is
-working, `idle` idle and `waiting` blocked (at a permission prompt or a question, by its
-`waitingFor`; any other value is unknown). The watch's first log line names which it reads,
-"watching <board> with <rex> every 20 s" or "with Claude Code's session list (<claude>)".
-When rex cannot be found, the log says once what it tried, how to link it into Homebrew's
-bin, that the watch reads its workers from Claude Code until Rex is found, and what Rex
-would add (the text of the prompt a worker waits at, the dashboard's `n` and its keys, and
-starting workers as visible tabs); every look still runs. Once rex is found, the next look
-uses it, with no restart.
+The watch reads the live workers through the terminal module, Rex, while rex is found and
+answers, and otherwise from Claude Code's session list (the core's own way, with no
+terminal): `claude agents --json`, where a session's name is the worker's and its status
+`busy` is working, `idle` idle and `waiting` blocked (at a permission prompt or a question,
+by its `waitingFor`; any other value is unknown). The watch's first log line names which it
+reads, "watching <board> with <rex> every 20 s" or "with Claude Code's session list
+(<claude>)". When rex cannot be found, the log says once what it tried, how to link it into
+Homebrew's bin, that the watch reads its workers from Claude Code until Rex is found, and
+what Rex would add (the text of the prompt a worker waits at, the dashboard's `n` and its
+keys, and starting workers as visible tabs); every look still runs. Before each look, the
+watch asks a found rex for its sessions; when that fails or takes over 3 seconds (the Rex
+app not running), the log says once "Rex does not answer" with why, that the watch reads its
+workers from Claude Code until Rex answers, and what Rex would add. That look and its
+delivery read Claude Code's list. Once rex is found and answers, the next look uses it, with
+no restart.
 
 With Rex, a look lists every session on the local Rex server and every block in each, and
 asks each terminal block for its program status, reading only the root record (a session's
@@ -658,7 +662,7 @@ sessions Claude does not list, are no one. Claude does not list a session still 
 seen (no need-you item for that dialog, and orphaned after three looks if its task is in
 progress) until the folder is trusted: start workers in a trusted folder; a state the watch
 does not know is unknown, never idle. The look has a 15 second limit, and one call that
-fails (Rex found but not running, a block that cannot be read, `claude` failing) skips the
+fails after Rex has answered (a block that cannot be read, `claude` failing) skips the
 whole look, says so, and looks again 20 seconds later: a list half read never reads as
 workers gone. The watch never starts a Rex server. `TOWER_REX` names the rex executable,
 else `rex` in `$REX_BIN_DIR` (where Rex keeps it), else `rex` on the PATH; `TOWER_CLAUDE`
@@ -960,13 +964,16 @@ and an idle lead is never woken while nothing is posted:
   attached all the same, by `tower lead attach` and by the SessionStart hook, and both tell
   it what the watch sees of the workers it starts there, by whether rex is found as the
   watch finds it (`TOWER_REX`, else `REX_BIN_DIR`, else the PATH, in the lead's own
-  environment). With rex found: the board's team runs in Rex and the board does not see
-  those workers (their prompts, and delivery to them), to raise with you. With no rex: the
-  watch reads them from Claude Code's session list, so it sees them, judges their prompts
-  (without the prompt's text) and delivers to them, and what Rex would add (What Rex
-  adds). Either way the lead skill starts workers only in Rex, so the lead raises it with
-  you before it starts any. The hook gives the notice after the rest, a compaction's reply
-  too. With `REX_SESSION` set, nothing more is said.
+  environment) and answers as the watch asks it (its sessions listed within 3 seconds). With
+  rex found and answering: the board's team runs in Rex and the board does not see those
+  workers (their prompts, and delivery to them), to raise with you. With rex not found or
+  not answering: the watch reads them from Claude Code's session list, so it sees them,
+  judges their prompts (without the prompt's text) and delivers to them, and what Rex would
+  add (What Rex adds); with rex not answering, that this lasts only until Rex answers, when
+  the watch reads only the workers in Rex and the board no longer sees them. Either way the
+  lead skill starts workers only in Rex, so the lead raises it with you before it starts
+  any. The hook gives the notice after the rest, a compaction's reply too. With
+  `REX_SESSION` set, nothing more is said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
   attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it
@@ -1040,10 +1047,11 @@ logs to `$(brew --prefix)/var/log/control-tower.log`. No terminal tab is needed 
 use Rex, the watch finds rex on the Homebrew PATH. Rex keeps `rex` in `$REX_BIN_DIR`, not
 on the PATH, so the log says once which path it tried: link it into Homebrew's bin (`ln -s
 "$REX_BIN_DIR/rex" "$(brew --prefix)/bin/rex"`, with `REX_BIN_DIR` as a Rex tab has it);
-the next look finds it. Once rex is linked, the watch reads only the workers in Rex, and
-skips its looks while Rex is not running. A watch run by hand takes its full path in
-`TOWER_REX`. Brew does not restart the service on `brew upgrade`; the watch notices its
-binary changed and restarts itself between looks, logging one line.
+the next look finds it. Once rex is linked, the watch reads only the workers in Rex while
+Rex runs, and reads them from Claude Code's session list while Rex is not running. A watch
+run by hand takes its full path in `TOWER_REX`. Brew does not restart the service on `brew
+upgrade`; the watch notices its binary changed and restarts itself between looks, logging
+one line.
 
 The lead skill is a Claude Code plugin in `claude-plugin/`, `control-tower`; this repo is
 its marketplace, also `control-tower`. A lead starts it with `/control-tower:lead M1`.

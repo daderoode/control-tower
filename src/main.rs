@@ -98,12 +98,12 @@ enum Command {
         block: String,
     },
     /// Watch for stuck workers until SIGTERM or Ctrl-C: every 20 s, read the board and the
-    /// live Claude sessions (Rex's while rex is found, else Claude Code's session list; a
-    /// task's assignee is its worker's Claude session name), nudge a worker that stopped or
-    /// went silent, and post system flags in the task's thread. Logs one line per action to
-    /// stderr. TOWER_REX names the rex executable (default rex in $REX_BIN_DIR, else on the
-    /// PATH); TOWER_CLAUDE names claude, which also relays posts and nudges to workers
-    /// (claude -p -n control-tower).
+    /// live Claude sessions (Rex's while rex is found and answers, else Claude Code's session
+    /// list; a task's assignee is its worker's Claude session name), nudge a worker that
+    /// stopped or went silent, and post system flags in the task's thread. Logs one line per
+    /// action to stderr. TOWER_REX names the rex executable (default rex in $REX_BIN_DIR,
+    /// else on the PATH); TOWER_CLAUDE names claude, which also relays posts and nudges to
+    /// workers (claude -p -n control-tower).
     Watch,
     /// Bring a board written by an older tower up to this tower's schema.
     Upgrade,
@@ -881,7 +881,7 @@ fn lead_hook() -> Result<()> {
                     control_tower::listen::LISTED_ASK,
                 )
             };
-            let outside = control_tower::terminal::outside_from_env();
+            let outside = control_tower::terminal::outside_from_env(&path);
             // Claude Code gives a plugin's hooks its install folder, where the lead skill is.
             let skill = std::env::var_os("CLAUDE_PLUGIN_ROOT")
                 .filter(|root| !root.is_empty())
@@ -1187,7 +1187,7 @@ fn run(cli: Cli) -> Result<()> {
                  it through its board waiter (tower lead wait {repo}) and its Stop hook",
                 lead.name
             );
-            if let Some(notice) = control_tower::terminal::outside_from_env() {
+            if let Some(notice) = control_tower::terminal::outside_from_env(&path) {
                 println!("{notice}");
             }
         }

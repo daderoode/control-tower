@@ -2402,9 +2402,12 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
          its board waiter (tower lead wait R1) and its Stop hook\n"
     );
     // Outside Rex (no REX_SESSION, or an empty one): attached all the same, and told what the
-    // watch sees from there: with rex found, not the workers; with none, Claude Code's list.
+    // watch sees from there: with rex found and answering, not the workers; with none, or
+    // one that does not answer, Claude Code's list.
     let rex = dir.path().join("rex");
-    test_exe::executable(&rex, "#!/bin/sh\nexit 2\n");
+    test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
+    let mute = dir.path().join("mute-rex");
+    test_exe::executable(&mute, "#!/bin/sh\nexit 2\n");
     let no_rex = dir.path().join("no-rex");
     let found = (
         &rex,
@@ -2419,7 +2422,17 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
          Code's session list:",
         "and starting workers as visible tabs.\n",
     );
-    for (tower_rex, notice, end) in [found, not_found] {
+    let not_answering = (
+        &mute,
+        " and its Stop hook\ncontrol-tower: this session runs outside Rex (REX_SESSION is not \
+         set) and rex is found but does not answer, so while it does not, the watch reads the \
+         workers you start from Claude Code's session list: it sees them, judges their prompts \
+         (without the prompt's text) and delivers posts and nudges to them. Once Rex answers, \
+         the watch reads only the workers in Rex, and the board does not see the workers you \
+         start here.",
+        "and starting workers as visible tabs.\n",
+    );
+    for (tower_rex, notice, end) in [found, not_found, not_answering] {
         for outside in [None, Some("")] {
             let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
             cmd.args(["lead", "attach", "M1"])
@@ -4128,8 +4141,9 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
     let v: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
     assert_eq!(v["decision"], "block");
     // In Rex the reply ends where it did; outside Rex (no REX_SESSION) the same start is
-    // attached and told, after the rest, what the watch sees from there: with rex found,
-    // not the workers; with none, the workers through Claude Code's list.
+    // attached and told, after the rest, what the watch sees from there: with rex found and
+    // answering, not the workers; with none, or one that does not answer, the workers
+    // through Claude Code's list.
     let context = |out: Output| {
         assert!(out.status.success(), "{}", text(&out.stderr));
         let v: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
@@ -4144,7 +4158,7 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
         "{inside}"
     );
     let rex = dir.path().join("rex");
-    test_exe::executable(&rex, "#!/bin/sh\nexit 2\n");
+    test_exe::executable(&rex, "#!/bin/sh\necho '{\"sessions\":[]}'\n");
     let outside = context(hook_in(start("sess-2", "Cat-Lead"), Some(&rex)));
     assert_eq!(
         outside,
@@ -4167,6 +4181,22 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
              waits at in its owner item, the dashboard's n and its keys, and starting workers \
              as visible tabs."
         )
+    );
+    let mute = dir.path().join("mute-rex");
+    test_exe::executable(&mute, "#!/bin/sh\nexit 2\n");
+    let outside_mute = context(hook_in(start("sess-2", "Cat-Lead"), Some(&mute)));
+    assert_eq!(
+        outside_mute,
+        outside
+            .replace(
+                "rex is not found, so",
+                "rex is found but does not answer, so while it does not,"
+            )
+            .replace(
+                "delivers posts and nudges to them.",
+                "delivers posts and nudges to them. Once Rex answers, the watch reads only the \
+                 workers in Rex, and the board does not see the workers you start here."
+            )
     );
     assert!(
         ok(&db, &["milestone", "show", "M1"])
