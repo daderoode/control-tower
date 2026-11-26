@@ -59,11 +59,12 @@
 //! author, who had started.
 //!
 //! A post's author is told of every name in it no worker has had in one reply (#135): a send
-//! to such a name, past its grace, is judged only for the posts before the first that another
-//! send still holds for a starting worker; that post and the ones after it wait with it, and
-//! are judged in the round the post's last hold ends. A post is held so only while it is
-//! under `START_GRACE` old, so its reply comes a grace after it at the latest, whatever names
-//! are posted after it.
+//! to such a name, past its grace, is judged only for the posts before the first that waits
+//! (`waiting`): one another send holds for a starting worker, or one this rule holds for
+//! another such name. That post and the ones after it wait with it, and are judged in the
+//! round the post's last hold ends. A post is held so only while it is under `START_GRACE`
+//! old, so its reply comes a grace after it at the latest, whatever names are posted after
+//! it.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -278,6 +279,33 @@ fn starting(pending: &Pending, batch: &Batch, agents: &[String], now: i64) -> bo
     let replies = posts().all(|p| p.author.eq_ignore_ascii_case(SYSTEM_AUTHOR));
     let oldest = posts().map(|p| p.posted_at).min().unwrap_or(now);
     !lists(agents, &batch.to) && !replies && now - oldest < START_GRACE
+}
+
+/// The posts (indexes) that wait this round at `now` so that each author is told of every
+/// name in a post no worker has had in one reply (#135): every post of a send that is
+/// `starting`, and, of each send to such a name (not in `agents`, not `Pending::knows`), its
+/// first post that waits and every post after it, until no send adds one. Each pass adds a
+/// post or ends, so it ends. A post waits only behind one no newer, of a `starting` send, so
+/// only while it is under `START_GRACE` old.
+fn waiting(pending: &Pending, batches: &[Batch], agents: &[String], now: i64) -> BTreeSet<usize> {
+    let mut wait: BTreeSet<usize> = (batches.iter())
+        .filter(|b| starting(pending, b, agents, now))
+        .flat_map(|b| b.posts.iter().copied())
+        .collect();
+    let unseen: Vec<&Batch> = (batches.iter())
+        .filter(|b| !lists(agents, &b.to) && !pending.knows(&b.to.key()))
+        .collect();
+    loop {
+        let before = wait.len();
+        for b in &unseen {
+            if let Some(at) = b.posts.iter().position(|i| wait.contains(i)) {
+                wait.extend(&b.posts[at..]);
+            }
+        }
+        if wait.len() == before {
+            return wait;
+        }
+    }
 }
 
 /// The author tower's reply `text` is for, when it is one (`UNKNOWN_NAME`).
@@ -513,6 +541,9 @@ impl Deliver {
         // The names no worker on the board has had, by post (index): its author is told.
         let mut unknown: Vec<(usize, Vec<String>)> = Vec::new();
         let batches = plan(&pending);
+        // The posts that wait for every name in them to be judged at once (`waiting`), worked
+        // out on the first send to a name no worker has had.
+        let mut wait: Option<BTreeSet<usize>> = None;
         for batch in &batches {
             let mut batch = batch.clone();
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -552,15 +583,11 @@ impl Deliver {
             let listed = lists(names, &batch.to);
             // A name no worker has had is told to each post's author in one reply naming
             // every such name in the post (#135): so it is judged only for the posts before
-            // the first that another send still holds for a starting worker, and that post
-            // and the ones after it wait with that send. A post waits so only while it is
-            // under `START_GRACE` old, so no stream of new names puts a reply off.
+            // the first that waits (`waiting`, worked out once a round, before any is
+            // judged), and that post and the ones after it wait with it.
             if !listed && !pending.knows(&key) {
-                let shared = (batch.posts.iter()).position(|i| {
-                    (batches.iter())
-                        .any(|b| b.posts.contains(i) && starting(&pending, b, names, now))
-                });
-                if let Some(at) = shared {
+                let wait = wait.get_or_insert_with(|| waiting(&pending, &batches, names, now));
+                if let Some(at) = batch.posts.iter().position(|i| wait.contains(i)) {
                     let rest = batch.posts.split_off(at);
                     log.push(format!(
                         "{} post(s) for {key} wait until every name in them is past its grace, \
@@ -1813,6 +1840,53 @@ mod tests {
         f.drain_at(1_150);
         f.drain_at(1_180);
         assert_eq!(f.replies().len(), 3, "{:?}", f.replies());
+    }
+
+    /// senior-69's case on PR #139: a post that waits only because another send was cut at
+    /// an older post still waits for every send to a name no worker has had, so it is told
+    /// once. At 1060 `qa-y` waits at q for `qa-z`, so p waits for `qa-x` too; p's send to
+    /// `qa-x` then starts from p, so p is told a grace after it.
+    #[test]
+    fn a_post_waiting_behind_another_cut_is_told_once() {
+        let f = Fixture::new();
+        f.post_at("dev-2", "@qa-x @qa-y a", 1_000);
+        f.post_at("dev-2", "@qa-y @qa-z q", 1_030);
+        f.post_at("dev-2", "@qa-x @qa-y p", 1_035);
+        let told = [
+            (1_060, "@dev-2 no worker is named `@qa-x` or `@qa-y`, so"),
+            (1_090, "@dev-2 no worker is named `@qa-y` or `@qa-z`, so"),
+            (1_095, "@dev-2 no worker is named `@qa-x` or `@qa-y`, so"),
+        ];
+        for (n, (at, reply)) in told.into_iter().enumerate() {
+            f.drain_at(at);
+            let replies = f.replies();
+            assert_eq!(replies.len(), n + 1, "at {at}: {replies:?}");
+            assert!(replies[n].starts_with(reply), "at {at}: {replies:?}");
+        }
+        f.drain_at(1_150);
+        f.drain_at(1_180);
+        assert_eq!(f.replies().len(), 3, "{:?}", f.replies());
+    }
+
+    /// Only a name no worker has had waits for the other names in its posts: a known worker
+    /// that is gone is judged whole once its oldest post is a grace old, the owner's item as
+    /// before, though a starting worker shares its newer post.
+    #[test]
+    fn a_gone_known_worker_sharing_a_post_with_a_starting_one_is_judged_at_once() {
+        let f = Fixture::new();
+        f.post("qa-9", "done");
+        f.post_at("dev-2", "@qa-9 old", 1_000);
+        f.post_at("dev-2", "@qa-9 @qa-7 new", 1_030);
+        let log = f.drain_at(1_060);
+        assert!(
+            log.iter().any(|l| l.starts_with(
+                "could not deliver 2 post(s) to qa-9: Rex has no agent named qa-9; told the \
+                 owner in "
+            )),
+            "{log:?}"
+        );
+        assert!(!log.iter().any(|l| l.contains("for qa-9 wait")), "{log:?}");
+        assert_eq!(f.items().len(), 1, "{:?}", f.items());
     }
 
     /// Names no worker on the board has had (an example, a misspelt
