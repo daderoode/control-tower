@@ -9,23 +9,23 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
 ### Changed
 
-- **Where a lead and its workers run when the owner sets up a Space.** The spec and the lead
-  skill now say a lead and its workers run on each repo's main checkout, its workers in
-  worktrees beside it; a Space (a folder holding a worktree of each repo of a piece of work)
-  is the owner's view, never a lead's or a worker's working directory; and the owner trusts
-  each repo's parent folder once before the lead's first dispatch, which trusting the Space
-  does not cover (#147).
-
-- **A lead started outside its repo's main checkout asks to be started again there.** A
-  `cd` out of the folder a Claude session started in does not hold, so the lead skill's
-  Starting steps no longer move the lead: a lead whose working directory is not the main
-  checkout itself (a folder inside it, a Space, a linked worktree, another folder, a new
-  project's new checkout) finds the checkout, asks the owner once to start it again there
-  with the whole command (keeping `TOWER_DB` when it is set, and naming the milestone it was
-  given or made; a goal in words gets its milestone first) and to close this session once
-  the new one runs, and stops. The README's dashboard start in no repo says the same (#160).
+- **A lead and its workers run on its repo's main checkout; a Space is the owner's view.**
+  The spec and the lead skill now say a lead runs on each repo's main checkout itself and
+  its workers in worktrees beside it; a Space (a folder holding a worktree of each repo of
+  a piece of work) is the owner's view, never a lead's or a worker's working directory; and
+  the owner trusts each repo's parent folder once before the lead's first dispatch, which
+  trusting the Space does not cover. A `cd` out of the folder a Claude session started in
+  does not hold, so the lead skill's Starting steps no longer move the lead: a lead whose
+  working directory is not the main checkout itself (a folder inside it, a Space, a linked
+  worktree, another folder, a new project's new checkout) finds the checkout, asks the
+  owner once to start it again there with the whole command (keeping `TOWER_DB` when it is
+  set, and naming the milestone it was given or made; a goal in words gets its milestone
+  first) and to close this session once the new one runs, and stops. The README's
+  dashboard start in no repo says the same (#147, #160).
 
 - **A lead quotes a repo's grant before it merges or releases there.** Merge and release
   authority is per repo. Before a merge to the default branch or a release, the lead skill
@@ -38,42 +38,11 @@ tag's date, and a new empty Unreleased goes above it.
   lead's context, the SessionStart hook said nothing while its board waiter ran. It now
   says, in a few lines, what to re-read (the lead skill's Who you are table and Principles,
   by path, the repo's `SDLC.md`, each open milestone's standing context, its memory), the
-  board's state (open milestones, tasks in progress (blocked ones marked) with their
-  assignees, live or gone, and PRs, the live workers who posted on its open threads, and the
+  board's state (open milestones, tasks in progress with their assignees, live or gone,
+  blocked ones marked, and PRs; the live workers who posted on its open threads; and the
   unread count, never told) and that its waiters still run, or how to arm them (#150).
 
 ### Fixed
-
-- **`tower task show` lists a standalone task's threads in a repo with no milestone**
-  (#153). It found a standalone task's threads through a milestone of its repo, so in a
-  repo with none it printed "threads none" while the repo's board held threads linked to
-  the task. It now reads them from the task's repo board, whatever milestones it has.
-- **A worker waiting on the lead is not nudged for it** (#151). A worker that posted its
-  done post and waited on the lead was nudged every 5 quiet minutes ("no post on #N for 5
-  min, post your status") and answered each with another "still waiting", filling the
-  thread and the lead's unread posts. `tower post --handoff` marks a post that hands the
-  work to the lead (a done post, or one saying it waits on the lead): while it is the
-  assignee's latest post on the task, the watch does not nudge the assignee for being
-  stopped, until a later post @mentions the assignee (the lead handing work back), so an
-  assignee that stays idle on that is still nudged. The lead skill tells workers, and their
-  briefs, to post that way.
-- **One error that stops several sessions is one item for the owner** (#146). In a provider
-  outage (on 2026-11-25 the subscription refused every request) the watch raised a "Lead not
-  listening" item per lead and a delivery failure item per board. Now the leads whose last
-  turns ended on the same API error in one look (the text their StopFailure hook passes) are
-  one item naming each, and the workers the relay could not reach in one round because its
-  own run ended on the same error are one item naming each on every board, in the thread of
-  the first it names. Each lead's own "Lead not listening" thread still opens, with no item
-  of its own, and resolves when it listens again; the leads' one item resolves once the last
-  lead it names listens again or is taken off. A failure with no such error, or another
-  one, keeps its own item.
-- **A blocker reaching Done in one repo wakes the lead of a task it blocks in another**
-  (#144). `tower task blocked-by add` took a blocker in another repo, but moving it to Done
-  posted nothing on the blocked task's board, so that repo's lead, which hears only its own
-  board, was never woken. A task reaching Done now posts a `system` line in the thread of
-  each task it blocks in another repo (its newest open thread, else a new "Blocked by #1"
-  one linked to it), saying whether the task can go on or what it is still blocked by. A
-  Done task, a task in the blocker's own repo and a repo with no lead get no line.
 
 - **A task's forge ticket stays in its own repo.** `tower task set --link` refused nothing,
   so another repo's issue could be filed under this repo's milestone, recorded as this
@@ -90,11 +59,45 @@ tag's date, and a new empty Unreleased goes above it.
   files a task with its link in `task add` and says to file a repo's issue only under a
   milestone of that repo (#142).
 
+- **A blocker reaching Done in one repo wakes the lead of a task it blocks in another.**
+  `tower task blocked-by add` took a blocker in another repo, but moving it to Done posted
+  nothing on the blocked task's board, so that repo's lead, which hears only its own board,
+  was never woken. A task reaching Done now posts a `system` line in the thread of each
+  task it blocks in another repo (its newest open thread, else a new "Blocked by #1" one
+  linked to it), saying whether the task can go on or what it is still blocked by. A Done
+  task, a task in the blocker's own repo and a repo with no lead get no line (#144).
+
 - **A post naming another board's lead tells its author where to post.** A lead hears only
   its own board, so a post naming the lead of another repo reached no one, with no reply
   and no item. Its author now gets tower's reply on the post's thread, naming that lead's
   board and how to post there, a minute after the post and in the same one reply as any
   name in it no worker has had. A mention of the board's own lead is unchanged (#145).
+
+- **One error that stops several sessions is one item for the owner.** In a provider
+  outage (on 2026-11-25 the subscription refused every request) the watch raised a "Lead
+  not listening" item per lead and a delivery failure item per board. Now the leads whose
+  last turns ended on the same API error in one look (the text their StopFailure hook
+  passes) are one item naming each, and the workers the relay could not reach in one round
+  because its own run ended on the same error are one item naming each on every board, in
+  the thread of the first it names. Each lead's own "Lead not listening" thread still
+  opens, with no item of its own, and resolves when it listens again; the leads' one item
+  resolves once the last lead it names listens again or is taken off. A failure with no
+  such error, or another one, keeps its own item (#146).
+
+- **A worker waiting on the lead is not nudged for it.** A worker that posted its done post
+  and waited on the lead was nudged every 5 quiet minutes ("no post on #N for 5 min, post
+  your status") and answered each with another "still waiting", filling the thread and the
+  lead's unread posts. `tower post --handoff` marks a post that hands the work to the lead
+  (a done post, or one saying it waits on the lead): while it is the assignee's latest post
+  on the task, the watch does not nudge the assignee for being stopped, until a later post
+  @mentions the assignee (the lead handing work back), so an assignee that stays idle on
+  that is still nudged. The lead skill tells workers, and their briefs, to post that way
+  (#151).
+
+- **`tower task show` lists a standalone task's threads in a repo with no milestone.** It
+  found a standalone task's threads through a milestone of its repo, so in a repo with none
+  it printed "threads none" while the repo's board held threads linked to the task. It now
+  reads them from the task's repo board, whatever milestones it has (#153).
 
 ## [0.6.3] - 2026-11-26
 
