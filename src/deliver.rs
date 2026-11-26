@@ -479,6 +479,18 @@ pub fn listed(json: &str, session: &str) -> Result<bool> {
     Ok((sessions.iter()).any(|s| s.session_id.as_deref() == Some(session)))
 }
 
+/// Whether `claude agents --json`'s list (`json`) has a session named `name`, ignoring
+/// case: a worker by that name is running.
+pub fn named(json: &str, name: &str) -> Result<bool> {
+    let sessions: Vec<Session> = serde_json::from_str(json)
+        .map_err(|e| anyhow::anyhow!("claude agents --json said something unexpected: {e}"))?;
+    Ok((sessions.iter()).any(|s| {
+        s.name
+            .as_deref()
+            .is_some_and(|n| n.eq_ignore_ascii_case(name))
+    }))
+}
+
 /// Checks that `session`, the Claude session asking to attach, is the lead `lead` (its
 /// registered session name), by `claude agents --json`'s list (`json`): the session must
 /// be listed under that name, ignoring case. So no other session can take the lead's

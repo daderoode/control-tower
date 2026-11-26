@@ -1,5 +1,5 @@
 {
-  "description": "control-tower: a lead may not end its turn while posts on its board are unread, a lead's turn that ends with no board waiter running (by Stop, or by StopFailure on an API error) is counted for the watch's lead check, and a lead's session that starts again (a restart, resume, /clear, compaction or fork) is attached again and told how to resume leading (tower lead hook does all three). Any session that is not a lead passes.",
+  "description": "control-tower: a lead may not end its turn while posts on its board are unread, a lead's turn that ends with no board waiter running (by Stop, or by StopFailure on an API error) is counted for the watch's lead check, and a lead's session that starts again (a restart, resume, /clear, compaction or fork) is attached again and told how to resume leading, after a compaction with what to re-read and its board's state (tower lead hook does all three). Any session that is not a lead passes.",
   "hooks": {
     "Stop": [
       {
