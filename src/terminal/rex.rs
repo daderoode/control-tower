@@ -760,7 +760,9 @@ impl Terminal for Rex {
 /// "name|text" (newlines as `\n`) to `prompts.log`. For a recipient `<to>`:
 /// `relay-refuse-<to>` has its SendMessage refused with that file's text;
 /// `relay-quiet-<to>` makes the send, then crashes before its answer; `relay-none-<to>`
-/// sends nothing and says that file's text; `relay-to-<to>` sends to the name in it
+/// sends nothing and says that file's text; `relay-error-<to>` ends on an error, as a
+/// provider outage does, sending nothing and saying that file's text, exit 1;
+/// `relay-to-<to>` sends to the name in it
 /// instead; `relay-changed-<to>` sends its text instead; `relay-hang-<to>` touches
 /// `started` once the send is answered, then holds until `release` (or `TEST_WAIT`) and
 /// touches `ended`. With `hold`, it does the same before it sends; with `slow`, it
@@ -834,6 +836,10 @@ echo '{"type":"system","subtype":"init","tools":["ListAgents","SendMessage","Too
 if [ -e "$d/relay-none-$to" ]; then
   printf '{"type":"result","is_error":false,"num_turns":1,"total_cost_usd":0.001,"result":"%s"}\n' "$(json "$(cat "$d/relay-none-$to")")"
   exit 0
+fi
+if [ -e "$d/relay-error-$to" ]; then
+  printf '{"type":"result","is_error":true,"num_turns":1,"total_cost_usd":0,"result":"%s"}\n' "$(json "$(cat "$d/relay-error-$to")")"
+  exit 1
 fi
 sent_to=$to; [ -e "$d/relay-to-$to" ] && sent_to=$(cat "$d/relay-to-$to")
 message=$text; [ -e "$d/relay-changed-$to" ] && message=$(cat "$d/relay-changed-$to")

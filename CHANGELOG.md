@@ -57,7 +57,16 @@ tag's date, and a new empty Unreleased goes above it.
   stopped, until a later post @mentions the assignee (the lead handing work back), so an
   assignee that stays idle on that is still nudged. The lead skill tells workers, and their
   briefs, to post that way.
-
+- **One error that stops several sessions is one item for the owner** (#146). In a provider
+  outage (on 2026-11-25 the subscription refused every request) the watch raised a "Lead not
+  listening" item per lead and a delivery failure item per board. Now the leads whose last
+  turns ended on the same API error in one look (the text their StopFailure hook passes) are
+  one item naming each, and the workers the relay could not reach in one round because its
+  own run ended on the same error are one item naming each on every board, in the thread of
+  the first it names. Each lead's own "Lead not listening" thread still opens, with no item
+  of its own, and resolves when it listens again; the leads' one item resolves once the last
+  lead it names listens again or is taken off. A failure with no such error, or another
+  one, keeps its own item.
 - **A blocker reaching Done in one repo wakes the lead of a task it blocks in another**
   (#144). `tower task blocked-by add` took a blocker in another repo, but moving it to Done
   posted nothing on the blocked task's board, so that repo's lead, which hears only its own

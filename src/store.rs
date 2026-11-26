@@ -24,7 +24,7 @@ use crate::deliver::{LeadBoard, Pending, Post};
 use crate::watch::{Flag, Named, Signal};
 
 /// The schema this build reads and writes, kept in SQLite's `user_version`.
-pub const SCHEMA_VERSION: i32 = 20;
+pub const SCHEMA_VERSION: i32 = 21;
 
 /// `MIGRATIONS[n]` takes the schema from version `n` to `n + 1`.
 const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
@@ -402,6 +402,15 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
     "
     ALTER TABLE message ADD COLUMN handoff INTEGER NOT NULL DEFAULT 0
         CHECK (handoff IN (0, 1));
+",
+    // `turn_error` is the API error the last turn its hooks counted ended on (StopFailure's
+    // text), NULL for a turn that ended well (Stop): the cause the watch names when several
+    // leads stop on the same error in one look (#146). `told_thread` is the thread of the
+    // owner's one item for those leads, while the lead's episode is open and named there;
+    // NULL when its episode is its own item. The last lead to leave it resolves it.
+    "
+    ALTER TABLE lead ADD COLUMN turn_error TEXT;
+    ALTER TABLE lead ADD COLUMN told_thread INTEGER REFERENCES thread(id) ON DELETE SET NULL;
 ",
 ];
 
@@ -1253,6 +1262,8 @@ pub struct Registered {
     /// or the watch first saw it, idle or busy, with none; `None` while none of these has
     /// happened since the session attached.
     pub quiet_turns: Option<i64>,
+    /// The API error the last turn counted in `turns` ended on, `None` when it ended well.
+    pub turn_error: Option<String>,
 }
 
 /// How many messages in the threads `threads` selects (a query on `?2`, given `of`) the
@@ -1725,6 +1736,62 @@ fn tell_blocked_boards(tx: &Connection, blocker: TaskId, cannot_write: &str) -> 
     Ok(())
 }
 
+/// The lead of `repo` leaves the owner's item it shared with other leads (`told_thread`),
+/// if any, as its episode ends: once no other lead is named there, the item's thread is
+/// resolved by `system` at `at`, unless someone resolved it already, with a line saying so
+/// and the last one's `evidence`. Returns that thread when this resolved it.
+fn leave_told(
+    tx: &Connection,
+    repo: RepoId,
+    evidence: &str,
+    at: i64,
+    cannot_write: &str,
+) -> Result<Option<ThreadId>> {
+    let told: Option<i64> = tx
+        .query_row(
+            "SELECT told_thread FROM lead WHERE repo_id = ?1",
+            params![repo.0],
+            |r| r.get(0),
+        )
+        .optional()
+        .context(cannot_write.to_string())?
+        .flatten();
+    let Some(told) = told else {
+        return Ok(None);
+    };
+    tx.execute(
+        "UPDATE lead SET told_thread = NULL WHERE repo_id = ?1",
+        params![repo.0],
+    )
+    .context(cannot_write.to_string())?;
+    let (others, open): (i64, bool) = tx
+        .query_row(
+            "SELECT (SELECT count(*) FROM lead WHERE told_thread = ?1), \
+             (SELECT resolved_at IS NULL FROM thread WHERE id = ?1)",
+            params![told],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .context(cannot_write.to_string())?;
+    if others > 0 || !open {
+        return Ok(None);
+    }
+    let text = check_message(
+        "evidence",
+        &format!("Every lead named here listens again or was taken off; the last: {evidence}"),
+    )?;
+    let thread = ThreadId(told);
+    append(
+        tx,
+        thread,
+        SYSTEM_AUTHOR,
+        &text,
+        Kind::Evidence,
+        at,
+        cannot_write,
+    )?;
+    Ok(Some(thread))
+}
+
 /// Adds a checked message by a checked author to an open thread at `at`, or after its
 /// latest message, resolving the thread by it when it is evidence. Refuses a thread that
 /// is not on the board, a resolved one, and a progress or hand-off post in a thread linked
@@ -2021,6 +2088,53 @@ impl Store {
             "SELECT id FROM thread_board WHERE repo_id = ?2",
             repo.0,
         )?;
+        // Its lead leaves any item it shared with other leads, on another board.
+        let at = now()?;
+        if let Some(lead) = &lead {
+            let evidence = format!(
+                "{}, the lead of {repo}, was taken off with {repo}.",
+                lead.name
+            );
+            leave_told(&tx, repo, &evidence, at, &cannot_write)?;
+        }
+        // An item on this board shared with leads of other repos goes with it: each of them
+        // still not listening is told in its own thread, so it is its own item again.
+        let named: Vec<(i64, String, i64)> = tx
+            .prepare(
+                "SELECT l.repo_id, l.name, l.deaf_thread FROM lead l \
+                 JOIN thread_board b ON b.id = l.told_thread \
+                 JOIN thread t ON t.id = l.deaf_thread \
+                 WHERE b.repo_id = ?1 AND l.repo_id != ?1 AND t.resolved_at IS NULL",
+            )
+            .and_then(|mut q| {
+                q.query_map(params![repo.0], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect()
+            })
+            .context(cannot_write.clone())?;
+        for (other, name, deaf) in named {
+            let text = format!(
+                "@manager {name}, the lead of {}, is still not listening; the item that named \
+                 it went with {repo}.",
+                RepoId(other)
+            );
+            let text = check_message("message", &text)?;
+            let deaf = ThreadId(deaf);
+            append(
+                &tx,
+                deaf,
+                SYSTEM_AUTHOR,
+                &text,
+                Kind::Plain,
+                at,
+                &cannot_write,
+            )?;
+        }
+        tx.execute(
+            "UPDATE lead SET told_thread = NULL WHERE told_thread IN \
+             (SELECT id FROM thread_board WHERE repo_id = ?1)",
+            params![repo.0],
+        )
+        .context(cannot_write.clone())?;
         for sql in [
             "DELETE FROM lead WHERE repo_id = ?1",
             "DELETE FROM message \
@@ -3645,7 +3759,7 @@ impl Store {
             .conn
             .prepare(
                 "SELECT repo_id, name, session, colour, claude_session, deaf_thread, turns, \
-                 quiet_turns FROM lead ORDER BY repo_id",
+                 quiet_turns, turn_error FROM lead ORDER BY repo_id",
             )?
             .query_map([], |r| {
                 Ok(Registered {
@@ -3655,6 +3769,7 @@ impl Store {
                     deaf: r.get::<_, Option<i64>>("deaf_thread")?.map(ThreadId),
                     turns: r.get("turns")?,
                     quiet_turns: r.get("quiet_turns")?,
+                    turn_error: r.get("turn_error")?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -3668,46 +3783,90 @@ impl Store {
         Ok(leads)
     }
 
-    /// Opens a "lead not listening" episode for the lead of `repo` at `at`, unless one is
-    /// open: a new thread about the whole repo, "Lead not listening", with `text` posted
-    /// by `system`. Returns the thread, or `None`, posting nothing, when one was open.
-    pub fn lead_deaf(&mut self, repo: RepoId, text: &str, at: i64) -> Result<Option<ThreadId>> {
-        let text = check_message("message", text)?;
+    /// Opens a "lead not listening" episode at `at` for each lead of `leads` (its repo, the
+    /// text of its own item, and that text as a plain record) with none open, in one write:
+    /// a new thread about the whole repo, "Lead not listening", posted by `system`, which is
+    /// the lead's `deaf_thread` until it listens again. Refuses a repo with no lead. When it
+    /// opens one, its thread gets its item; when it opens more (several leads stopped by one
+    /// cause in one look, #146), each thread gets its plain record and the owner one item,
+    /// `shared` of the (index, thread) of those it opened, in a new "Lead not listening"
+    /// thread on the first's board, which is the thread each is said to be told in
+    /// (`told_thread`), resolved once the last of them listens again or is taken off
+    /// (`leave_told`). Returns, for each it opened, its index in `leads` and the thread the
+    /// owner was told in.
+    pub fn leads_deaf(
+        &mut self,
+        leads: &[(RepoId, &str, &str)],
+        at: i64,
+        shared: impl FnOnce(&[(usize, ThreadId)]) -> String,
+    ) -> Result<Vec<(usize, ThreadId)>> {
         let cannot_write = self.cannot_write();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context(cannot_write.clone())?;
-        let open: Option<Option<i64>> = tx
-            .query_row(
-                "SELECT deaf_thread FROM lead WHERE repo_id = ?1",
-                params![repo.0],
-                |r| r.get(0),
-            )
-            .optional()
-            .context(cannot_write.clone())?;
-        match open {
-            None => bail!("{repo} has no lead"),
-            Some(Some(_)) => return Ok(None),
-            Some(None) => {}
+        let mut closed = Vec::new();
+        for (i, (repo, _, _)) in leads.iter().enumerate() {
+            let open: Option<Option<i64>> = tx
+                .query_row(
+                    "SELECT deaf_thread FROM lead WHERE repo_id = ?1",
+                    params![repo.0],
+                    |r| r.get(0),
+                )
+                .optional()
+                .context(cannot_write.clone())?;
+            match open {
+                None => bail!("{repo} has no lead"),
+                Some(Some(_)) => {}
+                Some(None) => closed.push(i),
+            }
         }
-        let thread = new_thread(&tx, repo, None, None, NOT_LISTENING, &cannot_write)?;
-        append(
-            &tx,
-            thread,
-            SYSTEM_AUTHOR,
-            &text,
-            Kind::Plain,
-            at,
-            &cannot_write,
-        )?;
-        tx.execute(
-            "UPDATE lead SET deaf_thread = ?1 WHERE repo_id = ?2",
-            params![thread.0, repo.0],
-        )
-        .context(cannot_write.clone())?;
+        let one = closed.len() == 1;
+        let mut opened = Vec::new();
+        for &i in &closed {
+            let (repo, item, plain) = leads[i];
+            let text = check_message("message", if one { item } else { plain })?;
+            let thread = new_thread(&tx, repo, None, None, NOT_LISTENING, &cannot_write)?;
+            append(
+                &tx,
+                thread,
+                SYSTEM_AUTHOR,
+                &text,
+                Kind::Plain,
+                at,
+                &cannot_write,
+            )?;
+            tx.execute(
+                "UPDATE lead SET deaf_thread = ?1 WHERE repo_id = ?2",
+                params![thread.0, repo.0],
+            )
+            .context(cannot_write.clone())?;
+            opened.push((i, thread));
+        }
+        if opened.len() > 1 {
+            let text = check_message("message", &shared(&opened))?;
+            let repo = leads[opened[0].0].0;
+            let thread = new_thread(&tx, repo, None, None, NOT_LISTENING, &cannot_write)?;
+            append(
+                &tx,
+                thread,
+                SYSTEM_AUTHOR,
+                &text,
+                Kind::Plain,
+                at,
+                &cannot_write,
+            )?;
+            for told in &mut opened {
+                tx.execute(
+                    "UPDATE lead SET told_thread = ?1 WHERE repo_id = ?2",
+                    params![thread.0, leads[told.0].0.0],
+                )
+                .context(cannot_write.clone())?;
+                told.1 = thread;
+            }
+        }
         tx.commit().context(cannot_write)?;
-        Ok(Some(thread))
+        Ok(opened)
     }
 
     /// Records `turns`, the turns the lead of `repo`'s session has ended, as when the watch
@@ -3741,11 +3900,13 @@ impl Store {
     /// finished a turn without re-arming). `waiting` is asked inside this write's own
     /// transaction, so a waiter that took its lock first is seen, and one that takes it
     /// later writes its baseline (`lead_waiter_armed`) after this commits, absorbing the
-    /// count. Returns whether it counted.
+    /// count. A counted turn records `error`, the API error it ended on (StopFailure), or
+    /// none (Stop), as the lead's `turn_error`. Returns whether it counted.
     pub fn lead_turn_ended(
         &mut self,
         repo: RepoId,
         session: &str,
+        error: Option<&str>,
         waiting: impl FnOnce() -> Result<bool>,
     ) -> Result<bool> {
         let cannot_write = self.cannot_write();
@@ -3758,8 +3919,9 @@ impl Store {
         }
         let n = tx
             .execute(
-                "UPDATE lead SET turns = turns + 1 WHERE repo_id = ?1 AND claude_session = ?2",
-                params![repo.0, session],
+                "UPDATE lead SET turns = turns + 1, turn_error = ?3 \
+                 WHERE repo_id = ?1 AND claude_session = ?2",
+                params![repo.0, session, error],
             )
             .context(cannot_write.clone())?;
         tx.commit().context(cannot_write)?;
@@ -3769,14 +3931,16 @@ impl Store {
     /// The lead of `repo` is listening: ends its "lead not listening" episode, if one is
     /// open, resolving its thread with `evidence` by `system` at `at` unless someone resolved
     /// it already, and takes its count of turns ended now as the baseline (`quiet_turns`), so
-    /// a turn it ends without re-arming from here on is seen. Returns the episode's thread,
-    /// or `None` when none was open.
+    /// a turn it ends without re-arming from here on is seen. When it was the last lead
+    /// open in an item shared with other leads (`told_thread`), that item's thread is
+    /// resolved too (`leave_told`). Returns the episode's thread and that item's, or `None`
+    /// when no episode was open.
     pub fn lead_listening(
         &mut self,
         repo: RepoId,
         evidence: &str,
         at: i64,
-    ) -> Result<Option<ThreadId>> {
+    ) -> Result<Option<(ThreadId, Option<ThreadId>)>> {
         let evidence = check_message("evidence", evidence)?;
         let cannot_write = self.cannot_write();
         let tx = self
@@ -3803,20 +3967,23 @@ impl Store {
                 &cannot_write,
             )?;
         }
+        let shared = leave_told(&tx, repo, &evidence, at, &cannot_write)?;
         tx.execute(
             "UPDATE lead SET deaf_thread = NULL, quiet_turns = turns WHERE repo_id = ?1",
             params![repo.0],
         )
         .context(cannot_write.clone())?;
         tx.commit().context(cannot_write)?;
-        Ok(open.map(|(thread, _)| ThreadId(thread)))
+        Ok(open.map(|(thread, _)| (ThreadId(thread), shared)))
     }
 
     /// Takes the lead of `repo` off the board, in one transaction: its row goes, so
     /// no session is its lead any more and the watch stops checking it, while the repo, its
     /// milestones, tasks and threads stay for the next lead (`tower lead add`). Its open
     /// "lead not listening" episode, if any, is resolved with `evidence` by `system` at `at`
-    /// (unless someone resolved it already), so its item leaves the alert line. Its name and
+    /// (unless someone resolved it already), so its item leaves the alert line, and so is an
+    /// item it shared with other leads once it was the last open there (`leave_told`). Its
+    /// name and
     /// session are kept as a retired lead's, so a mention of it is no worker's. Nothing
     /// else points at a lead: threads belong to the repo, and its cursor (`told_upto`),
     /// episode and seq are on its own row. Refuses a repo not on the board or with no lead.
@@ -3857,6 +4024,7 @@ impl Store {
                 &cannot_write,
             )?;
         }
+        leave_told(&tx, repo, &evidence, at, &cannot_write)?;
         tx.execute("DELETE FROM lead WHERE repo_id = ?1", params![repo.0])
             .context(cannot_write.clone())?;
         // Its names are no worker's from now on: a mention of it tells its author.
@@ -3995,19 +4163,19 @@ impl Store {
     }
 
     /// Opens a delivery failure episode, at `at`, for each of `recipients`
-    /// (`Recipient::key`) that has none open, or one older than
-    /// `deliver::EPISODE_EXPIRES` (a recipient unreachable for hours is told again), and
+    /// (`Recipient::key`, with the thread of its first post) that has none open, or one older
+    /// than `deliver::EPISODE_EXPIRES` (a recipient unreachable for hours is told again), and
     /// when it opened any, posts one item for the owner's awareness
     /// (`board::DELIVERY_FAILURE`) as `system`: `text` of the indexes of those it opened, in
-    /// `thread`, or, when that thread is resolved, in a new thread on the same board linked to
-    /// the same task.
+    /// the thread of the first of them, so the item is where the first recipient it names
+    /// was posted to, or, when that thread is resolved, in a new thread on the same board
+    /// linked to the same task.
     /// Returns the thread posted in with those indexes, or `None`, posting nothing, when
     /// every one had an episode open: one item per drain and per episode, so repeated or
     /// many failures never flood the board.
     pub fn delivery_failed(
         &mut self,
-        recipients: &[&str],
-        thread: ThreadId,
+        recipients: &[(&str, ThreadId)],
         at: i64,
         text: impl FnOnce(&[usize]) -> String,
     ) -> Result<Option<(ThreadId, Vec<usize>)>> {
@@ -4017,7 +4185,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context(cannot_write.clone())?;
         let mut opened = Vec::new();
-        for (i, recipient) in recipients.iter().enumerate() {
+        for (i, (recipient, _)) in recipients.iter().enumerate() {
             let added = tx
                 .execute(
                     "INSERT INTO delivery_fail (recipient, since) VALUES (?1, ?2) \
@@ -4030,11 +4198,11 @@ impl Store {
                 opened.push(i);
             }
         }
-        if opened.is_empty() {
+        let Some(&first) = opened.first() else {
             return Ok(None);
-        }
+        };
         let text = check_message("message", &text(&opened))?;
-        let thread = failure_item(&tx, thread, &text, at, &cannot_write)?;
+        let thread = failure_item(&tx, recipients[first].1, &text, at, &cannot_write)?;
         tx.commit().context(cannot_write)?;
         Ok(Some((thread, opened)))
     }
@@ -5773,13 +5941,13 @@ mod tests {
             .unwrap();
         assert_eq!(store.take_pending().unwrap().posts.len(), 1);
         let say = |text: &'static str| move |_: &[usize]| text.to_string();
-        let failed = store.delivery_failed(&["Dev-One", "qa-one"], t, 5, say("@manager x"));
+        let failed = store.delivery_failed(&[("Dev-One", t), ("qa-one", t)], 5, say("@manager x"));
         assert_eq!(failed.unwrap(), Some((t, vec![0, 1])));
-        let failed = store.delivery_failed(&["dev-one", "Qa-One"], t, 6, say("@manager y"));
+        let failed = store.delivery_failed(&[("dev-one", t), ("Qa-One", t)], 6, say("@manager y"));
         assert_eq!(failed.unwrap(), None);
         assert!(store.delivered("Dev-One").unwrap());
         assert!(!store.delivered("dev-one").unwrap());
-        let failed = store.delivery_failed(&["qa-one", "dev-one"], t, 7, say("@manager z"));
+        let failed = store.delivery_failed(&[("qa-one", t), ("dev-one", t)], 7, say("@manager z"));
         assert_eq!(failed.unwrap(), Some((t, vec![1])));
         let texts: Vec<String> = (store.thread(t).unwrap().messages.into_iter())
             .filter(|m| m.author == SYSTEM_AUTHOR)
@@ -8345,7 +8513,7 @@ mod tests {
             .unwrap();
         // Posted the way the watch's drain posts one.
         let (at, _) = store
-            .delivery_failed(&["lead:M1"], t, 500, |_| {
+            .delivery_failed(&[("lead:M1", t)], 500, |_| {
                 format!(
                     "{}Catalogue, the lead of M1: it has not attached its Claude inbox. \
                      Its posts stay on the board.",
