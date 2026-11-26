@@ -1,8 +1,9 @@
 //! The stuck-worker watch, `tower watch`: a long-running process that every `TICK` reads the
 //! board and the live workers (through the terminal module, `terminal`: the module's own
-//! list, Rex's, while Rex is found on the PATH, else Claude Code's session list, the core's;
-//! `Chosen`) and flags a stuck worker by the spec's fixed rules (section 4, "While work
-//! runs"). It runs on its own, dashboard open or not, Rex or not.
+//! list, Rex's, while rex is found, at the path `TOWER_REX` names, else in `REX_BIN_DIR`,
+//! else on the PATH; else Claude Code's session list, the core's; `Chosen`) and flags a
+//! stuck worker by the spec's fixed rules (section 4, "While work runs"). It runs on its
+//! own, dashboard open or not, Rex or not.
 //!
 //! A worker is linked to its live Claude session in the terminal by name: a task's assignee
 //! is the Claude session name of the worker on it, compared ignoring ASCII case. Only
@@ -751,11 +752,12 @@ fn restart(exe: &Path) -> std::io::Error {
         .exec()
 }
 
-/// The watch's terminal: the module while it is found on the PATH, else the core (`Core`),
-/// as the last `choose` set it, and the module is asked again once it is found, with no
-/// restart. A look asks the same one throughout, since `choose` runs between looks on the
-/// look's own thread; a delivery round, on its own thread, asks the one chosen when it
-/// starts (`current`) throughout, so its list, its texts and its sends agree.
+/// The watch's terminal: the module while its executable is found (`Terminal::missing`: a
+/// path as it is, a bare name on the PATH), else the core (`Core`), as the last `choose` set
+/// it, and the module is asked again once it is found, with no restart. A look asks the
+/// same one throughout, since `choose` runs between looks on the look's own thread; a
+/// delivery round, on its own thread, asks the one chosen when it starts (`current`)
+/// throughout, so its list, its texts and its sends agree.
 pub(crate) struct Chosen {
     module: Arc<dyn Terminal>,
     core: Arc<dyn Terminal>,
@@ -772,7 +774,8 @@ impl Chosen {
         }
     }
 
-    /// Chooses by `path` (a PATH value): the module when it is found there, else the core.
+    /// Chooses by `path` (a PATH value): the module when its executable is found (a path as
+    /// it is, a bare name on `path`), else the core.
     /// The line to log when the module goes missing, the first choice included: what was
     /// tried, that the core is asked until it is found, and what the module would add.
     pub(crate) fn choose(&self, path: Option<&std::ffi::OsStr>) -> Option<String> {

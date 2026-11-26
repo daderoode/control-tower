@@ -89,7 +89,7 @@ use crate::board::{
     ThreadId, closed_worker_hint, hidden, mentioned,
 };
 use crate::store::Store;
-use crate::terminal::{Sent, Terminal};
+use crate::terminal::{Listed, Sent, Terminal};
 
 /// How often the watch delivers what was posted since it last did.
 pub const DELIVER_EVERY: Duration = Duration::from_secs(5);
@@ -468,26 +468,22 @@ pub fn worker_text(posts: &[&Post]) -> String {
     sanitise(&compose(&head, posts, WORKER_CAP))
 }
 
-#[derive(serde::Deserialize)]
-struct Session {
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
-    name: Option<String>,
+/// `claude agents --json`'s list (`json`), through the core's reader (`terminal::parse`).
+fn sessions(json: &str) -> Result<Vec<Listed>> {
+    crate::terminal::parse(json).map_err(anyhow::Error::msg)
 }
 
 /// Whether `claude agents --json`'s list (`json`) has the Claude session `session`: a
 /// session it lists is running.
 pub fn listed(json: &str, session: &str) -> Result<bool> {
-    let sessions: Vec<Session> = serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("claude agents --json said something unexpected: {e}"))?;
+    let sessions = sessions(json)?;
     Ok((sessions.iter()).any(|s| s.session_id.as_deref() == Some(session)))
 }
 
 /// Whether `claude agents --json`'s list (`json`) has a session named `name`, ignoring
 /// case: a worker by that name is running.
 pub fn named(json: &str, name: &str) -> Result<bool> {
-    let sessions: Vec<Session> = serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("claude agents --json said something unexpected: {e}"))?;
+    let sessions = sessions(json)?;
     Ok((sessions.iter()).any(|s| {
         s.name
             .as_deref()
@@ -500,8 +496,7 @@ pub fn named(json: &str, name: &str) -> Result<bool> {
 /// be listed under that name, ignoring case. So no other session can take the lead's
 /// posts.
 pub fn check_asker(json: &str, session: &str, lead: &Lead, repo: RepoId) -> Result<()> {
-    let sessions: Vec<Session> = serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("claude agents --json said something unexpected: {e}"))?;
+    let sessions = sessions(json)?;
     let Some(found) = (sessions.iter()).find(|s| s.session_id.as_deref() == Some(session)) else {
         anyhow::bail!(
             "claude agents --json lists no session {session}; run tower lead attach from the \
@@ -1771,6 +1766,35 @@ mod tests {
                     owner in ";
         assert!(log[1].starts_with(want), "{log:?}");
         assert_eq!(chosen.name(), "Claude Code");
+    }
+
+    #[test]
+    fn a_list_whose_every_name_is_another_type_holds_the_posts_and_judges_no_one() {
+        let mut f = Fixture::new();
+        let core = crate::terminal::Core::new(f.dir.path().join("claude"));
+        f.deliver = Deliver {
+            budget: TEST_WAIT,
+            send_limit: TEST_WAIT,
+            ..Deliver::new(&f.db, Arc::new(core), Arc::default())
+        };
+        // Claude's format changed: no name is a string. Never "no agent named" `dev-1` (its
+        // task in progress) or "no worker is named" `dev-9`, however old the post.
+        let list = serde_json::json!([{"name": 7, "sessionId": "s1", "status": "idle"}]);
+        f.rex.write("claude.json", &list.to_string());
+        f.post("qa-1", "@dev-1 @dev-9 please look");
+        // As any list that cannot be read (`workers_wait_while_rex_cannot_be_read_said_once`):
+        // why, once, and the post held for the next round.
+        assert_eq!(
+            f.drain(),
+            [
+                "claude agents --json said something unexpected: no session's name is a string; \
+                 posts for workers wait until Claude Code answers",
+                "1 post(s) wait for the next round",
+            ]
+        );
+        assert!(f.items().is_empty());
+        assert!(f.replies().is_empty());
+        assert!(f.prompts().is_empty());
     }
 
     #[test]

@@ -59,6 +59,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use crate::board::{Lead, RepoId, RepoOf, Stage, ThreadId};
 use crate::deliver::{Post, sanitise};
 use crate::store::Store;
+use crate::terminal::{self, Listed};
 
 /// How often a stream looks at the board for new posts.
 pub const LOOK_EVERY: Duration = Duration::from_secs(1);
@@ -821,15 +822,9 @@ fn hook_reason(repo: RepoId, posts: &[Post], waiting: bool) -> String {
     text
 }
 
-/// A Claude session as `claude agents --json` lists it, as far as the lead check reads it.
-#[derive(Deserialize)]
-struct Listed {
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
-    status: Option<String>,
-}
-
-/// What the lead check makes of a listed session's `status`.
+/// What the lead check makes of a listed session's status, from the core's mapping
+/// (`terminal::Status::listed`): a lead at a prompt, or one in a state this build does not
+/// know, is nothing to judge by.
 enum Status {
     Working,
     Idle,
@@ -838,17 +833,19 @@ enum Status {
 
 impl Status {
     fn of(listed: &Listed) -> Status {
-        match listed.status.as_deref() {
-            Some("busy") => Status::Working,
-            Some("idle") => Status::Idle,
+        let status = listed.status.as_deref();
+        match terminal::Status::listed(status, listed.waiting_for.as_deref()) {
+            terminal::Status::Working => Status::Working,
+            terminal::Status::Idle => Status::Idle,
             _ => Status::Unknown,
         }
     }
 }
 
-/// `claude agents --json` (`json`) as the lead check reads it.
+/// `claude agents --json` (`json`) as the lead check reads it: the core's reader
+/// (`terminal::parse`).
 fn read_listed(json: Result<String>) -> Result<Vec<Listed>> {
-    serde_json::from_str(&json?).context("claude agents --json said something unexpected")
+    terminal::parse(&json?).map_err(anyhow::Error::msg)
 }
 
 /// The watch's look at whether each registered lead is listening, at `now`: returns a line
@@ -942,12 +939,13 @@ fn check(
             };
             let sessions =
                 listed.get_or_insert_with(|| read_listed(agents()).map_err(|e| format!("{e:#}")));
-            // Unreadable: logged once by `check_leads`. An empty list is likelier a glitch
-            // than every Claude session on the machine gone, so it says nothing either.
+            // Unreadable: logged once by `check_leads`. A list that names no session id
+            // (empty, or every entry odd) is likelier a glitch than every Claude session on
+            // the machine gone, so it says nothing about anyone either.
             let Ok(sessions) = sessions else {
                 return Ok(None);
             };
-            if sessions.is_empty() {
+            if sessions.iter().all(|s| s.session_id.is_none()) {
                 return Ok(None);
             }
             let found = (sessions.iter()).find(|s| s.session_id.as_deref() == Some(session));
@@ -1888,6 +1886,97 @@ mod tests {
         assert!(look(&mut store, &idle).is_empty());
         assert!(look(&mut store, &idle).is_empty());
         assert!(items(&mut store).is_empty());
+    }
+
+    #[test]
+    fn a_status_that_is_not_a_string_is_unknown_not_a_failed_read() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        // Read as the core reads the list: nothing to judge by, so no line, no item and no
+        // quiet turn recorded, as for a status this build does not know.
+        for status in ["5", "null", r#"{"busy":true}"#] {
+            let list = format!(r#"[{{"sessionId":"sess-1","name":"cat-lead","status":{status}}}]"#);
+            assert!(look_with(&mut store, &db, &list, 10).is_empty(), "{list}");
+        }
+        ends_turn(&db, "sess-1");
+        assert!(look_with(&mut store, &db, &agents(&[("sess-1", "idle")]), 20).is_empty());
+        assert!(items(&mut store).is_empty());
+    }
+
+    /// `list` (a `claude agents --json` list, whose entries give a name, pid and sessionId of
+    /// the types Claude lists) with another session after it whose name, pid and sessionId
+    /// are not: one odd entry beside good ones.
+    fn with_odd_entry(list: &str) -> String {
+        let mut list: Vec<serde_json::Value> = serde_json::from_str(list).unwrap();
+        list.push(serde_json::json!({
+            "sessionId": 9, "name": 5, "pid": "301", "kind": "interactive", "status": "busy",
+        }));
+        serde_json::Value::Array(list).to_string()
+    }
+
+    #[test]
+    fn an_odd_entry_for_another_session_never_stops_the_lead_being_judged() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        let idle = with_odd_entry(&agents(&[("sess-1", "idle")]));
+        assert!(look_with(&mut store, &db, &idle, 10).is_empty());
+        ends_turn(&db, "sess-1");
+        let log = look_with(&mut store, &db, &idle, 20);
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "Catalogue, the lead of R1, is not listening (its Claude session finished a turn \
+                 without one)"
+            ),
+            "{log:?}"
+        );
+    }
+
+    #[test]
+    fn a_list_that_names_no_session_id_says_nothing_about_a_lead() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        assert!(look_with(&mut store, &db, &agents(&[("sess-1", "idle")]), 10).is_empty());
+        ends_turn(&db, "sess-1");
+        // No entry gives a session id (none, or null): not the lead's session gone.
+        let none = r#"[{"name":"cat-lead","status":"idle"},{"sessionId":null,"status":"busy"}]"#;
+        assert!(look_with(&mut store, &db, none, 20).is_empty());
+        // Every session id of another type: Claude's format changed, a list that cannot be
+        // read, said once, never the lead's session gone.
+        let odd = r#"[{"sessionId":9,"name":"cat-lead","status":"idle"}]"#;
+        assert_eq!(
+            look_with(&mut store, &db, odd, 20),
+            [
+                "could not check the leads are listening: claude agents --json said something \
+                 unexpected: no session's sessionId is a string"
+            ]
+        );
+        assert!(items(&mut store).is_empty());
+    }
+
+    #[test]
+    fn an_odd_entry_for_another_session_never_stops_a_lead_attaching() {
+        let (_dir, db, mut store) = board();
+        let lead = r#"[{"sessionId":"sess-2","name":"cat-lead","pid":4242,"kind":"interactive"}]"#;
+        let lists = with_odd_entry(lead);
+        let reply = session_start(
+            &db,
+            &start("sess-2", "startup", Some("cat-lead")),
+            None,
+            None,
+            || Ok(lists.clone()),
+        );
+        assert!(context(reply.unwrap()).is_some());
+        assert_eq!(attached(&mut store, 1).as_deref(), Some("sess-2"));
+        // The lead's live workers, on a compact, still read from the same list.
+        let reply = session_start(
+            &db,
+            &start("sess-2", "compact", Some("cat-lead")),
+            None,
+            None,
+            || Ok(lists.clone()),
+        );
+        assert!(context(reply.unwrap()).is_some());
     }
 
     #[test]

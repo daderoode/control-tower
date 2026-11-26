@@ -312,12 +312,18 @@ pub trait Terminal: AsTerminal + Send + Sync {
     fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()>;
 }
 
-/// A Claude session as `claude agents --json` lists it, as far as the core and Rex read it.
-/// A `status` or `waitingFor` that is not a string is none (`text`), so it reads as a value
-/// the core does not know, never as a list that cannot be read.
+/// A Claude session as `claude agents --json` lists it, as far as control-tower reads it.
+/// Each entry stands alone: a field of another type is none (`text`, `integer`), so an
+/// odd entry is a session with nothing to know it by (no name, no one), and a `status` or
+/// `waitingFor` of another type a value the core does not know, never a list that cannot
+/// be read.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct Listed {
+    #[serde(default, deserialize_with = "text")]
     pub name: Option<String>,
+    #[serde(default, rename = "sessionId", deserialize_with = "text")]
+    pub session_id: Option<String>,
+    #[serde(default, deserialize_with = "integer")]
     pub pid: Option<i64>,
     #[serde(default, deserialize_with = "text")]
     pub status: Option<String>,
@@ -334,17 +340,48 @@ fn text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Err
     })
 }
 
+/// A JSON integer (within an i64) as itself; any other value, null included, as none.
+fn integer<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    use serde::Deserialize;
+    Ok(serde_json::Value::deserialize(d)?.as_i64())
+}
+
 /// Claude Code's session list: `claude agents --json`, run from `claude` within `timeout`.
 pub(crate) fn listed(claude: &Path, db: &Path, timeout: Duration) -> Result<Vec<Listed>, Unread> {
     let not_stopped = AtomicBool::new(false);
     let args = ["agents", "--json"];
     let json = crate::register::claude_within(claude, db, &not_stopped, &args, timeout)
         .map_err(|e| Unread::Failed(format!("{e:#}")))?;
-    serde_json::from_str(&json).map_err(|e| {
-        Unread::Failed(format!(
-            "claude agents --json said something unexpected: {e}"
-        ))
-    })
+    parse(&json).map_err(Unread::Failed)
+}
+
+/// `claude agents --json`'s list (`json`), the one reader of it: the core's workers, Rex,
+/// the lead check, a lead's attach and delivery. One odd entry stands alone (`Listed`), but
+/// a field that some entry gives (not null) and none gives as the type Claude lists, a
+/// string for `name` and `sessionId`, an integer for `pid`, is Claude's format changed:
+/// the list cannot be read, never a list of sessions with nothing to know them by.
+pub(crate) fn parse(json: &str) -> Result<Vec<Listed>, String> {
+    let unexpected =
+        |e: &dyn fmt::Display| format!("claude agents --json said something unexpected: {e}");
+    let entries: Vec<serde_json::Value> = serde_json::from_str(json).map_err(|e| unexpected(&e))?;
+    for (field, what) in [
+        ("name", "a string"),
+        ("sessionId", "a string"),
+        ("pid", "an integer"),
+    ] {
+        let listed = |v: &serde_json::Value| match field {
+            "pid" => v.is_i64(),
+            _ => v.is_string(),
+        };
+        let given = || (entries.iter()).filter_map(|e| e.get(field).filter(|v| !v.is_null()));
+        if given().next().is_some() && !given().any(listed) {
+            return Err(unexpected(&format_args!("no session's {field} is {what}")));
+        }
+    }
+    (entries.into_iter())
+        .map(serde_json::from_value)
+        .collect::<Result<_, _>>()
+        .map_err(|e| unexpected(&e))
 }
 
 /// Why a worker at a prompt is sent nothing: "at a permission prompt (approve Bash: ...)",
@@ -568,8 +605,11 @@ mod tests {
             // Not strings: a value the core does not know, never a list it cannot read.
             serde_json::json!({"name": "odd-type", "status": 1}),
             serde_json::json!({"name": "odd-wait", "status": "waiting", "waitingFor": {"x": 1}}),
-            // No name: no one, whatever its status.
+            // No name, or one that is not a string: no one, whatever its status. A pid or
+            // sessionId that is not the type listed fails nothing.
             session(None, Some("waiting"), Some("permission prompt")),
+            serde_json::json!({"name": 7, "status": "busy"}),
+            serde_json::json!({"name": "odd-ids", "pid": "301", "sessionId": 5, "status": "idle"}),
             background,
         ]);
         let got = core
@@ -588,6 +628,7 @@ mod tests {
                 agent("silent", Status::Unknown),
                 agent("odd-type", Status::Unknown),
                 agent("odd-wait", Status::Blocked(None)),
+                agent("odd-ids", Status::Idle),
                 agent("bg", Status::Blocked(Some(Kind::Question))),
             ]
         );
@@ -597,6 +638,52 @@ mod tests {
             .agents(&dir.path().join("board.db"), TEST_WAIT)
             .unwrap();
         assert_eq!(got, []);
+    }
+
+    #[test]
+    fn a_field_no_session_gives_as_the_type_claude_lists_fails_the_read() {
+        let fails = |json: &str| parse(json).unwrap_err();
+        let unexpected = "claude agents --json said something unexpected: ";
+        // Every entry that gives it, of another type: Claude's format changed.
+        let name = r#"[{"name":7,"pid":1},{"name":{"x":1},"pid":2},{"pid":3}]"#;
+        assert_eq!(
+            fails(name),
+            format!("{unexpected}no session's name is a string")
+        );
+        let id = r#"[{"name":"dev-1","sessionId":5}]"#;
+        assert_eq!(
+            fails(id),
+            format!("{unexpected}no session's sessionId is a string")
+        );
+        let pid = r#"[{"name":"dev-1","pid":"41"},{"name":"dev-2","pid":4.5}]"#;
+        assert_eq!(
+            fails(pid),
+            format!("{unexpected}no session's pid is an integer")
+        );
+        // One odd beside one of the type listed: that entry stands alone, as none.
+        let one =
+            r#"[{"name":7,"sessionId":5,"pid":"41"},{"name":"dev-1","sessionId":"s1","pid":41}]"#;
+        let got = parse(one).unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!(
+            (got[0].name.as_deref(), &got[0].session_id, got[0].pid),
+            (None, &None, None)
+        );
+        assert_eq!(got[1].name.as_deref(), Some("dev-1"));
+        assert_eq!(got[1].session_id.as_deref(), Some("s1"));
+        assert_eq!(got[1].pid, Some(41));
+        // Absent, or null, in every entry: read, as sessions with nothing to know them by.
+        let absent = r#"[{"status":"busy"},{"name":null,"sessionId":null,"pid":null}]"#;
+        let got = parse(absent).unwrap();
+        assert_eq!(got.len(), 2);
+        assert!(
+            got.iter()
+                .all(|l| l.name.is_none() && l.session_id.is_none() && l.pid.is_none())
+        );
+        assert!(parse("[]").unwrap().is_empty());
+        // Not a list of entries: unreadable, as before.
+        assert!(fails("[1]").starts_with(unexpected));
+        assert!(fails("{}").starts_with(unexpected));
     }
 
     #[test]
