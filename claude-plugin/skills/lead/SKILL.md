@@ -450,6 +450,9 @@ and `tower repo show <R>` lists threads by title.
         rex window new -s "$REX_SESSION" "<#NN slug>" -c "$w" --focus=false \
           --json -- claude -n <name> "<brief>"
 
+    A worker never renames the Rex session (`rex session rename`): it runs in your session,
+    so it shares your `$REX_SESSION`, and Rex's start hook tells every Claude session to name
+    its session after its work, which would relabel yours. Its tab is already named.
     `-c` takes an absolute path (Rex does not resolve one against your folder). Keep the
     worktree's absolute path, the printed `.window_id` (its tab) and `.block_ids[0]` (its
     block). A tester or Stage 1 reviewer works as a block beside the implementer's, in its
@@ -564,7 +567,9 @@ and `tower repo show <R>` lists threads by title.
   information but no unnecessary context. Unless the repo's SDLC says otherwise, it tells
   the worker to stage its change and report, never to commit or push. A tester's or
   reviewer's brief names its risks (principle 2); one that uses a shared resource gives its
-  protocol (principle 11).
+  protocol (principle 11). In Rex, every brief says the worker never renames the Rex
+  session (`rex session rename`), since its tab is already named, and ignores any hook that
+  tells it to.
 - **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting).
   The plan is the signed-off tickets, or a ready-for-agent issue (Starting, step 7). Each
   ticket then goes through:
