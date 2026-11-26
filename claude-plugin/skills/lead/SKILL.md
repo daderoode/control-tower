@@ -251,8 +251,10 @@ implement, test or review.
       `tower lead set <R> --session "<new name>"`, then attach), and records your session,
       so the control-tower plugin's Stop hook knows you are the lead and the watch can tell
       you are listening. If it, or the SessionStart hook, says this session runs outside Rex,
-      you are still attached, but the board does not see the workers you start from here:
-      raise it with the owner as a `question:` post to `@manager` before you start any.
+      you are still attached. When it says the board does not see the workers you start from
+      here, raise it with the owner as a `question:` post to `@manager` before you start any;
+      when it says the watch reads them from Claude Code's session list, there is nothing to
+      raise.
 
    Each time your waiter ends (its notice: the background command completed), in that
    same turn: run `tower lead unread <R>`, handle what it prints, then arm `tower lead wait

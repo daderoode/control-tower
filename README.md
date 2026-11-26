@@ -942,10 +942,14 @@ and an idle lead is never woken while nothing is posted:
   `tower upgrade`, or `claude` failing, prints nothing and goes to Claude Code's debug log.
 - **A lead outside Rex:** a lead's session with no `REX_SESSION` (not run in a Rex tab) is
   attached all the same, by `tower lead attach` and by the SessionStart hook, and both tell
-  it that the board's team runs in Rex and what the board does not see from outside it (the
-  workers it starts there: their prompts, and delivery to them), to raise with you. The hook
-  says so after the rest, a compaction's reply too. With `REX_SESSION` set,
-  nothing more is said.
+  it what the watch sees of the workers it starts there, by whether rex is found as the
+  watch finds it (`TOWER_REX`, else `REX_BIN_DIR`, else the PATH, in the lead's own
+  environment). With rex found: the board's team runs in Rex and the board does not see
+  those workers (their prompts, and delivery to them), to raise with you. With no rex: the
+  watch reads them from Claude Code's session list, so it sees them, judges their prompts
+  (without the prompt's text) and delivers to them, and what Rex would add. The hook says
+  so after the rest, a compaction's reply too. With `REX_SESSION` set, nothing more is
+  said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
   attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it

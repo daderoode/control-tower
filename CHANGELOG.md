@@ -32,6 +32,11 @@ tag's date, and a new empty Unreleased goes above it.
   log says once what Rex would add: the text of the prompt a worker waits at in its owner
   item, the dashboard's n and its keys, and starting workers as visible tabs. When rex is
   found again, the watch uses it with no restart (#164).
+- **A lead outside Rex is told what the watch sees.** With rex found, the notice of
+  `tower lead attach` and the SessionStart hook is as before: the board does not see the
+  workers it starts, to raise with the owner. With no rex found, it says the watch reads
+  those workers from Claude Code's session list (it sees them, judges their prompts without
+  the prompt's text and delivers to them) and what Rex would add (#170).
 
 ## [0.7.0] - 2026-11-26
 
