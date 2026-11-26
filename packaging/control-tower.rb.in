@@ -1,7 +1,7 @@
 # Rendered by packaging/render-formula.sh in daderoode/control-tower on each release.
 # Edit the template there, not the copy in daderoode/homebrew-tap.
 class ControlTower < Formula
-  desc "Taskboard for a team of Claude Code agents in the terminal, Rex"
+  desc "Taskboard for a team of Claude Code agents"
   homepage "https://github.com/daderoode/control-tower"
   url "@BASE_URL@/tower-v@VERSION@-aarch64-apple-darwin.tar.gz"
   version "@VERSION@"
@@ -35,9 +35,12 @@ class ControlTower < Formula
 
   def caveats
     <<~EOS
-      control-tower needs Rex, the terminal its team runs in. The watch finds rex on
-      Homebrew's PATH; Rex keeps it in REX_BIN_DIR, which it sets in its own tabs, so
-      from a Rex tab link it into Homebrew's bin:
+      control-tower works on its own, in any terminal. Rex is optional and adds the
+      text of the prompt a worker waits at in its owner item, the dashboard's n and
+      its two keys (tower space, tower popup), and starting workers as visible tabs.
+      To use Rex: the watch finds rex on Homebrew's PATH; Rex keeps it in
+      REX_BIN_DIR, which it sets in its own tabs, so from a Rex tab link it into
+      Homebrew's bin:
         ln -s "$REX_BIN_DIR/rex" "#{HOMEBREW_PREFIX}/bin/rex"
 
       Start the stuck-worker watch as a background service (it starts at login):

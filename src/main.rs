@@ -98,11 +98,12 @@ enum Command {
         block: String,
     },
     /// Watch for stuck workers until SIGTERM or Ctrl-C: every 20 s, read the board and the
-    /// Claude sessions running in Rex (a task's assignee is its worker's Claude session
-    /// name), nudge a worker that stopped or went silent, and post system flags in the
-    /// task's thread. Logs one line per action to stderr. TOWER_REX names the rex
-    /// executable (default rex in $REX_BIN_DIR, else on the PATH); TOWER_CLAUDE names
-    /// claude, which also relays posts and nudges to workers (claude -p -n control-tower).
+    /// live Claude sessions (Rex's while rex is found, else Claude Code's session list; a
+    /// task's assignee is its worker's Claude session name), nudge a worker that stopped or
+    /// went silent, and post system flags in the task's thread. Logs one line per action to
+    /// stderr. TOWER_REX names the rex executable (default rex in $REX_BIN_DIR, else on the
+    /// PATH); TOWER_CLAUDE names claude, which also relays posts and nudges to workers
+    /// (claude -p -n control-tower).
     Watch,
     /// Bring a board written by an older tower up to this tower's schema.
     Upgrade,
