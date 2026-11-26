@@ -15,7 +15,8 @@ tag's date, and a new empty Unreleased goes above it.
   authority is per repo. Before a merge to the default branch or a release, the lead skill
   now has the lead name the repo and quote that repo's grant on the board (its SDLC, or
   standing context quoting the owner, dated), and ask when there is none. A grant for one
-  repo never carries to another, and one held only in the lead's memory is none (#143).
+  repo never carries to another, and one held only in the lead's memory is none.
+  control-tower's `SDLC.md` now records the owner's release grant, quoted and dated (#143).
 
 - **A compacted lead is handed back its rules and its board.** After Claude Code compacts a
   lead's context, the SessionStart hook said nothing while its board waiter ran. It now

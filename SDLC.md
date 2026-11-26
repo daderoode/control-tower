@@ -18,7 +18,7 @@ Keep it light.
 
 | Role | Does |
 |---|---|
-| Owner | Signs off a new goal's or milestone's spec and tickets before building starts. Asks for releases (the lead may propose one); the lead tags. UI sign-off. Has given the lead authority to merge to master in this repo |
+| Owner | Signs off a new goal's or milestone's spec and tickets before building starts. UI sign-off. Has given the lead authority to merge to master in this repo. Has given the lead authority to cut releases in this repo, its timing and scope included: "you are free to release" (2026-11-20), "I already gave you authority to handle releases" (2026-11-21), "you have the authority for decisions" (2026-11-25) |
 | Lead | Only coordinates: never implements, tests or reviews, whatever the size. Picks the path, commits, opens the PR, delivers: merges, or hands the PR to the named reviewer when a peer review is asked for |
 | Dev | Implements; stages the change and reports. Only the lead commits and pushes |
 | QA | Tests |
@@ -225,8 +225,8 @@ lifecycle applies.
   it when the content changes what SemVer says.
 - Scope is judgment, not a rule: whether a release waits for an issue, or the issue moves to
   the next milestone, is the lead's call, made in the owner's interest.
-- The lead may propose a release; when the owner asks, the lead tags it with a signed
-  `v<version>` tag, the version SemVer gives what actually shipped. Once the release
+- The lead decides when to release (the owner may also ask for one) and tags it with a
+  signed `v<version>` tag, the version SemVer gives what actually shipped. Once the release
   workflow has published it, the lead closes its milestone.
 - Release notes: one `CHANGELOG.md`; each PR that changes behaviour adds its line under
   `Unreleased`. A Light PR does not need one.
