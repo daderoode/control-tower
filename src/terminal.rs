@@ -464,7 +464,8 @@ pub fn exe_from_env() -> PathBuf {
 }
 
 /// What `tower lead attach` and the SessionStart hook tell a lead whose session runs outside
-/// the built-in module's terminal, by this process's environment; `None` inside it.
+/// the built-in module's terminal, by this process's environment (whether that module is
+/// found included); `None` inside it.
 pub fn outside_from_env() -> Option<String> {
     rex::outside(|name| std::env::var_os(name))
 }

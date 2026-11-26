@@ -119,11 +119,30 @@ pub fn dashboard_status(
     ))
 }
 
+/// What Rex adds over the core (`Terminal::adds`), which a lead outside Rex with no rex
+/// found is also told.
+const ADDS: &str = "the text of the prompt a worker waits at in its owner item, the \
+                    dashboard's n and its keys, and starting workers as visible tabs";
+
 /// What a lead running outside Rex is told, by `env`: `None` inside Rex, where Rex sets
-/// `REX_SESSION` (an empty one counts as unset).
+/// `REX_SESSION` (an empty one counts as unset). Outside it, what the watch sees of the
+/// workers the lead starts, by whether rex is found as the watch finds it (`path_in`, a bare
+/// name on `env`'s PATH): with rex, nothing outside Rex; without, Claude Code's session list,
+/// and what Rex would add. `env` is the lead's, not the watch's (the watch service runs with
+/// brew's PATH). With rex linked into Homebrew's bin, they agree unless the lead's env names
+/// another rex (`TOWER_REX`, `REX_BIN_DIR`). Where only the PATHs differ (rex on the lead's
+/// PATH only), rex counts as found, so the lead gets the text that claims less.
 pub fn outside(env: impl Fn(&str) -> Option<OsString>) -> Option<String> {
     if env("REX_SESSION").is_some_and(|s| !s.is_empty()) {
         return None;
+    }
+    if find_exe(&path_in(&env), env("PATH").as_deref()).is_none() {
+        return Some(format!(
+            "control-tower: this session runs outside Rex (REX_SESSION is not set) and rex is \
+             not found, so the watch reads the workers you start from Claude Code's session \
+             list: it sees them, judges their prompts (without the prompt's text) and delivers \
+             posts and nudges to them. Rex would add {ADDS}."
+        ));
     }
     Some(
         "control-tower: this session runs outside Rex (REX_SESSION is not set), but the \
@@ -600,10 +619,7 @@ impl Terminal for Rex {
     }
 
     fn adds(&self) -> Option<&'static str> {
-        Some(
-            "the text of the prompt a worker waits at in its owner item, the dashboard's n and \
-             its keys, and starting workers as visible tabs",
-        )
+        Some(ADDS)
     }
 
     fn agents(&self, db: &Path, timeout: Duration) -> Result<Vec<Agent>, Unread> {
@@ -1342,22 +1358,56 @@ mod tests {
     }
 
     #[test]
-    fn a_session_without_rex_session_is_told_it_runs_outside_rex() {
-        let with = |vars: &[(&str, &str)]| {
-            outside(|name| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.into()))
+    fn a_session_without_rex_session_is_told_what_the_watch_sees_by_whether_rex_is_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let rex = dir.path().join("rex");
+        executable(&rex, "#!/bin/sh\n");
+        let found = rex.as_os_str();
+        let gone = dir.path().join("gone");
+        let gone = gone.as_os_str();
+        let empty = OsStr::new("");
+        let with = |vars: &[(&str, &OsStr)]| {
+            outside(|name| (vars.iter().find(|(k, _)| *k == name)).map(|(_, v)| v.to_os_string()))
         };
-        // Inside Rex: nothing, whatever else is set.
-        assert_eq!(with(&[("REX_SESSION", "session:7")]), None);
-        // Unset, or empty: told, naming what the board cannot see and whom to ask.
-        let told = with(&[("REX_BIN_DIR", "/opt/rex")]).unwrap();
-        assert_eq!(with(&[("REX_SESSION", "")]).as_deref(), Some(told.as_str()));
+        // Inside Rex: nothing, whether rex is found or not.
+        for rex in [found, gone] {
+            assert_eq!(
+                with(&[("REX_SESSION", OsStr::new("session:7")), ("TOWER_REX", rex)]),
+                None
+            );
+        }
+        // Outside Rex (unset, or empty) with rex found: the board does not see the workers,
+        // and whom to ask.
+        let told = with(&[("TOWER_REX", found)]).unwrap();
+        let empty_session = with(&[("REX_SESSION", empty), ("TOWER_REX", found)]);
+        assert_eq!(empty_session.as_deref(), Some(told.as_str()));
         assert!(
             told.starts_with(
-                "control-tower: this session runs outside Rex (REX_SESSION is not set)"
+                "control-tower: this session runs outside Rex (REX_SESSION is not set), but"
             ) && told.contains("not their prompts, and posts and nudges are not delivered")
                 && told.ends_with("question: post to @manager."),
             "{told}"
         );
+        // Found on the PATH as the watch finds it: the same.
+        let path = dir.path().as_os_str();
+        assert_eq!(with(&[("PATH", path)]).as_deref(), Some(told.as_str()));
+        // Outside Rex with no rex found (a missing TOWER_REX, or none on the PATH): the watch
+        // reads Claude Code's list, sees and delivers, and what Rex would add.
+        let unfound = with(&[("TOWER_REX", gone)]).unwrap();
+        let empty_session = with(&[("REX_SESSION", empty), ("TOWER_REX", gone)]);
+        assert_eq!(empty_session.as_deref(), Some(unfound.as_str()));
+        let no_path = with(&[("PATH", gone)]);
+        assert_eq!(no_path.as_deref(), Some(unfound.as_str()));
+        assert_eq!(
+            unfound,
+            format!(
+                "control-tower: this session runs outside Rex (REX_SESSION is not set) and rex \
+                 is not found, so the watch reads the workers you start from Claude Code's \
+                 session list: it sees them, judges their prompts (without the prompt's text) \
+                 and delivers posts and nudges to them. Rex would add {ADDS}."
+            )
+        );
+        assert_eq!(Rex::new("rex".into(), "claude".into()).adds(), Some(ADDS));
     }
 
     #[test]

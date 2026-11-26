@@ -37,6 +37,11 @@ tag's date, and a new empty Unreleased goes above it.
   any terminal, reading worker state from Claude Code's session list, and Rex adds the text
   of the prompt a worker waits at, the dashboard's `n`, `tower space` and `tower popup`,
   and starting workers as visible tabs (#165).
+- **A lead outside Rex is told what the watch sees.** With rex found, the notice of
+  `tower lead attach` and the SessionStart hook is as before: the board does not see the
+  workers it starts, to raise with the owner. With no rex found, it says the watch reads
+  those workers from Claude Code's session list (it sees them, judges their prompts without
+  the prompt's text and delivers to them) and what Rex would add (#170).
 
 ## [0.7.0] - 2026-11-26
 
