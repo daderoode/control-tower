@@ -25,6 +25,12 @@
 //! The posts for one recipient in one drain are one send, so a burst is one message and no
 //! session's burst or repeat limits drop it.
 //!
+//! A lead of another board than the post's hears only its own board, so a post naming it
+//! (its name or session, ignoring case) is sent to no one: it is a send to that lead
+//! (`Recipient::Lead`) the round judges, never the terminal's, and tells its author on the
+//! post's thread which board to post on (`OTHER_LEAD`), with no item for the owner (#145).
+//! The post's own lead stays silent, as above, even when its session leads another board.
+//!
 //! A name no agent in the terminal has and no worker on the board ever had (no task's assignee, no
 //! post's author: `Pending::known`) is someone the post only seemed to name, like `@name` or
 //! `@media` quoted without backticks, or a worker's name misspelt. Its failure is
@@ -63,7 +69,8 @@
 //! `START_GRACE` old, and the posts from the first under that wait. So every such name in a
 //! post is judged in the same round, a grace and up to a round after the post, whatever is
 //! posted after it, and a worker listed after an older post to it was judged still gets the
-//! newer ones.
+//! newer ones. A send to another board's lead is judged the same way, so the one reply
+//! names it too.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -104,6 +111,10 @@ const WHY_CHARS: usize = 300;
 /// How tower's reply to a post's author starts after "@<author> ", when the post named
 /// someone no worker on the board is: the reply goes to that author, and only to it.
 pub const UNKNOWN_NAME: &str = "no worker is named ";
+/// How tower's reply to a post's author starts after "@<author> " when the post named the
+/// lead of another board, who hears only its own board (#145): the reply goes to that
+/// author, and only to it.
+pub const OTHER_LEAD: &str = "a lead hears only its own board, so your post did not reach ";
 /// The most names one such reply lists.
 const UNKNOWN_NAMES_MAX: usize = 10;
 
@@ -187,13 +198,18 @@ impl Pending {
 pub enum Recipient {
     /// A worker, by its name in lower case: names are compared ignoring case.
     Worker(String),
+    /// The lead of another board than the post's: never sent anything, since a lead hears
+    /// only its own board; the post's author is told where to post instead (#145).
+    Lead(LeadBoard),
 }
 
 impl Recipient {
-    /// Its key in the board's failure episodes: a worker's name ignoring case.
+    /// Its key in the board's failure episodes and sends: a worker's name ignoring case, or
+    /// "lead R<n>" for another board's lead, which no worker's name can be (it has a space).
     pub fn key(&self) -> String {
         match self {
             Recipient::Worker(name) => name.to_ascii_lowercase(),
+            Recipient::Lead(board) => format!("lead {}", board.repo),
         }
     }
 }
@@ -206,16 +222,19 @@ pub struct Batch {
 }
 
 /// Who each pending post goes to, as one batch per worker, in the order a post first
-/// named them. A recipient is not sent a post it was sent already (`Pending::sent`).
+/// named them, and one per lead of another board a post named, whose author is told where
+/// to post instead (#145). A recipient is not sent a post it was sent already
+/// (`Pending::sent`).
 pub fn plan(pending: &Pending) -> Vec<Batch> {
     let mut workers: Vec<Batch> = Vec::new();
-    let is_any_lead = |name: &str| pending.leads.iter().any(|l| l.is_lead(name));
     for (i, post) in pending.posts.iter().enumerate() {
         let Some(board) = pending.leads.iter().find(|l| l.repo == post.repo) else {
             continue;
         };
-        let mut names: Vec<&str> = if post.author.eq_ignore_ascii_case(SYSTEM_AUTHOR) {
-            // Tower's own posts reach no worker, but its reply to an author reaches that one.
+        // Tower's own posts reach no worker, but its reply to an author reaches that one, and
+        // never a lead, so a reply never draws one.
+        let reply = post.author.eq_ignore_ascii_case(SYSTEM_AUTHOR);
+        let mut names: Vec<&str> = if reply {
             match replied_to(&post.text) {
                 Some(author) => vec![author],
                 None => continue,
@@ -228,7 +247,7 @@ pub fn plan(pending: &Pending) -> Vec<Batch> {
         {
             names.push(assignee);
         }
-        let mut named: Vec<&str> = Vec::new();
+        let mut named: Vec<Recipient> = Vec::new();
         for name in names {
             // A name must start with a letter or digit, so no post puts an option ("@--help")
             // in a terminal's arguments.
@@ -236,22 +255,23 @@ pub fn plan(pending: &Pending) -> Vec<Batch> {
                 || name.eq_ignore_ascii_case(&post.author)
                 || name.eq_ignore_ascii_case(OWNER_AUTHOR)
                 || name.eq_ignore_ascii_case(SYSTEM_AUTHOR)
-                || is_any_lead(name)
-                || named.iter().any(|n| n.eq_ignore_ascii_case(name));
-            if !skip {
-                named.push(name);
+                || board.is_lead(name);
+            // Names are compared ignoring case: `@Senior` is senior. Another board's lead
+            // hears only its own board, so its mention is told to the author (#145).
+            let to = match pending.leads.iter().find(|l| l.is_lead(name)) {
+                Some(_) if skip || reply => continue,
+                Some(other) => Recipient::Lead(other.clone()),
+                None if skip => continue,
+                None => Recipient::Worker(name.to_ascii_lowercase()),
+            };
+            if !named.contains(&to) {
+                named.push(to);
             }
         }
-        for name in named {
-            let found = (workers.iter_mut())
-                .find(|b| matches!(&b.to, Recipient::Worker(w) if w.eq_ignore_ascii_case(name)));
-            match found {
+        for to in named {
+            match workers.iter_mut().find(|b| b.to == to) {
                 Some(b) => b.posts.push(i),
-                // Names are compared ignoring case: `@Senior` is senior.
-                None => workers.push(Batch {
-                    to: Recipient::Worker(name.to_ascii_lowercase()),
-                    posts: vec![i],
-                }),
+                None => workers.push(Batch { to, posts: vec![i] }),
             }
         }
     }
@@ -263,37 +283,131 @@ pub fn plan(pending: &Pending) -> Vec<Batch> {
     workers
 }
 
-/// The author tower's reply `text` is for, when it is one (`UNKNOWN_NAME`).
+/// The author tower's reply `text` is for, when it is one (`UNKNOWN_NAME`, `OTHER_LEAD`).
 fn replied_to(text: &str) -> Option<&str> {
     let (to, rest) = text.strip_prefix('@')?.split_once(' ')?;
-    rest.starts_with(UNKNOWN_NAME).then_some(to)
+    (rest.starts_with(UNKNOWN_NAME) || rest.starts_with(OTHER_LEAD)).then_some(to)
 }
 
-/// Tower's reply to `author` for a post that named `names`, none of them a worker on the
-/// board: addressed with a mention when the author's name is one (a lead's name with
-/// spaces is not; its board waiter brings it the reply anyway).
-fn unknown_text(author: &str, names: &[String], terminal: &str) -> String {
-    let to = if mentioned(&format!("@{author}")) == [author] {
+/// What a post's author is told in tower's one reply to it (#135): the names in it no
+/// worker on the board has had, and the other boards' leads it named (#145).
+#[derive(Debug)]
+struct Told {
+    /// The post, as an index into `Pending::posts`.
+    post: usize,
+    names: Vec<String>,
+    leads: Vec<LeadBoard>,
+}
+
+/// The entry for `post` in a round's replies, added when it has none.
+fn told(list: &mut Vec<Told>, post: usize) -> &mut Told {
+    let at = match list.iter().position(|t| t.post == post) {
+        Some(at) => at,
+        None => {
+            list.push(Told {
+                post,
+                names: Vec::new(),
+                leads: Vec::new(),
+            });
+            list.len() - 1
+        }
+    };
+    &mut list[at]
+}
+
+/// `items` as "a", "a or b", "a, b or c".
+fn or_list(items: &[String]) -> String {
+    match items {
+        [one] => one.clone(),
+        [init @ .., last] => format!("{} or {last}", init.join(", ")),
+        [] => String::new(),
+    }
+}
+
+/// How tower's reply addresses `author`: with a mention when the author's name is one (a
+/// lead's name with spaces is not; its board waiter brings it the reply anyway).
+fn addressed(author: &str) -> String {
+    if mentioned(&format!("@{author}")) == [author] {
         format!("@{author}")
     } else {
         format!("{author}:")
-    };
+    }
+}
+
+/// Tower's one reply to `author` for a post: of the names in it no worker on the board has
+/// had (`unknown_text`), then of the other boards' leads it named (`lead_text`).
+fn reply_text(author: &str, told: &Told, terminal: &str) -> String {
+    let leads = lead_text(&told.leads);
+    if told.names.is_empty() {
+        return format!("{} {leads}", addressed(author));
+    }
+    let names = unknown_text(author, &told.names, terminal);
+    match leads.strip_prefix('a') {
+        Some(rest) => format!("{names} A{rest}"),
+        None => names,
+    }
+}
+
+/// Tower's reply to `author` for a post that named `names`, none of them a worker on the
+/// board.
+fn unknown_text(author: &str, names: &[String], terminal: &str) -> String {
     let mut quoted: Vec<String> = (names.iter().take(UNKNOWN_NAMES_MAX))
         .map(|n| format!("`@{n}`"))
         .collect();
     if names.len() > UNKNOWN_NAMES_MAX {
         quoted.push(format!("{} more", names.len() - UNKNOWN_NAMES_MAX));
     }
-    let list = match quoted.as_slice() {
-        [one] => one.clone(),
-        [init @ .., last] => format!("{} or {last}", init.join(", ")),
-        [] => String::new(),
-    };
     format!(
-        "{to} {UNKNOWN_NAME}{list}, so your post reached no one by that name: {terminal} has no \
+        "{} {UNKNOWN_NAME}{}, so your post reached no one by that name: {terminal} has no \
          such agent and no worker on this board has had the name. If you meant a worker, check \
-         the name; if you were quoting, put it in backticks."
+         the name; if you were quoting, put it in backticks.",
+        addressed(author),
+        or_list(&quoted)
     )
+}
+
+/// What tower's reply says of `leads`, the leads of other boards a post named, starting
+/// with `OTHER_LEAD`: each lead, by its session (with `@` when that is a mention; a session
+/// with a space is not), and the board to post on to reach it, with the command quoting a
+/// session with a space so it can be typed as given. Empty for none.
+fn lead_text(leads: &[LeadBoard]) -> String {
+    let quoted: Vec<String> = (leads.iter().map(|l| &l.lead.session))
+        .map(|s| {
+            if mentioned(&format!("@{s}")) == [s.as_str()] {
+                format!("`@{s}`")
+            } else {
+                format!("`{s}`")
+            }
+        })
+        .collect();
+    let new = |l: &LeadBoard| {
+        if l.lead.session.contains(char::is_whitespace) {
+            format!("`tower thread new \"{}\"`", l.lead.session)
+        } else {
+            format!("`tower thread new {}`", l.lead.session)
+        }
+    };
+    match leads {
+        [] => String::new(),
+        [one] => format!(
+            "{OTHER_LEAD}{}: post on its board, {}, instead ({}, or `tower post` to a thread \
+             there).",
+            quoted[0],
+            one.repo,
+            new(one)
+        ),
+        _ => {
+            let boards: Vec<String> = (leads.iter().zip(&quoted))
+                .map(|(l, q)| format!("{} for {q} ({})", l.repo, new(l)))
+                .collect();
+            format!(
+                "{OTHER_LEAD}{}: post on each one's board instead, {}, or `tower post` to a \
+                 thread there.",
+                or_list(&quoted),
+                boards.join(", ")
+            )
+        }
+    }
 }
 
 /// `text` as it is safe to hand on to a worker: every control character but newline dropped
@@ -400,6 +514,7 @@ fn failure_line(to: &Recipient, why: &str, tasks: &[TaskId]) -> String {
     };
     match to {
         Recipient::Worker(name) => format!("{name}: {why}{hint}"),
+        Recipient::Lead(board) => format!("{}: {why}{hint}", board.lead.session),
     }
 }
 
@@ -493,8 +608,8 @@ impl Deliver {
         // then (key, line for the item, log line) for each, told in one item per board.
         type Failed = (RepoId, ThreadId, Vec<(String, String, String)>);
         let mut failed: Vec<Failed> = Vec::new();
-        // The names no worker on the board has had, by post (index): its author is told.
-        let mut unknown: Vec<(usize, Vec<String>)> = Vec::new();
+        // What each post's author is told, in one reply per post.
+        let mut tells: Vec<Told> = Vec::new();
         for mut batch in plan(&pending) {
             let mut posts: Vec<&Post> = batch.posts.iter().map(|&i| &pending.posts[i]).collect();
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -514,11 +629,50 @@ impl Deliver {
                 continue;
             }
             let key = batch.to.key();
+            if let Recipient::Lead(other) = &batch.to {
+                // Never sent, and judged one post at a time once each is `START_GRACE` old,
+                // as a name no worker has had is, so a post naming both gets one reply (#135).
+                if let Some(at) = posts.iter().position(|p| now - p.posted_at < START_GRACE) {
+                    let rest = batch.posts.split_off(at);
+                    posts.truncate(at);
+                    log.push(format!(
+                        "{} post(s) naming {}, the lead of {}, wait until each is a grace old, \
+                         so each author is told of every name in a post at once",
+                        rest.len(),
+                        other.lead.session,
+                        other.repo
+                    ));
+                    held.extend(&rest);
+                }
+                let Some(last) = posts.last().map(|p| p.id) else {
+                    continue;
+                };
+                let n = posts.len();
+                match store.mark_sent(&key, last) {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(e) => {
+                        log.push(format!("did not judge {n} post(s) naming {key}: {e:#}"));
+                        held.extend(&batch.posts);
+                        continue;
+                    }
+                }
+                for &i in &batch.posts {
+                    told(&mut tells, i).leads.push(other.clone());
+                }
+                log.push(format!(
+                    "{n} post(s) name {}, the lead of {}, who hears only its own board; no item \
+                     for the owner",
+                    other.lead.session, other.repo
+                ));
+                continue;
+            }
             // Whether the terminal has an agent by the name: only one it has not can have
             // been closed, or be starting still.
             let listed = match &batch.to {
                 Recipient::Worker(name) => matches!(&agents,
                     Some(Ok(a)) if a.iter().any(|a| a.eq_ignore_ascii_case(name))),
+                Recipient::Lead(_) => unreachable!("judged above, never sent"),
             };
             // Tower's replies, each to the author of a post: one that had started.
             let replies = (posts.iter()).all(|p| p.author.eq_ignore_ascii_case(SYSTEM_AUTHOR));
@@ -583,6 +737,7 @@ impl Deliver {
                     };
                     (name.clone(), sent, !listed)
                 }
+                Recipient::Lead(_) => unreachable!("judged above, never sent"),
             };
             log.push(match sent {
                 Sent::Delivered => match store.delivered(&key) {
@@ -610,10 +765,7 @@ impl Deliver {
                 }
                 Sent::Failed(why) if gone && !pending.knows(&who) => {
                     for &i in &batch.posts {
-                        match unknown.iter_mut().find(|(p, _)| *p == i) {
-                            Some((_, names)) => names.push(who.clone()),
-                            None => unknown.push((i, vec![who.clone()])),
-                        }
+                        told(&mut tells, i).names.push(who.clone());
                     }
                     format!(
                         "could not deliver {n} post(s) to {who}: {why}, a name no worker on \
@@ -664,9 +816,9 @@ impl Deliver {
             let n = held.len();
             log.push(format!("{n} post(s) wait for the next round"));
         }
-        unknown.sort_by_key(|(i, _)| *i);
-        for (i, names) in &unknown {
-            let post = &pending.posts[*i];
+        tells.sort_by_key(|t| t.post);
+        for tell in &tells {
+            let post = &pending.posts[tell.post];
             if post.author.eq_ignore_ascii_case(SYSTEM_AUTHOR) {
                 log.push(format!(
                     "tower's post {} named no worker; not told",
@@ -674,14 +826,18 @@ impl Deliver {
                 ));
                 continue;
             }
-            let text = unknown_text(&post.author, names, self.terminal.name());
+            let text = reply_text(&post.author, tell, self.terminal.name());
+            let what = match (tell.names.is_empty(), tell.leads.is_empty()) {
+                (false, true) => "the name(s) no worker has had",
+                (true, _) => "the lead(s) of another board it named",
+                (false, false) => {
+                    "the name(s) no worker has had and the lead(s) of another board it named"
+                }
+            };
             log.push(match store.tower_reply(post.thread, &text, now) {
-                Ok(true) => format!(
-                    "told {} in {} of the name(s) no worker has had",
-                    post.author, post.thread
-                ),
+                Ok(true) => format!("told {} in {} of {what}", post.author, post.thread),
                 Ok(false) => format!(
-                    "did not tell {} of the name(s) no worker has had: {} is resolved",
+                    "did not tell {} of {what}: {} is resolved",
                     post.author, post.thread
                 ),
                 Err(e) => format!("failed to tell {} in {}: {e:#}", post.author, post.thread),
@@ -833,7 +989,8 @@ mod tests {
                 "cat-lead",
                 "@qa-one and @Dev-One please, @dev-one",
             ),
-            // A worker naming itself, the owner, system, a lead of another board.
+            // A worker naming itself, the owner, system, a lead of another board: that lead
+            // is judged for its author (#145).
             post(
                 2,
                 Some(1),
@@ -866,8 +1023,27 @@ mod tests {
             [
                 batch(worker("qa-one"), &[0, 1, 6, 7, 8]),
                 batch(worker("dev-one"), &[0, 6]),
+                batch(Recipient::Lead(lead(2, "Other", "other-lead")), &[1]),
             ]
         );
+    }
+
+    /// A post naming the lead of another board, by its session or its name in any case, is
+    /// one batch for that lead, judged for the post's author (#145). The post's own lead is
+    /// never one, even when its session leads another board too (#141), and tower's reply to
+    /// a lead is none, so a reply never draws one.
+    #[test]
+    fn a_mention_of_another_boards_lead_is_planned_never_the_own_lead() {
+        let mut p = pending(vec![
+            post(1, None, "dev-2", "@Other-Lead and @OTHER, see @cat-lead"),
+            post(2, None, "system", &format!("@other-lead {OTHER_LEAD}`@x`")),
+            post(3, None, "dev-2", "@cat-lead and @Catalogue"),
+        ]);
+        let other = batch(Recipient::Lead(lead(2, "Other", "other-lead")), &[0]);
+        assert_eq!(plan(&p), std::slice::from_ref(&other));
+        p.leads
+            .insert(0, lead(3, "Catalogue elsewhere", "cat-lead"));
+        assert_eq!(plan(&p), [other]);
     }
 
     #[test]
@@ -887,8 +1063,23 @@ mod tests {
             post(3, None, "system", &reply("@manager")),
             post(4, None, "system", &reply("Catalogue Lead:")),
             post(5, None, "system", "@dev-2 was nudged: no worker is named"),
+            post(
+                6,
+                None,
+                "system",
+                &format!("@dev-3 {OTHER_LEAD}`@other-lead`: ..."),
+            ),
+            post(
+                7,
+                None,
+                "system",
+                &format!("@other-lead {OTHER_LEAD}`@cat-lead`: ..."),
+            ),
         ]);
-        assert_eq!(plan(&p), [batch(worker("dev-2"), &[0])]);
+        assert_eq!(
+            plan(&p),
+            [batch(worker("dev-2"), &[0]), batch(worker("dev-3"), &[5])]
+        );
     }
 
     #[test]
@@ -1972,6 +2163,109 @@ mod tests {
             spaced.starts_with("Catalogue Lead: no worker is named"),
             "{spaced}"
         );
+        // Two other boards' leads: each with the board to post on.
+        let two = lead_text(&[lead(2, "Shop", "shop-lead"), lead(3, "Pay", "pay-lead")]);
+        assert_eq!(
+            two,
+            format!(
+                "{OTHER_LEAD}`@shop-lead` or `@pay-lead`: post on each one's board instead, R2 \
+                 for `@shop-lead` (`tower thread new shop-lead`), R3 for `@pay-lead` (`tower \
+                 thread new pay-lead`), or `tower post` to a thread there."
+            )
+        );
+        // A session with a space is no mention, and is quoted so the command works as typed.
+        let spaced = lead_text(&[lead(2, "Shop", "Shop Lead")]);
+        assert_eq!(
+            spaced,
+            format!(
+                "{OTHER_LEAD}`Shop Lead`: post on its board, R2, instead (`tower thread new \
+                 \"Shop Lead\"`, or `tower post` to a thread there)."
+            )
+        );
+    }
+
+    /// The fixture's board, R1, and a second one, R2, whose lead is `shop-lead`, listed by
+    /// Rex like any session.
+    fn with_shop_lead() -> Fixture {
+        let f = Fixture::new();
+        let mut store = f.store();
+        let m = store.add_milestone("Shop", "goal", None).unwrap();
+        store.lead_milestone(m, "Shop", "shop-lead", None).unwrap();
+        f.agents(&["dev-1", "dev-2", "qa-1", "shop-lead"]);
+        f
+    }
+
+    /// The lead of another board hears only its own board: a post naming it here is sent to
+    /// no one, even with Rex listing its session, and its author is told on the thread, once,
+    /// which board to post on; the reply reaches the author, and the owner gets no item
+    /// (#145). A mention of the board's own lead stays silent.
+    #[test]
+    fn a_mention_of_another_boards_lead_tells_the_author_where_to_post() {
+        let f = with_shop_lead();
+        f.post("dev-2", "@shop-lead can the API take a cart id?");
+        assert_eq!(
+            f.drain(),
+            [
+                "1 post(s) name shop-lead, the lead of R2, who hears only its own board; no \
+                 item for the owner",
+                "told dev-2 in T1 of the lead(s) of another board it named",
+            ]
+        );
+        let reply = "@dev-2 a lead hears only its own board, so your post did not reach \
+                     `@shop-lead`: post on its board, R2, instead (`tower thread new shop-lead`, \
+                     or `tower post` to a thread there).";
+        assert_eq!(f.replies(), [reply]);
+        assert!(f.items().is_empty(), "{:?}", f.items());
+        assert_eq!(f.drain(), ["delivered 1 post(s) to dev-2"]);
+        let prompts = f.prompts();
+        assert_eq!(prompts.len(), 1, "{prompts:?}");
+        assert!(prompts[0].starts_with("dev-2|"), "{prompts:?}");
+        assert!(prompts[0].contains(reply), "{prompts:?}");
+        assert!(f.drain().is_empty());
+        assert_eq!(f.replies().len(), 1);
+        f.post("dev-2", "@cat-lead done");
+        assert!(f.drain().is_empty());
+        assert_eq!(f.replies().len(), 1);
+        assert!(f.items().is_empty(), "{:?}", f.items());
+    }
+
+    /// A post naming another board's lead and a name no worker has had gets one reply naming
+    /// both, a grace after the post, as a post naming two such names does (#135).
+    #[test]
+    fn a_post_naming_another_boards_lead_and_an_unknown_name_gets_one_reply() {
+        let f = with_shop_lead();
+        f.post_at("dev-2", "@shop-lead and @qa-x, see this", 1_000);
+        assert_eq!(
+            f.drain_at(1_030),
+            [
+                "1 post(s) naming shop-lead, the lead of R2, wait until each is a grace old, \
+                 so each author is told of every name in a post at once",
+                "1 post(s) for qa-x wait: Rex has no agent named qa-x yet; a worker may be \
+                 starting",
+                "1 post(s) wait for the next round",
+            ]
+        );
+        assert!(f.replies().is_empty(), "{:?}", f.replies());
+        let log = f.drain_at(1_060);
+        assert!(
+            log.contains(
+                &"told dev-2 in T1 of the name(s) no worker has had and the lead(s) of another \
+                  board it named"
+                    .to_string()
+            ),
+            "{log:?}"
+        );
+        let both = "@dev-2 no worker is named `@qa-x`, so your post reached no one by that \
+                    name: Rex has no such agent and no worker on this board has had the name. If \
+                    you meant a worker, check the name; if you were quoting, put it in \
+                    backticks. A lead hears only its own board, so your post did not reach \
+                    `@shop-lead`: post on its board, R2, instead (`tower thread new \
+                    shop-lead`, or `tower post` to a thread there).";
+        assert_eq!(f.replies(), [both]);
+        assert_eq!(f.drain_at(1_090), ["delivered 1 post(s) to dev-2"]);
+        assert!(f.drain_at(1_120).is_empty());
+        assert_eq!(f.replies().len(), 1);
+        assert!(f.items().is_empty(), "{:?}", f.items());
     }
 
     /// The reply is advice to its author; when the author is closed before

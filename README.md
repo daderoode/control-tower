@@ -739,7 +739,10 @@ send loses that one send, and no one is told.
   (`@qa.`) still mentions it, and so does a name before `.` or `(` and any character that
   is not ASCII, such as Chinese or Japanese (`请@qa.谢谢`). While Rex cannot be read, posts
   for workers wait (said once in the log) and go when it answers. A lead receives the posts
-  on its own board only: a worker naming another board's lead reaches no one.
+  on its own board only, so a post naming another board's lead reaches no one there:
+  tower replies on the post's thread to its author, naming that lead's board (`R<n>`) and
+  how to post on it, a minute after the post, in the same one reply as any name in the post
+  no worker has had. The owner gets no item.
 - **To the owner:** unchanged, the `@manager` items.
 
 **The relay.** tower cannot use Claude Code's cross-session messaging itself, so each send

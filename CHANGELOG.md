@@ -20,8 +20,15 @@ tag's date, and a new empty Unreleased goes above it.
   repo's link is a page past its project rather than the project's address. `tower task
   add` takes `--link`, checked before the task exists, so a refused link adds no task;
   `task set --repo` and `task hand` refuse a linked task into another repo the same way.
-  Other trackers' links, on any other host whatever their path, are taken as before. The lead skill files a task with its link in
-  `task add` and says to file a repo's issue only under a milestone of that repo (#142).
+  Other trackers' links, on any other host whatever their path, are taken as before. The
+  lead skill files a task with its link in `task add` and says to file a repo's issue only
+  under a milestone of that repo (#142).
+
+- **A post naming another board's lead tells its author where to post.** A lead hears only
+  its own board, so a post naming the lead of another repo reached no one, with no reply
+  and no item. Its author now gets tower's reply on the post's thread, naming that lead's
+  board and how to post there, a minute after the post and in the same one reply as any
+  name in it no worker has had. A mention of the board's own lead is unchanged (#145).
 
 ## [0.6.3] - 2026-11-26
 
