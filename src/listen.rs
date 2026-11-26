@@ -725,7 +725,7 @@ fn compacted(
         ));
     }
     // Who else is working: everyone who posted on the repo's open threads whom `claude
-    // agents --json` lists, the lead aside, each once.
+    // agents --json` lists, the lead aside, each once, ignoring case.
     let is_lead = |name: &str| {
         name.eq_ignore_ascii_case(&lead.name) || name.eq_ignore_ascii_case(&lead.session)
     };
@@ -736,7 +736,7 @@ fn compacted(
     {
         for author in &thread.authors {
             if !is_lead(author)
-                && !live.contains(&author.as_str())
+                && !live.iter().any(|l| l.eq_ignore_ascii_case(author))
                 && crate::deliver::named(agents, author)?
             {
                 live.push(author);
@@ -1986,6 +1986,8 @@ mod tests {
         for i in 1..=COMPACT_TASKS {
             store.post(second, &format!("w{i}"), "status").unwrap();
         }
+        // The same worker in another case is still named once, as first seen.
+        store.post(second, "Dev-1-A", "status").unwrap();
         // Left out: a resolved thread's poster, and a poster on R2's board.
         let (done, _) = store
             .open_thread(
