@@ -15,9 +15,9 @@ tag's date, and a new empty Unreleased goes above it.
   lead's context, the SessionStart hook said nothing while its board waiter ran. It now
   says, in a few lines, what to re-read (the lead skill's Who you are table and Principles,
   by path, the repo's `SDLC.md`, each open milestone's standing context, its memory), the
-  board's state (open milestones, tasks in progress with their assignees, live or gone, and
-  PRs, and the unread count, never told) and that its waiters still run, or how to arm them
-  (#150).
+  board's state (open milestones, tasks in progress or blocked with their assignees, live or
+  gone, and PRs, the live workers who posted on its open threads, and the unread count,
+  never told) and that its waiters still run, or how to arm them (#150).
 
 ### Fixed
 

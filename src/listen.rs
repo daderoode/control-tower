@@ -632,10 +632,12 @@ pub fn session_start(
 /// What the lead `lead` of `repo` is told after a compaction: what to re-read, by `skill`
 /// (the lead skill's file, when known) and its checkout's `SDLC.md` (when it has one); its
 /// board now: open milestones, its in-progress tasks (at most `COMPACT_TASKS`, the rest
-/// counted, with the command that shows each place holding one) each with its assignee, live when `agents` (`claude agents --json`) lists a
-/// session of that name, and its PR, and its unread posts, counted and never told, so the
-/// lead still reads them; then its waiters: still running when `waiting`, else how to arm
-/// them.
+/// counted, with the command that shows each place holding one), each blocked or in
+/// progress, with its assignee, live when `agents` (`claude agents --json`) lists a
+/// session of that name, and its PR; its live workers (who posted on its open threads and
+/// is listed, the lead aside, at most `COMPACT_TASKS`, the rest counted); and its unread
+/// posts, counted and never told, so the lead still reads them; then its waiters: still
+/// running when `waiting`, else how to arm them.
 fn compacted(
     store: &mut Store,
     repo: RepoId,
@@ -645,9 +647,7 @@ fn compacted(
     waiting: bool,
 ) -> Result<String> {
     let board = store.load()?;
-    let checkout = (board.repos.iter())
-        .find(|r| r.id == repo)
-        .and_then(|r| r.path.as_deref());
+    let checkout = board.repo(repo).and_then(|r| r.path.as_deref());
     let place = match checkout {
         Some(path) => format!("{repo} ({path})"),
         None => repo.to_string(),
@@ -671,11 +671,7 @@ fn compacted(
          Board of {repo} now:",
         lead.name
     );
-    let milestones: Vec<_> = (board.milestones.iter())
-        .filter(|m| m.repo == Some(repo))
-        .collect();
-    let open: Vec<String> = (milestones.iter())
-        .filter(|m| m.stage() != Stage::Done)
+    let open: Vec<String> = (board.active_of(Some(repo)))
         .map(|m| format!("{} {}", m.id, m.title))
         .collect();
     text.push_str("\n- open milestones: ");
@@ -686,13 +682,11 @@ fn compacted(
     });
     // Each task with the command that shows it: its milestone's, or the repo's for a
     // standalone task.
-    let tasks: Vec<_> = (milestones.iter())
+    // A Done milestone's tasks are all Done, so the active milestones hold every task in
+    // progress.
+    let tasks: Vec<_> = (board.active_of(Some(repo)))
         .flat_map(|m| (m.tasks.iter()).map(|t| (t, format!("tower milestone show {}", m.id))))
-        .chain(
-            (board.standalone.iter())
-                .filter(|t| t.repo == Some(repo))
-                .map(|t| (t, format!("tower repo show {repo}"))),
-        )
+        .chain((board.standalone_of(Some(repo))).map(|t| (t, format!("tower repo show {repo}"))))
         .filter(|(t, _)| t.stage == Stage::InProgress)
         .collect();
     if tasks.is_empty() {
@@ -708,8 +702,12 @@ fn compacted(
             Some(mr) => format!("PR {mr}"),
             None => "no PR".to_string(),
         };
+        let stage = match task.details.blocked {
+            Some(_) => "blocked",
+            None => "in progress",
+        };
         text.push_str(&format!(
-            "\n- {} {}: in progress, {who}, {pr}",
+            "\n- {} {}: {stage}, {who}, {pr}",
             task.id, task.title
         ));
     }
@@ -725,6 +723,32 @@ fn compacted(
             hidden.len(),
             shows.join(", ")
         ));
+    }
+    // Who else is working: everyone who posted on the repo's open threads whom `claude
+    // agents --json` lists, the lead aside, each once.
+    let is_lead = |name: &str| {
+        name.eq_ignore_ascii_case(&lead.name) || name.eq_ignore_ascii_case(&lead.session)
+    };
+    let mut live: Vec<&str> = Vec::new();
+    for thread in (board.repo(repo).into_iter())
+        .flat_map(|r| &r.threads)
+        .filter(|t| t.resolved.is_none())
+    {
+        for author in &thread.authors {
+            if !is_lead(author)
+                && !live.contains(&author.as_str())
+                && crate::deliver::named(agents, author)?
+            {
+                live.push(author);
+            }
+        }
+    }
+    if !live.is_empty() {
+        text.push_str("\n- live workers: ");
+        text.push_str(&live[..live.len().min(COMPACT_TASKS)].join(", "));
+        if live.len() > COMPACT_TASKS {
+            text.push_str(&format!(" and {} more", live.len() - COMPACT_TASKS));
+        }
     }
     text.push_str(&match store.unread_count(repo)? {
         0 => "\n- unread: none".to_string(),
@@ -1918,6 +1942,7 @@ mod tests {
              running\n\
              - {sort} Fix sort: in progress, dev-5-sort (gone), no PR\n\
              - {notes} Release notes: in progress, unassigned, no PR\n\
+             - live workers: dev-3-search\n\
              - unread: 2 posts, read them with tower lead unread R1\n\
              Your board waiter and forge waiter still run (background commands outlive a \
              compaction): do not arm them again.",
@@ -1932,6 +1957,97 @@ mod tests {
                 && held.contains("[T1] dev-3-search: status: two"),
             "{held}"
         );
+    }
+
+    #[test]
+    fn a_compacted_lead_is_told_its_live_workers_and_its_blocked_tasks() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        // Blocked reads as blocked; the task beside it as in progress.
+        let stuck = store.add_task(MilestoneId(1), "Stuck").unwrap();
+        let moving = store.add_task(MilestoneId(1), "Moving").unwrap();
+        for n in [stuck, moving] {
+            store.set_task_stage(n, Stage::InProgress).unwrap();
+        }
+        store.block_task(stuck, "waiting on the vendor").unwrap();
+        // R1's open threads: T1, and a second one dev-1-a posts on too (named once).
+        let (second, _) = store
+            .open_thread(
+                &BoardOf::Milestone(MilestoneId(1)),
+                "dev-1-a",
+                None,
+                "Two",
+                "hi",
+            )
+            .unwrap();
+        for author in ["dev-1-a", "gone-1", "Catalogue"] {
+            store.post(ThreadId(1), author, "status").unwrap();
+        }
+        for i in 1..=COMPACT_TASKS {
+            store.post(second, &format!("w{i}"), "status").unwrap();
+        }
+        // Left out: a resolved thread's poster, and a poster on R2's board.
+        let (done, _) = store
+            .open_thread(
+                &BoardOf::Milestone(MilestoneId(1)),
+                "senior-1-a",
+                None,
+                "Old",
+                "x",
+            )
+            .unwrap();
+        store.resolve_thread(done, "senior-1-a", "passed").unwrap();
+        store.post(ThreadId(2), "dev-9-r2", "status").unwrap();
+        // Listed: all but gone-1; the lead under its session name and its display name.
+        let mut sessions = vec![
+            ("sess-2", "cat-lead".to_string()),
+            ("s-name", "Catalogue".to_string()),
+            ("s-dev", "DEV-1-A".to_string()),
+            ("s-senior", "senior-1-a".to_string()),
+            ("s-r2", "dev-9-r2".to_string()),
+        ];
+        let ws: Vec<String> = (1..=COMPACT_TASKS).map(|i| format!("w{i}")).collect();
+        sessions.extend(ws.iter().map(|w| ("s-w", w.clone())));
+        let pairs: Vec<(&str, &str)> = sessions.iter().map(|(s, n)| (*s, n.as_str())).collect();
+        let lists = claude_lists(&pairs);
+        let reply = session_start(
+            &db,
+            &start("sess-2", "compact", Some("cat-lead")),
+            None,
+            None,
+            || Ok(lists.clone()),
+        );
+        let said = context(reply.unwrap()).unwrap();
+        assert!(
+            said.contains(&format!(
+                "\n- {stuck} Stuck: blocked, unassigned, no PR\n- {moving} Moving: in progress, \
+                 unassigned, no PR\n"
+            )),
+            "{said}"
+        );
+        let first: Vec<&str> = ws
+            .iter()
+            .take(COMPACT_TASKS - 1)
+            .map(String::as_str)
+            .collect();
+        assert!(
+            said.contains(&format!(
+                "\n- live workers: dev-1-a, {} and 1 more\n- unread: ",
+                first.join(", ")
+            )),
+            "{said}"
+        );
+        // With none of them listed, no line at all.
+        let lists = claude_lists(&[("sess-3", "cat-lead")]);
+        let reply = session_start(
+            &db,
+            &start("sess-3", "compact", Some("cat-lead")),
+            None,
+            None,
+            || Ok(lists.clone()),
+        );
+        let said = context(reply.unwrap()).unwrap();
+        assert!(!said.contains("live workers"), "{said}");
     }
 
     #[test]
