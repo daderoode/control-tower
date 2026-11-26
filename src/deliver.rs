@@ -55,9 +55,10 @@
 //! it a few seconds later (#133). It is marked sent to no one, so it stays after the cursor,
 //! held for that name alone (every other recipient's sends go, recorded beyond the cursor),
 //! and goes the round the terminal lists the name. Only past the grace is it any of the
-//! failures above. Tower's replies are not held: they go to a post's author, who had started.
+//! failures above. A send made only of tower's replies is not held: they go to a post's
+//! author, who had started.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -476,9 +477,9 @@ impl Deliver {
         let pending = store.take_pending()?;
         let mut log = Vec::new();
         let deadline = Instant::now() + self.budget;
-        // The first post (index) some recipient was not offered this round: the cursor
-        // stops before it.
-        let mut left: Option<usize> = None;
+        // The posts (indexes) of the sends this round held, each counted once: the cursor
+        // stops before the first.
+        let mut held: BTreeSet<usize> = BTreeSet::new();
         // The terminal's agent names, asked once, before the first worker send.
         let mut agents: Option<Result<Vec<String>, String>> = None;
         // The recipients not reached, by board: the thread of the board's first failure,
@@ -502,7 +503,7 @@ impl Deliver {
             }
             let unread = matches!(agents, Some(Err(_)));
             if waits || unread {
-                left = Some(left.map_or(batch.posts[0], |l| l.min(batch.posts[0])));
+                held.extend(&batch.posts);
                 continue;
             }
             let n = posts.len();
@@ -525,7 +526,7 @@ impl Deliver {
                      be starting",
                     self.terminal.name()
                 ));
-                left = Some(left.map_or(batch.posts[0], |l| l.min(batch.posts[0])));
+                held.extend(&batch.posts);
                 continue;
             }
             let last = posts.last().map_or(0, |p| p.id);
@@ -534,7 +535,7 @@ impl Deliver {
                 Ok(false) => continue,
                 Err(e) => {
                     log.push(format!("did not send {n} post(s) to {}: {e:#}", key));
-                    left = Some(left.map_or(batch.posts[0], |l| l.min(batch.posts[0])));
+                    held.extend(&batch.posts);
                     continue;
                 }
             }
@@ -624,15 +625,15 @@ impl Deliver {
                 }
             });
         }
-        let upto = match left {
-            Some(i) => pending.posts[i].id - 1,
+        let upto = match held.first() {
+            Some(&i) => pending.posts[i].id - 1,
             None => pending.posts.last().map_or(0, |p| p.id),
         };
         if let Err(e) = store.advance_delivery(upto) {
             log.push(format!("could not move the delivery cursor: {e:#}"));
         }
-        if let Some(i) = left {
-            let n = pending.posts.len() - i;
+        if !held.is_empty() {
+            let n = held.len();
             log.push(format!("{n} post(s) wait for the next round"));
         }
         unknown.sort_by_key(|(i, _)| *i);
@@ -1614,7 +1615,7 @@ mod tests {
                  starting",
                 "delivered 1 post(s) to qa-1",
                 "delivered 1 post(s) to qa-2",
-                "2 post(s) wait for the next round",
+                "1 post(s) wait for the next round",
             ]
         );
         assert_eq!(
@@ -1622,7 +1623,7 @@ mod tests {
             [
                 "1 post(s) for qa-7 wait: Rex has no agent named qa-7 yet; a worker may be \
                  starting",
-                "2 post(s) wait for the next round",
+                "1 post(s) wait for the next round",
             ]
         );
         f.agents(&["dev-1", "dev-2", "qa-1", "qa-2", "qa-7"]);

@@ -772,8 +772,8 @@ a lead posts a worker's brief, then starts it, and Rex lists the new session a f
 later. Each round logs "1 post(s) for qa-7 wait: Rex has no agent named qa-7 yet; a worker
 may be starting" and tries again, and the round Rex lists the name, the send goes, with no
 item and no reply. Only that name's posts wait: every other recipient's go at once. A name
-still unlisted after the minute is one of the failures below. Tower's replies to an author
-never wait, since their author had started.
+still unlisted after the minute is one of the failures below. A send made only of tower's
+replies to an author never waits, since their author had started.
 
 A name Rex has no worker for, that no worker on the board ever had (no task's assignee has
 had it and nobody has posted under it, in any case), is a name the post only seemed to give:
