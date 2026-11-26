@@ -947,9 +947,10 @@ and an idle lead is never woken while nothing is posted:
   environment). With rex found: the board's team runs in Rex and the board does not see
   those workers (their prompts, and delivery to them), to raise with you. With no rex: the
   watch reads them from Claude Code's session list, so it sees them, judges their prompts
-  (without the prompt's text) and delivers to them, and what Rex would add. The hook says
-  so after the rest, a compaction's reply too. With `REX_SESSION` set, nothing more is
-  said.
+  (without the prompt's text) and delivers to them, and what Rex would add. Either way the
+  lead skill starts workers only in Rex, so the lead raises it with you before it starts
+  any. The hook says so after the rest, a compaction's reply too. With `REX_SESSION` set,
+  nothing more is said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
   attached one by its Claude session, as `claude agents --json` (or `TOWER_CLAUDE`) lists it
