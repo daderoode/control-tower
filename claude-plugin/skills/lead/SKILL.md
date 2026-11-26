@@ -164,15 +164,18 @@ implement, test or review.
    **Where you run.** You run on the repo's main checkout itself, and your workers beside it.
    Find the checkout `$C` as step 1 does. When your working directory is not `$C` itself
    (`[ "$(pwd -P)" = "$(cd "$C" && pwd -P)" ]` fails: a folder inside the checkout, or a
-   linked worktree, is not it), ask the owner once to start you again in a pane on `$C`, and
-   stop until then: a `cd` out of the folder you were started in does not hold, so every
-   later command would run from the folder you started in. The restart names the most
-   specific thing you found: `/control-tower:lead <M>` when you were given a milestone or
-   made one, otherwise `/control-tower:lead` with nothing, since on the checkout step 1
-   finds the repo by its path (an earlier lead's repo too). For a goal in words, make the
-   milestone first, as step 1 says, with commands that hold from where you are
-   (`tower repo add` with the absolute `$C`, and `cd "$C" && gh repo view --json url -q .url`
-   in one command), then ask for `/control-tower:lead <M>`. A Space is one case: a folder
+   linked worktree, is not it), ask the owner once to start you again with the whole
+   command, in a pane on `$C`:
+   `env TOWER_DB="<absolute>" claude -n "<lead name>" "/control-tower:lead <M>"` when
+   `TOWER_DB` is set, without the `env` when it is not, and to close this session once the
+   new one runs. Stop until then: a `cd` out of the folder you were started in does not
+   hold, so every later command would run from the folder you started in. The command names
+   the most specific thing you found: `<M>` when you were given a milestone or made one,
+   otherwise nothing (`"/control-tower:lead"`), since on the checkout step 1 finds the repo
+   by its path (an earlier lead's repo too). For a goal in words, make the milestone first,
+   as step 1 says, with commands that hold from where you are (`tower repo add` with the
+   absolute `$C`, and `cd "$C" && gh repo view --json url -q .url` in one command), then ask
+   with `<M>`. A Space is one case: a folder
    holding a worktree of each repo a piece of work touches, which the owner may set up. The
    Space is the owner's view of the work, never your working directory or a worker's, and
    the board refuses a linked worktree as a repo path; a path in a Space names the repo

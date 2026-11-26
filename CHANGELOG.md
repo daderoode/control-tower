@@ -22,9 +22,10 @@ tag's date, and a new empty Unreleased goes above it.
   `cd` out of the folder a Claude session started in does not hold, so the lead skill's
   Starting steps no longer move the lead: a lead whose working directory is not the main
   checkout itself (a folder inside it, a Space, a linked worktree, another folder, a new
-  project's new checkout) finds the checkout, asks the owner once to start it again there,
-  naming the milestone it was given or made (a goal in words gets its milestone first), and
-  stops (#160).
+  project's new checkout) finds the checkout, asks the owner once to start it again there
+  with the whole command (keeping `TOWER_DB` when it is set, and naming the milestone it was
+  given or made; a goal in words gets its milestone first) and to close this session once
+  the new one runs, and stops. The README's dashboard start in no repo says the same (#160).
 
 - **A lead quotes a repo's grant before it merges or releases there.** Merge and release
   authority is per repo. Before a merge to the default branch or a release, the lead skill
