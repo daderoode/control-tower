@@ -575,7 +575,8 @@ and `tower repo show <R>` lists threads by title.
   reviewer's brief names its risks (principle 2); one that uses a shared resource gives its
   protocol (principle 11). In Rex, every brief says the worker never renames the Rex
   session (`rex session rename`), since its tab is already named, and ignores any hook that
-  tells it to.
+  tells it to. Every brief says the worker posts its done post, or a post that waits on
+  you, with `--handoff`, and posts no status while it waits.
 - **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting).
   The plan is the signed-off tickets, or a ready-for-agent issue (Starting, step 7). Each
   ticket then goes through:
@@ -722,7 +723,12 @@ name (see Workers), like `dev-119-deliver`.
 - **What workers post:** a short plan before building, a progress line at each step, then
   "done" with the test output and the reviewer's verdict. A progress line is a progress post,
   which becomes the task's doing line: `tower post T --by dev-12-ui --progress "<step>"`.
-  A plain post never does.
+  A plain post never does. The done post, and any post that leaves the worker waiting on
+  you (a question only you can answer), is a hand-off post:
+  `tower post T --by dev-12-ui --handoff "<done: what changed, the checks' output>"`.
+  While it is the worker's latest post on the task, the watch does not nudge it for being
+  stopped, so it posts no "still waiting" status; its next post of any other kind ends
+  that. A done post without `--handoff` is nudged after 5 quiet minutes.
 - **Acknowledge in words:** `tower post T --by "<you>" "copy"`, never emoji.
 - **Resolve with evidence:** `tower thread resolve T --by "<you>" "<evidence>"` (principle 6).
 - **Stuck:** a stuck worker (or you) does both: `tower task block N "<reason>"` for the

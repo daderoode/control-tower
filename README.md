@@ -314,6 +314,15 @@ the task is blocked its reason shows there instead; its detail keeps the doing l
 shows the reason on a "blocked" row of its own. With no progress post yet there is no
 doing line.
 
+    tower post T1 --by dev-2 --handoff "done: staged, tests and checks below"
+
+A hand-off post, posted with `tower post --handoff`, says the work now waits on the lead:
+a worker's done post, or a post saying it waits on the lead's answer. While it is the
+assignee's latest post in the task's threads, the watch does not nudge the assignee for
+being stopped (The watch). It is refused in a thread linked to no task and with
+`--progress`, and is never a doing line. A plain done post is a plain post: its worker is
+nudged after 5 quiet minutes, as before.
+
 A milestone's stage shows in the output of `tower task stage` and `tower milestone done`,
 for example "M1 is in progress, 1/5 tasks done (20%)", and in the dashboard's milestone
 overview.
@@ -678,7 +687,10 @@ unassigned task.
   another session is recorded as an item for the owner naming who got it), with the relay's
   line in the watch's log; with no post 2 minutes later, a message tells the lead. A task
   flagged blocked is never nudged: its worker already said it is stuck, and the lead owns
-  it.
+  it. An assignee whose own latest post on the task is a hand-off post (below) is never
+  nudged for being stopped: the work waits on the lead, who has that post unread. A reply
+  from the lead or anyone else does not change that; the assignee's next post of any other
+  kind does. Silent while working still applies.
 - **Orphaned** (task in progress, no live Claude session in Rex by its assignee's name for
   three looks in a row): a message to the lead, saying it is "gone from Rex" and ending
   with how to clear it ("if it was closed: tower task unassign N, or set the next

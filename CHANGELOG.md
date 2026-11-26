@@ -21,6 +21,14 @@ tag's date, and a new empty Unreleased goes above it.
 
 ### Fixed
 
+- **A worker waiting on the lead is not nudged for it** (#151). A worker that posted its
+  done post and waited on the lead was nudged every 5 quiet minutes ("no post on #N for 5
+  min, post your status") and answered each with another "still waiting", filling the
+  thread and the lead's unread posts. `tower post --handoff` marks a post that hands the
+  work to the lead (a done post, or one saying it waits on the lead): while it is the
+  assignee's latest post on the task, the watch does not nudge the assignee for being
+  stopped. The lead skill tells workers, and their briefs, to post that way.
+
 - **A task's forge ticket stays in its own repo.** `tower task set --link` refused nothing,
   so another repo's issue could be filed under this repo's milestone, recorded as this
   repo's work with its threads on this repo's board. A link to a GitHub or GitLab issue,

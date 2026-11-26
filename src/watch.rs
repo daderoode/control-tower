@@ -24,7 +24,12 @@
 //!   alone.
 //! - Says it is stuck: the worker's own `blocked:` post; nothing for the watch, which also
 //!   leaves a task flagged blocked out of the two nudges below.
-//! - Stopped without reporting: the worker is `idle` or `done`, no post for `STOPPED_AFTER`.
+//! - Stopped without reporting: the worker is `idle` or `done`, no post for `STOPPED_AFTER`,
+//!   and the worker's own latest post in the task's threads is no hand-off post
+//!   (`tower post --handoff`: its done post, or one saying it waits on the lead). While it
+//!   is, the work waits on the lead, who has the post unread, so the worker is not nudged;
+//!   its next post of any other kind ends that. A post by anyone else, the lead's reply
+//!   included, does not.
 //! - Silent while working: the task is In progress, the worker `working`, no post for
 //!   `SILENT_AFTER`.
 //!   Both nudge the worker directly (the terminal's prompt; in Rex, a message from
@@ -181,6 +186,9 @@ pub struct Watched {
     pub lead: String,
     /// It carries the blocked flag: the worker said it is stuck.
     pub blocked: bool,
+    /// The worker's own latest post in its threads is a hand-off post: the work waits on the
+    /// lead, so the worker is not stopped.
+    pub handed_off: bool,
     /// Its latest post but the watch's own, if any.
     pub last_post: Option<i64>,
     /// When the watch first saw it with this worker (kept on the board, so a restart does
@@ -438,7 +446,9 @@ pub fn decide(
         }
         let quiet = now - t.last_post.unwrap_or(t.seen_since);
         let signal = match a.status {
-            Status::Idle | Status::Done if quiet >= STOPPED_AFTER => Signal::Stopped,
+            Status::Idle | Status::Done if quiet >= STOPPED_AFTER && !t.handed_off => {
+                Signal::Stopped
+            }
             Status::Working if t.stage == Stage::InProgress && quiet >= SILENT_AFTER => {
                 Signal::Silent
             }
@@ -493,6 +503,7 @@ impl Watch {
         let mut store = Store::open(&self.db)?;
         let board = store.load()?;
         let posts: HashMap<TaskId, i64> = store.latest_posts()?.into_iter().collect();
+        let handed_off = store.handed_off()?;
         let flags = store.flags()?;
         // No lead, of this board or another, nor the owner, is a member of a team.
         let leads: Vec<&str> = (board.milestones.iter())
@@ -525,6 +536,7 @@ impl Watch {
                     named: named.remove(&t.id).unwrap_or_default(),
                     lead: lead.session.clone(),
                     blocked: t.details.blocked.is_some(),
+                    handed_off: handed_off.contains(&t.id),
                     last_post: posts.get(&t.id).copied(),
                     seen_since: now,
                     absent: 0,
@@ -1416,6 +1428,52 @@ mod tests {
         assert!(f.tick(9).is_empty());
         // Only the nudge's record: the lead is never told.
         assert_eq!(f.system(1).len(), 1);
+    }
+
+    #[test]
+    fn a_worker_whose_latest_post_hands_off_to_the_lead_is_not_nudged_for_stopping() {
+        let mut f = Fixture::new();
+        f.store()
+            .handoff_at(ThreadId(1), "dev-1", "done: staged", f.t0 + MIN);
+        assert!(f.tick(7).is_empty(), "6 min after the hand-off");
+        // The lead's reply hands nothing back: the worker still waits on the lead.
+        f.post(1, "cat-lead", 20);
+        assert!(f.tick(60).is_empty());
+        assert!(f.prompts().is_empty());
+        // The worker's own next post ends the hand-off; 5 quiet minutes after it, a nudge.
+        f.post(1, "dev-1", 61);
+        assert!(f.tick(65).is_empty());
+        assert_eq!(
+            f.tick(67),
+            ["nudged dev-1 on #1 (stopped): no post on #1 for 6 min, post your status"]
+        );
+        // A hand-off ends the stopped episode it answers, and none follows it.
+        f.store()
+            .handoff_at(ThreadId(1), "dev-1", "done: staged", f.t0 + 68 * MIN);
+        assert_eq!(f.tick(68), ["#1's stopped episode for dev-1 ended"]);
+        assert!(f.tick(90).is_empty());
+        assert_eq!(f.prompts().len(), 1);
+    }
+
+    #[test]
+    fn a_hand_off_by_anyone_but_the_assignee_or_while_it_works_is_no_excuse() {
+        let mut f = Fixture::new();
+        // A teammate's hand-off is its own, not the idle assignee's.
+        f.store()
+            .handoff_at(ThreadId(1), "qa", "done: all pass", f.t0 + MIN);
+        assert_eq!(
+            f.tick(7),
+            ["nudged dev-1 on #1 (stopped): no post on #1 for 6 min, post your status"]
+        );
+        // An assignee working after its hand-off is still caught when silent.
+        f.store()
+            .handoff_at(ThreadId(1), "dev-1", "done: staged", f.t0 + 8 * MIN);
+        assert_eq!(f.tick(8), ["#1's stopped episode for dev-1 ended"]);
+        f.agents(&[("dev-1", "working")]);
+        assert_eq!(
+            f.tick(39),
+            ["nudged dev-1 on #1 (silent): no post on #1 for 31 min, post your status"]
+        );
     }
 
     #[test]

@@ -64,6 +64,12 @@ enum Command {
         /// where its thread stands on the board, until a later one. Plain posts never are.
         #[arg(long)]
         progress: bool,
+        /// Post it as a hand-off post: the work now waits on the lead (a done post, or one
+        /// saying it waits on the lead). While it is the assignee's latest post on its task,
+        /// the watch does not nudge the assignee for being stopped. Only in a thread linked
+        /// to a task; not with --progress.
+        #[arg(long, conflicts_with = "progress")]
+        handoff: bool,
     },
     /// Open the dashboard (q or Ctrl-C closes it).
     Ui,
@@ -1317,6 +1323,7 @@ fn run(cli: Cli) -> Result<()> {
             by,
             text,
             progress,
+            handoff,
         } => {
             refuse_owner(&by)?;
             let text = if text == "-" {
@@ -1331,6 +1338,8 @@ fn run(cli: Cli) -> Result<()> {
             let mut store = Store::open(&path)?;
             let (t, what) = if progress {
                 (store.post_progress(thread, &by, &text)?, "progress ")
+            } else if handoff {
+                (store.post_handoff(thread, &by, &text)?, "hand-off ")
             } else {
                 (store.post(thread, &by, &text)?, "")
             };

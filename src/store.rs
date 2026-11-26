@@ -24,7 +24,7 @@ use crate::deliver::{LeadBoard, Pending, Post};
 use crate::watch::{Flag, Named, Signal};
 
 /// The schema this build reads and writes, kept in SQLite's `user_version`.
-pub const SCHEMA_VERSION: i32 = 19;
+pub const SCHEMA_VERSION: i32 = 20;
 
 /// `MIGRATIONS[n]` takes the schema from version `n` to `n + 1`.
 const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
@@ -395,14 +395,23 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [
     ALTER TABLE lead ADD COLUMN turns INTEGER NOT NULL DEFAULT 0;
     UPDATE lead SET quiet_turns = 0 WHERE quiet_turns IS NOT NULL;
 ",
+    // A hand-off post (`tower post --handoff`) is a message marked `handoff`, only in a
+    // thread linked to a task: a worker's done post, or one saying it waits on the lead.
+    // While it is the assignee's latest post in its task's threads, the watch does not
+    // nudge the assignee for being stopped. Posts before this version are plain.
+    "
+    ALTER TABLE message ADD COLUMN handoff INTEGER NOT NULL DEFAULT 0
+        CHECK (handoff IN (0, 1));
+",
 ];
 
-/// What `Store::add_message` posts: a plain message, a progress post, or the evidence that
-/// resolves its thread.
+/// What `Store::add_message` posts: a plain message, a progress post, a hand-off post, or
+/// the evidence that resolves its thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Plain,
     Progress,
+    Handoff,
     Evidence,
 }
 
@@ -1617,7 +1626,8 @@ fn new_thread(
 
 /// Adds a checked message by a checked author to an open thread at `at`, or after its
 /// latest message, resolving the thread by it when it is evidence. Refuses a thread that
-/// is not on the board, a resolved one, and a progress post in a thread linked to no task.
+/// is not on the board, a resolved one, and a progress or hand-off post in a thread linked
+/// to no task.
 fn append(
     tx: &Connection,
     thread: ThreadId,
@@ -1642,6 +1652,10 @@ fn append(
             "{thread} is linked to no task, so a progress post there would be no task's \
              doing line; post it in the task's thread"
         ),
+        Some((false, false)) if kind == Kind::Handoff => bail!(
+            "{thread} is linked to no task, so a hand-off post there would hand no task to \
+             the lead; post it in the task's thread"
+        ),
         Some(_) => {}
     }
     // Never stamped before the thread's latest message (a clock stepped back), so the
@@ -1655,9 +1669,16 @@ fn append(
         .context(cannot_write.to_string())?;
     let at = latest.map_or(at, |l| at.max(l));
     tx.execute(
-        "INSERT INTO message (thread_id, author, text, posted_at, progress) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![thread.0, author, text, at, kind == Kind::Progress],
+        "INSERT INTO message (thread_id, author, text, posted_at, progress, handoff) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            thread.0,
+            author,
+            text,
+            at,
+            kind == Kind::Progress,
+            kind == Kind::Handoff
+        ],
     )
     .context(cannot_write.to_string())?;
     if kind == Kind::Evidence {
@@ -3106,6 +3127,14 @@ impl Store {
         self.add_message(thread, author, "message", text, Kind::Progress)
     }
 
+    /// Posts `text` by `author` as a hand-off post: the work waits on the lead (a done post,
+    /// or one saying it waits on the lead), so while it is the assignee's latest post in its
+    /// task's threads the watch does not nudge the assignee for being stopped. Refuses as
+    /// `post` does, and a thread linked to no task.
+    pub fn post_handoff(&mut self, thread: ThreadId, author: &str, text: &str) -> Result<Thread> {
+        self.add_message(thread, author, "message", text, Kind::Handoff)
+    }
+
     /// Resolves an open thread, posting `evidence` by `author` as its last message and
     /// recording who resolved it and when, and returns it. Refuses empty evidence, a thread that is not on the board, and one that is
     /// already resolved.
@@ -3162,6 +3191,25 @@ impl Store {
             .query_map(params![SYSTEM_AUTHOR], |r| {
                 Ok((TaskId(r.get(0)?), r.get(1)?))
             })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(found)
+    }
+
+    /// Each task not Done whose assignee's latest post in a thread linked to it is a
+    /// hand-off post (`post_handoff`), in task id order: the watch does not nudge that
+    /// assignee for being stopped, since the work waits on the lead. The assignee compares
+    /// ignoring ASCII case; of posts at the same second, the later posted is the latest.
+    pub fn handed_off(&mut self) -> Result<Vec<TaskId>> {
+        let found = self
+            .conn
+            .prepare(
+                "SELECT k.id FROM task k WHERE k.stage != 'done' AND k.assignee IS NOT NULL \
+                 AND (SELECT m.handoff FROM thread t JOIN message m ON m.thread_id = t.id \
+                      WHERE t.task_id = k.id AND lower(m.author) = lower(k.assignee) \
+                      ORDER BY m.posted_at DESC, m.id DESC LIMIT 1) = 1 \
+                 ORDER BY k.id",
+            )?
+            .query_map([], |r| Ok(TaskId(r.get(0)?)))?
             .collect::<rusqlite::Result<_>>()?;
         Ok(found)
     }
@@ -3957,6 +4005,18 @@ impl Store {
         self.conn
             .execute(
                 "INSERT INTO message (thread_id, author, text, posted_at) VALUES (?1, ?2, ?3, ?4)",
+                params![thread.0, author, text, at],
+            )
+            .unwrap();
+    }
+
+    /// For tests elsewhere in the crate: a hand-off post (`post_handoff`) stamped `at`.
+    #[cfg(test)]
+    pub(crate) fn handoff_at(&mut self, thread: ThreadId, author: &str, text: &str, at: i64) {
+        self.conn
+            .execute(
+                "INSERT INTO message (thread_id, author, text, posted_at, handoff) \
+                 VALUES (?1, ?2, ?3, ?4, 1)",
                 params![thread.0, author, text, at],
             )
             .unwrap();
@@ -8526,6 +8586,59 @@ mod tests {
         // A Done task's threads name no one.
         store.set_task_stage(TaskId(2), Stage::Done).unwrap();
         assert_eq!(store.task_names().unwrap(), named[..4]);
+    }
+
+    #[test]
+    fn handed_off_is_each_task_whose_assignees_latest_post_hands_off() {
+        let (_dir, path) = temp_board();
+        let mut store = board_with_leads(&path);
+        for (t, who) in [(1, "dev-1"), (2, "dev-2"), (4, "dev-4")] {
+            let fields = TaskFields {
+                assignee: Some(who),
+                ..Default::default()
+            };
+            store.set_task(TaskId(t), fields).unwrap();
+        }
+        let m1 = BoardOf::Milestone(MilestoneId(1));
+        let m2 = BoardOf::Milestone(MilestoneId(2));
+        let open = |store: &mut Store, board, task| {
+            let lead = if task == 4 {
+                "checkout-lead"
+            } else {
+                "cat-lead"
+            };
+            (store.open_thread(board, lead, Some(TaskId(task)), "work", "go"))
+                .unwrap()
+                .0
+        };
+        let t1 = open(&mut store, &m1, 1);
+        let t2 = open(&mut store, &m1, 2);
+        let t4 = open(&mut store, &m2, 4);
+        let (chat, _) = store.open_thread(&m1, "qa", None, "chat", "hi").unwrap();
+        store
+            .conn
+            .execute("UPDATE message SET posted_at = 100", [])
+            .unwrap();
+        // The assignee's hand-off, in any case, stays its latest post through the lead's reply.
+        store.handoff_at(t1, "DEV-1", "done: staged", 200);
+        raw_message(&store, t1, "cat-lead", "copy, committing", 300);
+        // A later post of the assignee's own ends it, and a teammate's hand-off is not its.
+        store.handoff_at(t2, "dev-2", "done: staged", 200);
+        raw_message(&store, t2, "dev-2", "fixing a finding", 300);
+        store.handoff_at(t2, "qa", "done: all pass", 400);
+        // Of two posts in one second, the later posted is the latest.
+        raw_message(&store, t4, "dev-4", "step 3", 200);
+        store.handoff_at(t4, "dev-4", "done: staged", 200);
+        assert_eq!(store.handed_off().unwrap(), [TaskId(1), TaskId(4)]);
+        // A Done task is no one's to nudge.
+        store.set_task_stage(TaskId(4), Stage::Done).unwrap();
+        assert_eq!(store.handed_off().unwrap(), [TaskId(1)]);
+        // `post_handoff` marks the post; a thread linked to no task refuses one, writing nothing.
+        store.post_handoff(t2, "dev-2", "fixed, staged").unwrap();
+        assert_eq!(store.handed_off().unwrap(), [TaskId(1), TaskId(2)]);
+        let err = store.post_handoff(chat, "dev-2", "x").unwrap_err();
+        assert!(err.to_string().contains("T4 is linked to no task"), "{err}");
+        assert_eq!(store.thread(chat).unwrap().total, 1);
     }
 
     #[test]
