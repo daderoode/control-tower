@@ -20,9 +20,11 @@ tag's date, and a new empty Unreleased goes above it.
 
 - **A lead started outside its repo's main checkout asks to be started again there.** A
   `cd` out of the folder a Claude session started in does not hold, so the lead skill's
-  Starting steps no longer move the lead: a lead whose working directory is not inside the
-  main checkout (a Space, a linked worktree, another folder, a new project's new checkout)
-  finds the checkout, asks the owner once to start it again there, and stops (#160).
+  Starting steps no longer move the lead: a lead whose working directory is not the main
+  checkout itself (a folder inside it, a Space, a linked worktree, another folder, a new
+  project's new checkout) finds the checkout, asks the owner once to start it again there,
+  naming the milestone it was given or made (a goal in words gets its milestone first), and
+  stops (#160).
 
 - **A lead quotes a repo's grant before it merges or releases there.** Merge and release
   authority is per repo. Before a merge to the default branch or a release, the lead skill

@@ -161,15 +161,22 @@ implement, test or review.
    - anything else is a goal in words: you create a milestone for it in step 1, once you have
      `<R>`.
 
-   **Where you run.** You run on the repo's main checkout, and your workers beside it. When
-   your working directory is not inside that checkout, find the checkout as step 1 does, ask
-   the owner once to start you again there (`/control-tower:lead` with the same argument, in
-   a pane on that checkout), and stop until then: a `cd` out of the folder you were started
-   in does not hold, so every later command would run from the folder you started in. A
-   Space is one case: a folder holding a worktree of each repo a piece of work touches,
-   which the owner may set up. The Space is the owner's view of the work, never your working
-   directory or a worker's, and the board refuses a linked worktree as a repo path; a path in
-   a Space names the repo whose main checkout holds that worktree, found from it in step 1.
+   **Where you run.** You run on the repo's main checkout itself, and your workers beside it.
+   Find the checkout `$C` as step 1 does. When your working directory is not `$C` itself
+   (`[ "$(pwd -P)" = "$(cd "$C" && pwd -P)" ]` fails: a folder inside the checkout, or a
+   linked worktree, is not it), ask the owner once to start you again in a pane on `$C`, and
+   stop until then: a `cd` out of the folder you were started in does not hold, so every
+   later command would run from the folder you started in. The restart names the most
+   specific thing you found: `/control-tower:lead <M>` when you were given a milestone or
+   made one, otherwise `/control-tower:lead` with nothing, since on the checkout step 1
+   finds the repo by its path (an earlier lead's repo too). For a goal in words, make the
+   milestone first, as step 1 says, with commands that hold from where you are
+   (`tower repo add` with the absolute `$C`, and `cd "$C" && gh repo view --json url -q .url`
+   in one command), then ask for `/control-tower:lead <M>`. A Space is one case: a folder
+   holding a worktree of each repo a piece of work touches, which the owner may set up. The
+   Space is the owner's view of the work, never your working directory or a worker's, and
+   the board refuses a linked worktree as a repo path; a path in a Space names the repo
+   whose main checkout holds that worktree, found from it in step 1.
 1. Register yourself on the repo, as your first step, since only you know your own Claude
    session name. A lead registers on a repo, the main checkout you run on, and leads every
    milestone and standalone task in it. First find `<you>`: `claude agents --json` lists
@@ -193,7 +200,7 @@ implement, test or review.
      `tower milestone set <M> --repo <R>`;
    - otherwise find the main checkout from the path given, or `.` when none was:
      `G=$(git -C "<path>" rev-parse --path-format=absolute --git-common-dir) && C=$(dirname "$G")`
-     (from a linked worktree too); when you are not inside `$C`, see Where you run (step 0).
+     (from a linked worktree too); when you are not in `$C` itself, see Where you run (step 0).
      If that fails, the path is not in a git repo: ask the owner once for the repo's main
      checkout, then Where you run. For a new project with no repo yet, ask the owner first
      where it lives (its checkout, and its place on the forge), then `git init "<checkout>"`
