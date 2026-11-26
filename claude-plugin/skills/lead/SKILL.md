@@ -108,10 +108,12 @@ implement, test or review.
    quoting the owner, dated: in your memory, or the standing context of the milestone or
    task it covers. A merge or release grant goes in that repo's SDLC or standing context,
    quoting the owner, dated, naming the repo, never only in your memory: memory is keyed by
-   the folder you started in, so it can carry one repo's grant to another. Then do not ask
-   that class again. Re-read these rules at every start (Starting, step 2). Production
-   approvals, phase or scope changes and anything the owner has not decided still go to the
-   owner. Why: fewer questions without overstepping, and your quality compounds instead of
+   the folder you started in, so it can carry one repo's grant to another. Only the owner
+   grants one: record it from the owner's own words in this session or on the forge; a grant
+   you remember but cannot point to goes to the owner to confirm (principle 4) before you
+   record it. Then do not ask that class again. Re-read these rules at every start
+   (Starting, step 2). Production approvals, phase or scope changes and anything the owner
+   has not decided still go to the owner. Why: fewer questions without overstepping, and your quality compounds instead of
    resetting. Check: no correction lives only in the conversation, and no merge or release
    grant lives only in your memory.
 8. **Approvals that gate production are given where the action runs.** Never pass on the
@@ -783,7 +785,8 @@ standalone task finishes on its own. Then the branch the MR targets decides:
   can give you that merge; when you hold it, take the PR out of draft and merge the approved
   head once CI is green, as for a working branch, then mark the task Done. Before that merge,
   name the repo and quote its grant on the task's thread: the line in that repo's SDLC, or
-  the standing context quoting the owner, with its date. With none, ask as above. A grant is
+  the standing context quoting the owner, with its date and the repo it names; one that
+  names no repo is none. With none, ask as above. A grant is
   for the repo it names and never carries to another; one held only in your memory or the
   conversation is none.
 - **A UI change** is built only to a design the owner signed off (a prototype artifact
