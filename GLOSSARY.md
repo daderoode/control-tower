@@ -124,7 +124,8 @@ terms; where two words are easy to mix up, the entry says which is which.
 - **Hand-off post**: a message posted with `tower post --handoff` in a thread linked to a
   task: the work now waits on the lead (a worker's done post, or one saying it waits on
   the lead). While it is the assignee's own latest post on the task, the watch does not
-  nudge the assignee for being stopped.
+  nudge the assignee for being stopped. It is not `SDLC.md`'s hand-off, the commit a step
+  hands to the next.
 - **Doing line**: a task's latest progress post: where the task's home thread stands, in
   that thread's header on the board. While the task is blocked, "blocked: <reason>" shows
   there instead.

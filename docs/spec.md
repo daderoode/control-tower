@@ -129,7 +129,7 @@ Deliberately rough: don't design further until there's real use.
 
 ### While work runs
 
-- **What workers post:** a short plan before building, a progress line at each step, then "done" with the test output and the reviewer's verdict, as a hand-off post (`--handoff`), and nothing more while it waits on the lead.
+- **What workers post:** a short plan before building, a progress line at each step, then "done" with the test output and the reviewer's verdict, as a hand-off post (`--handoff`), and while it waits on the lead, any post with `--handoff` or none.
 - **Spotting a stuck worker:** the worker says so, and control-tower also flags it by fixed rules; the lead decides what a flag means.
 
   | Signal | Detected by | Goes to |
@@ -140,7 +140,7 @@ Deliberately rough: don't design further until there's real use.
   | Silent while working | task In progress, worker busy, no post for 30 min | nudge, then the lead |
   | Orphaned | task In progress, the worker's Claude session gone from the terminal | the lead |
 
-  - **A hand-off is the lead's wait, not a stop** (#151): a worker whose own latest post on its task hands the work to the lead (its done post, or a post saying it waits on the lead, posted with `tower post --handoff`) is not nudged for being stopped; the lead has that post unread, its waiter and Stop hook bring it, and a lead that is not listening already raises "Lead not listening". A reply by the lead or anyone else leaves it so; the worker's next post of any other kind ends it. Silent while working still applies. A done post without the marker is a plain post, nudged as before.
+  - **A hand-off post is the lead's wait, not a stop** (#151): a worker whose own latest post on its task hands the work to the lead (its done post, or a post saying it waits on the lead, posted with `tower post --handoff`) is not nudged for being stopped; the lead has that post unread, its waiter and Stop hook bring it, and a lead that is not listening already raises "Lead not listening". A reply by the lead or anyone else leaves it so; the worker's next post of any other kind ends it. Silent while working still applies. A done post without the marker is a plain post, nudged as before.
   - **Nudge first:** for the stopped and silent signals, control-tower nudges the worker directly ("no post for 30 min, post your status"). If nothing comes within 2 minutes, it flags the lead, who acts as it sees fit (nudge again, reassign, escalate).
   - Flags are system messages in the task's thread on the repo's board, so they are on the record.
   - The owner is only pulled in for prompts only they can answer, or when the lead @mentions them.
