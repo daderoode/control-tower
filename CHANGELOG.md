@@ -18,6 +18,11 @@ tag's date, and a new empty Unreleased goes above it.
   worker at a prompt is sent nothing. Rex overrides the list and keeps what it does today,
   the text of the prompt included. With Rex installed nothing changes (#163; the watch
   running without Rex is #164).
+- **One reader of Claude Code's session list.** The lead-listening check, a lead's attach
+  and delivery's checks read `claude agents --json` through the same reader as the core's
+  worker list, and the lead check judges a session's status by the same mapping. A status
+  that is not a string is now nothing to judge by, where the lead check failed to read the
+  list (#167).
 
 ## [0.7.0] - 2026-11-26
 

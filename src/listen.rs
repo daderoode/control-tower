@@ -59,6 +59,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use crate::board::{Lead, RepoId, RepoOf, Stage, ThreadId};
 use crate::deliver::{Post, sanitise};
 use crate::store::Store;
+use crate::terminal::{self, Listed};
 
 /// How often a stream looks at the board for new posts.
 pub const LOOK_EVERY: Duration = Duration::from_secs(1);
@@ -821,15 +822,9 @@ fn hook_reason(repo: RepoId, posts: &[Post], waiting: bool) -> String {
     text
 }
 
-/// A Claude session as `claude agents --json` lists it, as far as the lead check reads it.
-#[derive(Deserialize)]
-struct Listed {
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
-    status: Option<String>,
-}
-
-/// What the lead check makes of a listed session's `status`.
+/// What the lead check makes of a listed session's status, from the core's mapping
+/// (`terminal::Status::listed`): a lead at a prompt, or one in a state this build does not
+/// know, is nothing to judge by.
 enum Status {
     Working,
     Idle,
@@ -838,17 +833,19 @@ enum Status {
 
 impl Status {
     fn of(listed: &Listed) -> Status {
-        match listed.status.as_deref() {
-            Some("busy") => Status::Working,
-            Some("idle") => Status::Idle,
+        let status = listed.status.as_deref();
+        match terminal::Status::listed(status, listed.waiting_for.as_deref()) {
+            terminal::Status::Working => Status::Working,
+            terminal::Status::Idle => Status::Idle,
             _ => Status::Unknown,
         }
     }
 }
 
-/// `claude agents --json` (`json`) as the lead check reads it.
+/// `claude agents --json` (`json`) as the lead check reads it: the core's reader
+/// (`terminal::parse`).
 fn read_listed(json: Result<String>) -> Result<Vec<Listed>> {
-    serde_json::from_str(&json?).context("claude agents --json said something unexpected")
+    terminal::parse(&json?).map_err(anyhow::Error::msg)
 }
 
 /// The watch's look at whether each registered lead is listening, at `now`: returns a line
@@ -1887,6 +1884,21 @@ mod tests {
         let idle = agents(&[("sess-1", "idle")]);
         assert!(look(&mut store, &idle).is_empty());
         assert!(look(&mut store, &idle).is_empty());
+        assert!(items(&mut store).is_empty());
+    }
+
+    #[test]
+    fn a_status_that_is_not_a_string_is_unknown_not_a_failed_read() {
+        let (_dir, db, mut store) = board();
+        store.attach_lead(RepoId(1), "sess-1").unwrap();
+        // Read as the core reads the list: nothing to judge by, so no line, no item and no
+        // quiet turn recorded, as for a status this build does not know.
+        for status in ["5", "null", r#"{"busy":true}"#] {
+            let list = format!(r#"[{{"sessionId":"sess-1","name":"cat-lead","status":{status}}}]"#);
+            assert!(look_with(&mut store, &db, &list, 10).is_empty(), "{list}");
+        }
+        ends_turn(&db, "sess-1");
+        assert!(look_with(&mut store, &db, &agents(&[("sess-1", "idle")]), 20).is_empty());
         assert!(items(&mut store).is_empty());
     }
 

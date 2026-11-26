@@ -290,12 +290,14 @@ pub trait Terminal: Send + Sync {
     fn popup(&self, db: &Path, here: &Here, dashboard: &[String]) -> Result<()>;
 }
 
-/// A Claude session as `claude agents --json` lists it, as far as the core and Rex read it.
+/// A Claude session as `claude agents --json` lists it, as far as control-tower reads it.
 /// A `status` or `waitingFor` that is not a string is none (`text`), so it reads as a value
 /// the core does not know, never as a list that cannot be read.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct Listed {
     pub name: Option<String>,
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
     pub pid: Option<i64>,
     #[serde(default, deserialize_with = "text")]
     pub status: Option<String>,
@@ -318,11 +320,14 @@ pub(crate) fn listed(claude: &Path, db: &Path, timeout: Duration) -> Result<Vec<
     let args = ["agents", "--json"];
     let json = crate::register::claude_within(claude, db, &not_stopped, &args, timeout)
         .map_err(|e| Unread::Failed(format!("{e:#}")))?;
-    serde_json::from_str(&json).map_err(|e| {
-        Unread::Failed(format!(
-            "claude agents --json said something unexpected: {e}"
-        ))
-    })
+    parse(&json).map_err(Unread::Failed)
+}
+
+/// `claude agents --json`'s list (`json`), the one reader of it: the core's workers, Rex,
+/// the lead check, a lead's attach and delivery.
+pub(crate) fn parse(json: &str) -> Result<Vec<Listed>, String> {
+    serde_json::from_str(json)
+        .map_err(|e| format!("claude agents --json said something unexpected: {e}"))
 }
 
 /// Why a worker at a prompt is sent nothing: "at a permission prompt (approve Bash: ...)",

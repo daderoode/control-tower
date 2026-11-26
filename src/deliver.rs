@@ -89,7 +89,7 @@ use crate::board::{
     ThreadId, closed_worker_hint, hidden, mentioned,
 };
 use crate::store::Store;
-use crate::terminal::{Sent, Terminal};
+use crate::terminal::{Listed, Sent, Terminal};
 
 /// How often the watch delivers what was posted since it last did.
 pub const DELIVER_EVERY: Duration = Duration::from_secs(5);
@@ -468,26 +468,22 @@ pub fn worker_text(posts: &[&Post]) -> String {
     sanitise(&compose(&head, posts, WORKER_CAP))
 }
 
-#[derive(serde::Deserialize)]
-struct Session {
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
-    name: Option<String>,
+/// `claude agents --json`'s list (`json`), through the core's reader (`terminal::parse`).
+fn sessions(json: &str) -> Result<Vec<Listed>> {
+    crate::terminal::parse(json).map_err(anyhow::Error::msg)
 }
 
 /// Whether `claude agents --json`'s list (`json`) has the Claude session `session`: a
 /// session it lists is running.
 pub fn listed(json: &str, session: &str) -> Result<bool> {
-    let sessions: Vec<Session> = serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("claude agents --json said something unexpected: {e}"))?;
+    let sessions = sessions(json)?;
     Ok((sessions.iter()).any(|s| s.session_id.as_deref() == Some(session)))
 }
 
 /// Whether `claude agents --json`'s list (`json`) has a session named `name`, ignoring
 /// case: a worker by that name is running.
 pub fn named(json: &str, name: &str) -> Result<bool> {
-    let sessions: Vec<Session> = serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("claude agents --json said something unexpected: {e}"))?;
+    let sessions = sessions(json)?;
     Ok((sessions.iter()).any(|s| {
         s.name
             .as_deref()
@@ -500,8 +496,7 @@ pub fn named(json: &str, name: &str) -> Result<bool> {
 /// be listed under that name, ignoring case. So no other session can take the lead's
 /// posts.
 pub fn check_asker(json: &str, session: &str, lead: &Lead, repo: RepoId) -> Result<()> {
-    let sessions: Vec<Session> = serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("claude agents --json said something unexpected: {e}"))?;
+    let sessions = sessions(json)?;
     let Some(found) = (sessions.iter()).find(|s| s.session_id.as_deref() == Some(session)) else {
         anyhow::bail!(
             "claude agents --json lists no session {session}; run tower lead attach from the \
