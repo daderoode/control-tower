@@ -885,9 +885,9 @@ and an idle lead is never woken while nothing is posted:
   gives it, the checkout's `SDLC.md` when it has one, each open milestone's standing
   context, its memory); its board now (the repo and its checkout, the open milestones, each
   task in progress with its assignee, live when `claude agents --json` lists a session of
-  that name, and its PR, at most 10 and the rest counted, and how many posts are unread,
-  counted, never told); and that its waiters still run, or, with no board waiter running,
-  how to arm them. After a fresh start, or a `/clear` with no waiter running,
+  that name, and its PR, at most 10, the rest counted with the command that shows each
+  place holding one, and how many posts are unread, counted, never told); and that its
+  waiters still run, or, with no board waiter running, how to arm them. After a fresh start, or a `/clear` with no waiter running,
   it has no conversation, and the lead skill is started only by the owner, so it arms its
   board waiter itself (never deaf) and asks you to run `/control-tower:lead <R>`, which arms
   the forge waiter too. On a start, resume or fork, while the lead's attached session is a

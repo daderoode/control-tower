@@ -632,7 +632,7 @@ pub fn session_start(
 /// What the lead `lead` of `repo` is told after a compaction: what to re-read, by `skill`
 /// (the lead skill's file, when known) and its checkout's `SDLC.md` (when it has one); its
 /// board now: open milestones, its in-progress tasks (at most `COMPACT_TASKS`, the rest
-/// counted) each with its assignee, live when `agents` (`claude agents --json`) lists a
+/// counted, with the command that shows each place holding one) each with its assignee, live when `agents` (`claude agents --json`) lists a
 /// session of that name, and its PR, and its unread posts, counted and never told, so the
 /// lead still reads them; then its waiters: still running when `waiting`, else how to arm
 /// them.
@@ -684,15 +684,21 @@ fn compacted(
     } else {
         open.join(", ")
     });
+    // Each task with the command that shows it: its milestone's, or the repo's for a
+    // standalone task.
     let tasks: Vec<_> = (milestones.iter())
-        .flat_map(|m| &m.tasks)
-        .chain(board.standalone.iter().filter(|t| t.repo == Some(repo)))
-        .filter(|t| t.stage == Stage::InProgress)
+        .flat_map(|m| (m.tasks.iter()).map(|t| (t, format!("tower milestone show {}", m.id))))
+        .chain(
+            (board.standalone.iter())
+                .filter(|t| t.repo == Some(repo))
+                .map(|t| (t, format!("tower repo show {repo}"))),
+        )
+        .filter(|(t, _)| t.stage == Stage::InProgress)
         .collect();
     if tasks.is_empty() {
         text.push_str("\n- no task in progress");
     }
-    for task in tasks.iter().take(COMPACT_TASKS) {
+    for (task, _) in tasks.iter().take(COMPACT_TASKS) {
         let who = match task.details.assignee.as_deref() {
             Some(name) if crate::deliver::named(agents, name)? => format!("{name} (live)"),
             Some(name) => format!("{name} (gone)"),
@@ -707,10 +713,17 @@ fn compacted(
             task.id, task.title
         ));
     }
-    if tasks.len() > COMPACT_TASKS {
+    if let Some(hidden) = tasks.get(COMPACT_TASKS..) {
+        let mut shows: Vec<&str> = Vec::new();
+        for (_, show) in hidden {
+            if !shows.contains(&show.as_str()) {
+                shows.push(show);
+            }
+        }
         text.push_str(&format!(
-            "\n- and {} more: tower repo show {repo}",
-            tasks.len() - COMPACT_TASKS
+            "\n- and {} more: {}",
+            hidden.len(),
+            shows.join(", ")
         ));
     }
     text.push_str(&match store.unread_count(repo)? {
@@ -1922,9 +1935,11 @@ mod tests {
     }
 
     #[test]
-    fn a_compacted_lead_is_told_of_ten_tasks_in_progress_and_the_count_of_the_rest() {
+    fn a_compacted_lead_is_told_of_ten_tasks_in_progress_and_where_the_rest_are() {
         let (_dir, db, mut store) = board();
         store.attach_lead(RepoId(1), "sess-1").unwrap();
+        // 12 in M1, then one in M3 and one standalone: the last two of M1 are hidden with
+        // them, and each place holding a hidden one is named once, M1 the first.
         let tasks: Vec<TaskId> = (1..=COMPACT_TASKS + 2)
             .map(|i| {
                 let n = store
@@ -1934,6 +1949,11 @@ mod tests {
                 n
             })
             .collect();
+        let later = store.add_milestone("Later", "g", Some(RepoId(1))).unwrap();
+        let n = store.add_task(later, "In M3").unwrap();
+        store.set_task_stage(n, Stage::InProgress).unwrap();
+        let n = store.add_standalone_task("Alone", Some(RepoId(1))).unwrap();
+        store.set_task_stage(n, Stage::InProgress).unwrap();
         let lists = claude_lists(&[("sess-2", "cat-lead")]);
         let reply = session_start(
             &db,
@@ -1957,7 +1977,10 @@ mod tests {
             "{said}"
         );
         assert!(
-            said.contains("\n- and 2 more: tower repo show R1\n- unread: none\n"),
+            said.contains(&format!(
+                "\n- and 4 more: tower milestone show M1, tower milestone show {later}, tower \
+                 repo show R1\n- unread: none\n"
+            )),
             "{said}"
         );
     }
