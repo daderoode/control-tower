@@ -970,6 +970,29 @@ mod tests {
     }
 
     #[test]
+    fn a_claude_entry_whose_status_is_not_a_string_still_names_rexs_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let asks = Some("approve Bash: touch notes.txt");
+        let blocked = FakeRex::claude_record(41, "blocked", Some("permission"), asks);
+        f.server(&[("session:a", &[("block:1", TERM, &blocked)])]);
+        let list = serde_json::json!([
+            {"pid": 41, "kind": "interactive", "sessionId": "s1", "name": "dev-1",
+             "status": 1, "waitingFor": {"x": 1}},
+        ]);
+        f.write("claude.json", &list.to_string());
+        // Rex's record gives the state; Claude's odd fields fail nothing.
+        assert_eq!(
+            agents(&f).unwrap(),
+            [agent(
+                "dev-1",
+                Status::Blocked(Some(Kind::Permission)),
+                asks
+            )]
+        );
+    }
+
+    #[test]
     fn the_workers_are_claude_sessions_in_rex_by_their_root_record_named_by_claude() {
         let dir = tempfile::tempdir().unwrap();
         let f = FakeRex::new(dir.path());

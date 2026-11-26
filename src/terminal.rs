@@ -291,13 +291,25 @@ pub trait Terminal: Send + Sync {
 }
 
 /// A Claude session as `claude agents --json` lists it, as far as the core and Rex read it.
+/// A `status` or `waitingFor` that is not a string is none (`text`), so it reads as a value
+/// the core does not know, never as a list that cannot be read.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct Listed {
     pub name: Option<String>,
     pub pid: Option<i64>,
+    #[serde(default, deserialize_with = "text")]
     pub status: Option<String>,
-    #[serde(rename = "waitingFor")]
+    #[serde(default, rename = "waitingFor", deserialize_with = "text")]
     pub waiting_for: Option<String>,
+}
+
+/// A JSON string as itself; any other value, null included, as none.
+fn text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    use serde::Deserialize;
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => Some(s),
+        _ => None,
+    })
 }
 
 /// Claude Code's session list: `claude agents --json`, run from `claude` within `timeout`.
@@ -531,6 +543,9 @@ mod tests {
             session(Some("asks-none"), Some("waiting"), None),
             session(Some("odd"), Some("stopping"), None),
             session(Some("silent"), None, None),
+            // Not strings: a value the core does not know, never a list it cannot read.
+            serde_json::json!({"name": "odd-type", "status": 1}),
+            serde_json::json!({"name": "odd-wait", "status": "waiting", "waitingFor": {"x": 1}}),
             // No name: no one, whatever its status.
             session(None, Some("waiting"), Some("permission prompt")),
             background,
@@ -549,6 +564,8 @@ mod tests {
                 agent("asks-none", Status::Blocked(None)),
                 agent("odd", Status::Unknown),
                 agent("silent", Status::Unknown),
+                agent("odd-type", Status::Unknown),
+                agent("odd-wait", Status::Blocked(None)),
                 agent("bg", Status::Blocked(Some(Kind::Question))),
             ]
         );
