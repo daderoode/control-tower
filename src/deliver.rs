@@ -1662,6 +1662,33 @@ mod tests {
     }
 
     #[test]
+    fn a_list_whose_every_name_is_another_type_holds_the_posts_and_judges_no_one() {
+        let mut f = Fixture::new();
+        let core = crate::terminal::Core::new(f.dir.path().join("claude"));
+        f.deliver = Deliver {
+            budget: TEST_WAIT,
+            send_limit: TEST_WAIT,
+            ..Deliver::new(&f.db, Arc::new(core), Arc::default())
+        };
+        // Claude's format changed: no name is a string. Never "no agent named" `dev-1` (its
+        // task in progress) or "no worker is named" `dev-9`, however old the post.
+        let list = serde_json::json!([{"name": 7, "sessionId": "s1", "status": "idle"}]);
+        f.rex.write("claude.json", &list.to_string());
+        f.post("qa-1", "@dev-1 @dev-9 please look");
+        let log = f.drain();
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log[0].starts_with(
+                "claude agents --json said something unexpected: no session's name is a string"
+            ) && log[0].ends_with("; posts for workers wait until Claude Code answers"),
+            "{log:?}"
+        );
+        assert!(f.items().is_empty());
+        assert!(f.replies().is_empty());
+        assert!(f.prompts().is_empty());
+    }
+
+    #[test]
     fn failed_workers_are_one_item_per_drain_naming_each_and_a_stall_is_logged_only() {
         let f = Fixture::new();
         // qa-1 is at a permission prompt: it is sent nothing.

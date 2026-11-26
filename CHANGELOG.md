@@ -23,8 +23,9 @@ tag's date, and a new empty Unreleased goes above it.
   worker list, and the lead check judges a session's status by the same mapping. Each entry
   in the list stands alone: a status that is not a string is nothing to judge by, where the
   lead check failed to read the list, and a session whose name, pid or session id is not
-  the type Claude lists is no one, where it failed the workers' look for every session
-  (#167).
+  the type Claude lists is no one, where it failed the workers' look for every session. A
+  name, pid or session id that no session gives as that type is Claude's format changed:
+  the list cannot be read, so nothing is judged by it (#167).
 
 ## [0.7.0] - 2026-11-26
 

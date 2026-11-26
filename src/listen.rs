@@ -1903,8 +1903,9 @@ mod tests {
         assert!(items(&mut store).is_empty());
     }
 
-    /// `list` (a `claude agents --json` list) with another session after it whose name is
-    /// not a string and whose pid and sessionId are not the types Claude lists.
+    /// `list` (a `claude agents --json` list, whose entries give a name, pid and sessionId of
+    /// the types Claude lists) with another session after it whose name, pid and sessionId
+    /// are not: one odd entry beside good ones.
     fn with_odd_entry(list: &str) -> String {
         let mut list: Vec<serde_json::Value> = serde_json::from_str(list).unwrap();
         list.push(serde_json::json!({
@@ -1937,16 +1938,27 @@ mod tests {
         store.attach_lead(RepoId(1), "sess-1").unwrap();
         assert!(look_with(&mut store, &db, &agents(&[("sess-1", "idle")]), 10).is_empty());
         ends_turn(&db, "sess-1");
-        // Every entry odd: not the lead's session gone.
+        // No entry gives a session id (none, or null): not the lead's session gone.
+        let none = r#"[{"name":"cat-lead","status":"idle"},{"sessionId":null,"status":"busy"}]"#;
+        assert!(look_with(&mut store, &db, none, 20).is_empty());
+        // Every session id of another type: Claude's format changed, a list that cannot be
+        // read, said once, never the lead's session gone.
         let odd = r#"[{"sessionId":9,"name":"cat-lead","status":"idle"}]"#;
-        assert!(look_with(&mut store, &db, odd, 20).is_empty());
+        assert_eq!(
+            look_with(&mut store, &db, odd, 20),
+            [
+                "could not check the leads are listening: claude agents --json said something \
+                 unexpected: no session's sessionId is a string"
+            ]
+        );
         assert!(items(&mut store).is_empty());
     }
 
     #[test]
     fn an_odd_entry_for_another_session_never_stops_a_lead_attaching() {
         let (_dir, db, mut store) = board();
-        let lists = with_odd_entry(&claude_lists(&[("sess-2", "cat-lead")]));
+        let lead = r#"[{"sessionId":"sess-2","name":"cat-lead","pid":4242,"kind":"interactive"}]"#;
+        let lists = with_odd_entry(lead);
         let reply = session_start(
             &db,
             &start("sess-2", "startup", Some("cat-lead")),
