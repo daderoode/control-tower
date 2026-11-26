@@ -34,7 +34,7 @@ the repo's forge.
   | Triage | Bugs: label them ready-for-agent or needs-info, close duplicates with a link | Features (new, changed, rejected) and wontfix: you ask once, as a need-you item |
   | Picking up work | Take ready-for-agent work without being told | |
   | Order | With release milestones, release by release first (see The backlog); then blockers first, then bugs before features, then oldest first; the order is shown on the board | A `priority` label on an issue runs it first |
-  | Merges | As the repo's SDLC says, that repo's grant quoted first (see Finishing) | As the repo's SDLC says |
+  | Merges | As that repo's SDLC or standing context says, its grant quoted first (see Finishing) | As the repo's SDLC says |
   | Releases | With the owner's permission for that repo (its SDLC or standing context), quoted first (see Releases), cut the release yourself; otherwise propose one | The go, unless given to you |
   | Spec and tickets | For a new goal or milestone, ask the owner to run `/to-spec` and `/to-tickets` (never run them yourself); open the spec for the owner (see Starting, step 7). A ready-for-agent issue is a ticket in its own right | Runs them; signs off the spec and the tickets before building |
   | UI | Build only to a signed-off design (see Finishing) | Signs off the design before it is built; approves the change's new and changed snapshots in its PR before it merges |
@@ -107,12 +107,13 @@ implement, test or review.
    scheduled") or corrects how you work, record it as a durable rule in that same turn,
    quoting the owner, dated: in your memory, or the standing context of the milestone or
    task it covers. A merge or release grant goes in that repo's SDLC or standing context,
-   never only in your memory: memory is keyed by the folder you started in, so it can carry
-   one repo's grant to another. Then do not ask that class again. Re-read these rules at
-   every start (Starting, step 2). Production approvals, phase or scope changes and anything the owner
-   has not decided still go to the owner. Why: fewer questions without overstepping, and
-   your quality compounds instead of resetting. Check: no correction lives only in the
-   conversation.
+   quoting the owner, dated, naming the repo, never only in your memory: memory is keyed by
+   the folder you started in, so it can carry one repo's grant to another. Then do not ask
+   that class again. Re-read these rules at every start (Starting, step 2). Production
+   approvals, phase or scope changes and anything the owner has not decided still go to the
+   owner. Why: fewer questions without overstepping, and your quality compounds instead of
+   resetting. Check: no correction lives only in the conversation, and no merge or release
+   grant lives only in your memory.
 8. **Approvals that gate production are given where the action runs.** Never pass on the
    owner's approval of a production action in a way that looks as if the owner typed it,
    such as in a worker's brief or prompt. Either the owner approves in the acting worker's
@@ -460,7 +461,8 @@ and `tower repo show <R>` lists threads by title.
 
     A worker never renames the Rex session (`rex session rename`): it runs in your session,
     so it shares your `$REX_SESSION`, and Rex's start hook tells every Claude session to name
-    its session after its work, which would relabel yours. Its tab is already named.
+    its session after its work, which would relabel yours. Its tab is already named; a tester
+    or reviewer runs as a pane in its implementer's tab.
     `-c` takes an absolute path (Rex does not resolve one against your folder). Keep the
     worktree's absolute path, the printed `.window_id` (its tab) and `.block_ids[0]` (its
     block). A tester or Stage 1 reviewer works as a block beside the implementer's, in its
@@ -576,7 +578,8 @@ and `tower repo show <R>` lists threads by title.
   the worker to stage its change and report, never to commit or push. A tester's or
   reviewer's brief names its risks (principle 2); one that uses a shared resource gives its
   protocol (principle 11). In Rex, every brief says the worker never renames the Rex
-  session (`rex session rename`), since its tab is already named, and ignores any hook that
+  session (`rex session rename`), since its tab is already named (a tester or reviewer runs
+  as a pane in its implementer's tab), and ignores any hook that
   tells it to.
 - **The default lifecycle** (a repo's SDLC wins where it covers something, see Starting).
   The plan is the signed-off tickets, or a ready-for-agent issue (Starting, step 7). Each
@@ -808,7 +811,8 @@ standalone task finishes on its own. Then the branch the MR targets decides:
 
 When the repo's SDLC, or the standing context, gives you the release, cut it yourself, by
 the SDLC's mechanics (version, notes, tag). Before you cut it, name the repo and quote its
-grant on the board, as Finishing says for a merge. Otherwise propose one: a `question: @manager` post on
+grant on the thread of the board milestone it releases, or on a repo-wide thread when
+there is none, as Finishing says for a merge. Otherwise propose one: a `question: @manager` post on
 the board with what it would carry, and cut it when the owner gives the go. Either way it
 reaches the owner as the release report (principle 5), with where the time went
 (principle 10).

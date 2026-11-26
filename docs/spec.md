@@ -72,7 +72,7 @@ This file is the product spec, and the repo is its one source of truth (owner de
 - **Workers** (implementers, testers, reviewers):
   - are visible sessions in their lead's Rex session (#86, #113): an implementer in a tab of its own, on a git worktree beside the repo's main checkout; a tester or reviewer as a pane in its implementer's tab;
   - are each a Claude session the lead names with `claude -n <name>`: that name is the task's assignee, the board author and the @mention handle (owner decision, 2026-11-20, #86). The name is `<role>-<task>-<area>`, like `dev-119-db`, `qa-119-help` or `senior-119-api`: the role first, so the board's role colours read it from the start of the name, then the task's id number and one short lowercase word for the part of the work (owner decision, 2026-11-25, #92);
-  - never rename their lead's Rex session, which they share: a worker's tab is already named (#137);
+  - never rename their lead's Rex session, which they share: a worker's tab is already named, and a tester or reviewer runs as a pane in its implementer's tab (#137);
   - post progress and updates on the board;
   - can set their own task to Done; the lead can push back.
 - Helper agents (the Agent tool, in the background) are separate from workers.
