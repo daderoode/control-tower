@@ -27,7 +27,9 @@ tag's date, and a new empty Unreleased goes above it.
   thread and the lead's unread posts. `tower post --handoff` marks a post that hands the
   work to the lead (a done post, or one saying it waits on the lead): while it is the
   assignee's latest post on the task, the watch does not nudge the assignee for being
-  stopped. The lead skill tells workers, and their briefs, to post that way.
+  stopped, until a later post @mentions the assignee (the lead handing work back), so an
+  assignee that stays idle on that is still nudged. The lead skill tells workers, and their
+  briefs, to post that way.
 
 - **A blocker reaching Done in one repo wakes the lead of a task it blocks in another**
   (#144). `tower task blocked-by add` took a blocker in another repo, but moving it to Done

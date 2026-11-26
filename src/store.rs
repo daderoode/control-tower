@@ -3300,21 +3300,44 @@ impl Store {
     }
 
     /// Each task not Done whose assignee's latest post in a thread linked to it is a
-    /// hand-off post (`post_handoff`), in task id order: the watch does not nudge that
-    /// assignee for being stopped, since the work waits on the lead. The assignee compares
-    /// ignoring ASCII case; of posts at the same second, the later posted is the latest.
+    /// hand-off post (`post_handoff`), and no later post there @mentions the assignee
+    /// (`mentioned`), in task id order: the watch does not nudge that assignee for being
+    /// stopped, since the work waits on the lead. A later post that names the assignee, such
+    /// as the lead handing work back, ends the hand-off, so an assignee that stays idle on it
+    /// is nudged; a reply that names no one does not. The watch's own posts never end it. The
+    /// assignee compares ignoring ASCII case; of posts at the same second, the later posted
+    /// is the latest.
     pub fn handed_off(&mut self) -> Result<Vec<TaskId>> {
-        let found = self
+        let handoffs: Vec<(i64, String, i64, i64)> = self
             .conn
             .prepare(
-                "SELECT k.id FROM task k WHERE k.stage != 'done' AND k.assignee IS NOT NULL \
-                 AND (SELECT m.handoff FROM thread t JOIN message m ON m.thread_id = t.id \
-                      WHERE t.task_id = k.id AND lower(m.author) = lower(k.assignee) \
-                      ORDER BY m.posted_at DESC, m.id DESC LIMIT 1) = 1 \
-                 ORDER BY k.id",
+                "SELECT k.id, k.assignee, m.posted_at, m.id FROM task k JOIN message m ON m.id = \
+                 (SELECT o.id FROM thread t JOIN message o ON o.thread_id = t.id \
+                  WHERE t.task_id = k.id AND lower(o.author) = lower(k.assignee) \
+                  ORDER BY o.posted_at DESC, o.id DESC LIMIT 1) \
+                 WHERE k.stage != 'done' AND m.handoff ORDER BY k.id",
             )?
-            .query_map([], |r| Ok(TaskId(r.get(0)?)))?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<rusqlite::Result<_>>()?;
+        let mut later = self.conn.prepare(
+            "SELECT m.text FROM thread t JOIN message m ON m.thread_id = t.id \
+             WHERE t.task_id = ?1 AND m.author != ?2 AND instr(m.text, '@') > 0 \
+             AND (m.posted_at > ?3 OR (m.posted_at = ?3 AND m.id > ?4))",
+        )?;
+        let mut found = Vec::new();
+        for (task, assignee, at, id) in handoffs {
+            let texts: Vec<String> = later
+                .query_map(params![task, SYSTEM_AUTHOR, at, id], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            let named = (texts.iter()).any(|text| {
+                mentioned(text)
+                    .iter()
+                    .any(|n| n.eq_ignore_ascii_case(&assignee))
+            });
+            if !named {
+                found.push(TaskId(task));
+            }
+        }
         Ok(found)
     }
 
@@ -8793,6 +8816,21 @@ mod tests {
         assert_eq!(store.handed_off().unwrap(), [TaskId(1)]);
         // `post_handoff` marks the post; a thread linked to no task refuses one, writing nothing.
         store.post_handoff(t2, "dev-2", "fixed, staged").unwrap();
+        assert_eq!(store.handed_off().unwrap(), [TaskId(1), TaskId(2)]);
+        // A quoted name and the watch's own posts name no one; a later post that @mentions
+        // the assignee, in any case, hands the work back, until the assignee hands off again.
+        raw_message(&store, t1, "cat-lead", "`@dev-1` is only the example", 310);
+        raw_message(&store, t1, "system", "@dev-1 no worker is named `@x`", 320);
+        assert_eq!(store.handed_off().unwrap(), [TaskId(1), TaskId(2)]);
+        raw_message(
+            &store,
+            t1,
+            "cat-lead",
+            "@Dev-1 merge master, post done",
+            330,
+        );
+        assert_eq!(store.handed_off().unwrap(), [TaskId(2)]);
+        store.handoff_at(t1, "dev-1", "done: merged", 340);
         assert_eq!(store.handed_off().unwrap(), [TaskId(1), TaskId(2)]);
         let err = store.post_handoff(chat, "dev-2", "x").unwrap_err();
         assert!(err.to_string().contains("T4 is linked to no task"), "{err}");

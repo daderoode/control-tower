@@ -28,8 +28,8 @@
 //!   and the worker's own latest post in the task's threads is no hand-off post
 //!   (`tower post --handoff`: its done post, or one saying it waits on the lead). While it
 //!   is, the work waits on the lead, who has the post unread, so the worker is not nudged;
-//!   its next post of any other kind ends that. A post by anyone else, the lead's reply
-//!   included, does not.
+//!   its next post of any other kind ends that, and so does a later post by anyone else
+//!   that @mentions it (the lead handing work back). A reply that names no one does not.
 //! - Silent while working: the task is In progress, the worker `working`, no post for
 //!   `SILENT_AFTER`.
 //!   Both nudge the worker directly (the terminal's prompt; in Rex, a message from
@@ -1436,7 +1436,7 @@ mod tests {
         f.store()
             .handoff_at(ThreadId(1), "dev-1", "done: staged", f.t0 + MIN);
         assert!(f.tick(7).is_empty(), "6 min after the hand-off");
-        // The lead's reply hands nothing back: the worker still waits on the lead.
+        // A lead's reply that names no one hands nothing back: the worker still waits.
         f.post(1, "cat-lead", 20);
         assert!(f.tick(60).is_empty());
         assert!(f.prompts().is_empty());
@@ -1453,6 +1453,28 @@ mod tests {
         assert_eq!(f.tick(68), ["#1's stopped episode for dev-1 ended"]);
         assert!(f.tick(90).is_empty());
         assert_eq!(f.prompts().len(), 1);
+    }
+
+    #[test]
+    fn a_post_naming_the_handed_off_worker_hands_it_back_and_its_idling_is_nudged() {
+        let mut f = Fixture::new();
+        f.store()
+            .handoff_at(ThreadId(1), "dev-1", "done: staged", f.t0 + MIN);
+        // A reply that names no one leaves the work with the lead.
+        f.post(1, "cat-lead", 5);
+        assert!(f.tick(11).is_empty());
+        // The lead hands work back by name; the worker stays idle and is nudged 5 min on.
+        f.store().post_at(
+            ThreadId(1),
+            "cat-lead",
+            "@dev-1 merge master, post done",
+            f.t0 + 12 * MIN,
+        );
+        assert!(f.tick(16).is_empty(), "4 min after the lead's post");
+        assert_eq!(
+            f.tick(18),
+            ["nudged dev-1 on #1 (stopped): no post on #1 for 6 min, post your status"]
+        );
     }
 
     #[test]

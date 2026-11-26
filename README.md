@@ -691,9 +691,12 @@ unassigned task.
   line in the watch's log; with no post 2 minutes later, a message tells the lead. A task
   flagged blocked is never nudged: its worker already said it is stuck, and the lead owns
   it. An assignee whose own latest post on the task is a hand-off post (below) is never
-  nudged for being stopped: the work waits on the lead, who has that post unread. A reply
-  from the lead or anyone else does not change that; the assignee's next post of any other
-  kind does. Silent while working still applies.
+  nudged for being stopped: the work waits on the lead, who has that post unread. The
+  assignee's next post of any other kind ends that, and so does a later post by anyone
+  else that @mentions the assignee (the lead handing work back), so an assignee that stays
+  idle on it is nudged 5 minutes on; a reply that names no one, or names it only in
+  backticks, leaves the hand-off, and the watch's own posts never end it. Silent while
+  working still applies.
 - **Orphaned** (task in progress, no live Claude session in Rex by its assignee's name for
   three looks in a row): a message to the lead, saying it is "gone from Rex" and ending
   with how to clear it ("if it was closed: tower task unassign N, or set the next

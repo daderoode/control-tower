@@ -731,7 +731,10 @@ name (see Workers), like `dev-119-deliver`.
   While the worker's latest post on the task carries `--handoff`, the watch does not nudge
   it for being stopped, so it posts no "still waiting" status. Its next post without the
   flag, a "copy" included, starts the 5 minute clock again, as does a done post without
-  it. The flag says who the board waits on; it is not the lifecycle's commit hand-off.
+  it. To hand work back, @mention the worker: a later post naming it starts the clock
+  again too, so a worker that stays idle on your request is nudged; a reply that names
+  no one leaves it waiting on you. The flag says who the board waits on; it is not the
+  lifecycle's commit hand-off.
 - **Acknowledge in words:** `tower post T --by "<you>" "copy"`, never emoji.
 - **Resolve with evidence:** `tower thread resolve T --by "<you>" "<evidence>"` (principle 6).
 - **Stuck:** a stuck worker (or you) does both: `tower task block N "<reason>"` for the
