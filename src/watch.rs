@@ -881,6 +881,26 @@ impl Terminal for Chosen {
     fn undo(&self, db: &Path, handle: &crate::terminal::Handle) -> Result<String> {
         self.now().undo(db, handle)
     }
+    fn starts_workers(&self) -> Result<()> {
+        self.now().starts_workers()
+    }
+    fn start_worker(
+        &self,
+        db: &Path,
+        worker: &crate::terminal::WorkerStart,
+    ) -> Result<crate::terminal::Handle> {
+        self.now().start_worker(db, worker)
+    }
+    fn close_worker(
+        &self,
+        db: &Path,
+        handle: &crate::terminal::Handle,
+    ) -> Result<crate::terminal::Closed> {
+        self.now().close_worker(db, handle)
+    }
+    fn shows(&self, db: &Path, handle: &crate::terminal::Handle) -> Option<String> {
+        self.now().shows(db, handle)
+    }
     fn space(
         &self,
         db: &Path,
@@ -1651,6 +1671,51 @@ mod tests {
         }
         listed(&f, &[("dev-1", "busy", None)]);
         assert_eq!(round_at(&mut f, 4), ["#1's prompt episode for dev-1 ended"]);
+    }
+
+    #[test]
+    fn the_chosen_terminal_starts_closes_and_reads_a_worker_never_a_default_over_it() {
+        use crate::terminal::{Closed, Core, Handle, WorkerStart};
+        let dir = tempfile::tempdir().unwrap();
+        let rex = FakeRex::new(dir.path());
+        let db = dir.path().join("board.db");
+        let core = Core::new(dir.path().join("claude"));
+        let chosen = Chosen::new(Arc::new(rex.module_in("session:7")), Arc::new(core));
+        let command = ["claude", "-n", "dev-1", "the brief"].map(String::from);
+        let worker = WorkerStart {
+            label: "dev-1",
+            dir: "/srv/shop",
+            command: &command,
+            beside: None,
+        };
+        let tab = Handle("rex-tab,session:7,window:w1,block:b1".into());
+        // Rex is found and answers: each is Rex's own.
+        assert_eq!(chosen.choose(&db, None), None);
+        chosen.starts_workers().unwrap();
+        assert_eq!(chosen.start_worker(&db, &worker).unwrap(), tab);
+        rex.write("screen", "ready\n");
+        assert_eq!(chosen.shows(&db, &tab).as_deref(), Some("ready"));
+        rex.tabs(&[("session:7", &[("block:b1", "window:w1", "")])]);
+        assert_eq!(chosen.close_worker(&db, &tab).unwrap(), Closed::Now);
+        // Rex gone: each is the core's, which refuses and reads nothing.
+        std::fs::rename(dir.path().join("rex"), dir.path().join("rex.away")).unwrap();
+        assert!(chosen.choose(&db, None).is_some());
+        let needs = "needs Rex, and this session is not in Rex (REX_SESSION is not set)";
+        let said = [
+            chosen.starts_workers(),
+            chosen.start_worker(&db, &worker).map(|_| ()),
+            chosen.close_worker(&db, &tab).map(|_| ()),
+        ]
+        .map(|r| r.unwrap_err().to_string());
+        assert_eq!(
+            said,
+            [
+                format!("starting a worker {needs}"),
+                format!("starting a worker {needs}"),
+                format!("closing a worker {needs}"),
+            ]
+        );
+        assert_eq!(chosen.shows(&db, &tab), None);
     }
 
     #[test]

@@ -48,6 +48,10 @@ enum Command {
     /// Threads on a repo's message board.
     #[command(subcommand)]
     Thread(ThreadCommand),
+    /// Workers a lead starts and closes in its terminal: in Rex (REX_SESSION is set), as
+    /// tabs and splits of the lead's session.
+    #[command(subcommand)]
+    Worker(WorkerCommand),
     /// Post a message to an open thread.
     Post {
         /// The thread, like T3.
@@ -501,6 +505,67 @@ enum ThreadCommand {
         /// The thread, like T3.
         thread: ThreadId,
     },
+}
+
+#[derive(Subcommand)]
+enum WorkerCommand {
+    /// Start a worker without taking focus, in a tab of its own or as a split beside
+    /// another, and print its handle as JSON ({"handle":"..."}). Refuses a name a live
+    /// Claude session already has, ignoring case. Then waits up to 30 s for Claude Code's
+    /// session list to name it, and fails when it does not: the handle is printed either way.
+    Start {
+        /// Its Claude session name (claude -n), like dev-119-deliver: the name it posts
+        /// under and is found by. Not empty, and not starting with a dash.
+        name: String,
+        /// The folder it starts in, one Claude trusts: a worktree, or a folder of its own.
+        /// A relative one is taken from the current folder.
+        #[arg(long)]
+        dir: PathBuf,
+        /// The new tab's label, like "#119 deliver"; without it, the name. Not empty, and
+        /// not starting with a dash.
+        #[arg(long, conflicts_with = "beside")]
+        label: Option<String>,
+        /// Start it as a split to the right of this worker's pane, by the handle that
+        /// worker's start printed, in place of a tab of its own.
+        #[arg(long)]
+        beside: Option<String>,
+        /// Its first prompt: the brief. Not empty, and not starting with a dash.
+        prompt: String,
+    },
+    /// Close what a handle names: a worker's tab with every split in it, or one split. A
+    /// handle the terminal has nothing by (closed already, or mistyped) is no failure, and
+    /// says so.
+    Close {
+        /// The handle tower worker start printed.
+        handle: String,
+    },
+}
+
+/// `folder` as a clean absolute path in words, for a worker to start in: it must be there.
+/// A relative one is joined to this process's working directory as the system names it (on
+/// macOS with its links resolved, so under `/private/var` for a folder in `/var`). Then
+/// each `.` part is dropped and each `..` takes the part before it, by the words alone, as
+/// a shell's `cd` and `pwd` do: no link in what the caller wrote is resolved.
+fn worker_dir(folder: &Path) -> Result<String> {
+    use std::path::Component;
+    let given = std::path::absolute(folder)
+        .with_context(|| format!("cannot make {} an absolute path", folder.display()))?;
+    let mut dir = PathBuf::new();
+    for part in given.components() {
+        match part {
+            Component::CurDir => {}
+            // Above the root is the root.
+            Component::ParentDir => {
+                dir.pop();
+            }
+            part => dir.push(part),
+        }
+    }
+    if !dir.is_dir() {
+        bail!("{} is not a folder: nothing was started", dir.display());
+    }
+    (dir.to_str().map(String::from))
+        .with_context(|| format!("the folder {} is not UTF-8", dir.display()))
 }
 
 fn main() -> ExitCode {
@@ -1343,6 +1408,50 @@ fn run(cli: Cli) -> Result<()> {
             };
             println!("posted {what}to {thread}, {}", replies(&t));
         }
+        Command::Worker(WorkerCommand::Start {
+            name,
+            dir,
+            label,
+            beside,
+            prompt,
+        }) => {
+            // Each is one word to the terminal or to claude, which would read a leading
+            // dash as a flag of its own.
+            let words = [
+                ("name", Some(&name)),
+                ("label", label.as_ref()),
+                ("brief", Some(&prompt)),
+            ];
+            for (what, word) in words {
+                if let Some(word) = word.filter(|w| w.is_empty() || w.starts_with('-')) {
+                    bail!("a worker's {what} is not empty and does not start with -: {word:?}");
+                }
+            }
+            let dir = worker_dir(&dir)?;
+            let command = ["claude", "-n", &name, &prompt].map(String::from);
+            let beside = beside.map(terminal::Handle);
+            let start = terminal::WorkerStart {
+                label: label.as_deref().unwrap_or(&name),
+                dir: &dir,
+                command: &command,
+                beside: beside.as_ref(),
+            };
+            let wait = (
+                control_tower::worker::LISTED_WITHIN,
+                control_tower::worker::ASK_EVERY,
+            );
+            let terminal = terminal::for_workers_from_env();
+            let mut out = std::io::stdout();
+            control_tower::worker::start(&*terminal, &path, &name, &start, wait, &mut out)?;
+        }
+        Command::Worker(WorkerCommand::Close { handle }) => {
+            let terminal = terminal::for_workers_from_env();
+            let handle = terminal::Handle(handle);
+            println!(
+                "{}",
+                control_tower::worker::close(&*terminal, &path, &handle)?
+            );
+        }
         Command::Ui => control_tower::ui::run(&path)?,
         Command::Space { session, block } => {
             let here = Here { session, block };
@@ -1404,6 +1513,111 @@ mod tests {
             ]
         );
         assert_eq!(back_path(board), Path::new("/b/board.space-back"));
+    }
+
+    #[test]
+    fn a_workers_folder_is_made_absolute_and_clean_by_its_words_with_no_link_resolved() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = |p: &str| dir.path().join(p);
+        std::fs::create_dir_all(at("shop.review/senior-1")).unwrap();
+        std::fs::create_dir(at("shop")).unwrap();
+        std::os::unix::fs::symlink(at("shop.review"), at("link")).unwrap();
+        let clean = |p: PathBuf| worker_dir(&p).unwrap();
+        let word = |p: &str| at(p).to_str().unwrap().to_string();
+        // The skill's Stage 2 line, from the checkout: `..` takes the part before it.
+        assert_eq!(
+            clean(at("shop/../shop.review/senior-1")),
+            word("shop.review/senior-1")
+        );
+        assert_eq!(clean(at("./shop/./../shop/.")), word("shop"));
+        // A link is kept as written, and `..` after one goes by the words, not the link.
+        assert_eq!(clean(at("link/senior-1")), word("link/senior-1"));
+        assert_eq!(clean(at("link/../shop")), word("shop"));
+        // Above the root is the root.
+        assert_eq!(clean(PathBuf::from("/../../.")), "/");
+        // The cleaned folder must be there.
+        let gone = worker_dir(&at("shop/../nowhere")).unwrap_err().to_string();
+        assert_eq!(
+            gone,
+            format!("{} is not a folder: nothing was started", word("nowhere"))
+        );
+    }
+
+    #[test]
+    fn the_lead_skills_workers_steps_start_and_close_through_tower_never_rex() {
+        let skill = include_str!("../claude-plugin/skills/lead/SKILL.md");
+        let from = skill.find("\n## Workers\n").unwrap();
+        let to = from + skill[from..].find("\n## The message board\n").unwrap();
+        let workers = &skill[from..to];
+        // Each rex command a text names, by its first three words, on one line or wrapped
+        // over two: `rex` and then any whitespace.
+        let rex_commands = |text: &str| -> Vec<String> {
+            (text.match_indices("rex"))
+                .filter(|(at, rex)| text[at + rex.len()..].starts_with(char::is_whitespace))
+                .map(|(at, _)| {
+                    let words: Vec<&str> = text[at..].split_whitespace().take(3).collect();
+                    words.join(" ")
+                })
+                .collect()
+        };
+        assert_eq!(
+            rex_commands("close it: `rex\n    window close <id>`, or `rex split -b <b>`"),
+            ["rex window close", "rex split -b"]
+        );
+        // No step runs rex: the only one named is the one a worker must never run.
+        let named: Vec<String> = (rex_commands(workers).into_iter())
+            .filter(|command| !command.starts_with("rex session rename"))
+            .collect();
+        assert_eq!(named, [] as [String; 0]);
+        // Each start it shows, and the close, as tower takes them.
+        for shown in [
+            "tower worker start <name> --dir \"$w\" --label \"<#NN slug>\" \"<brief>\"",
+            "tower worker start <name> --dir <the worktree's absolute path> \\\n          \
+             --beside <the implementer's handle> \"<brief>\"",
+            "tower worker start <name> --dir ../<repo>.review/<name> \\\n          \
+             --beside <the implementer's handle> \"<brief>\"",
+            "tower worker start <name> --dir ../<repo>.standing/<name> \"<brief>\"",
+            "`tower worker close <its handle>`",
+        ] {
+            assert!(
+                workers.contains(shown),
+                "the skill no longer shows: {shown}"
+            );
+        }
+        let parsed = |args: &[&str]| match Cli::try_parse_from(args).unwrap().command {
+            Command::Worker(w) => w,
+            _ => panic!("{args:?} is not a worker command"),
+        };
+        let tab = [
+            "tower", "worker", "start", "dev-1", "--dir", "/w", "--label", "#1 x", "Brief",
+        ];
+        let WorkerCommand::Start {
+            name,
+            dir,
+            label,
+            beside,
+            prompt,
+        } = parsed(&tab)
+        else {
+            panic!("not a start");
+        };
+        assert_eq!((name.as_str(), prompt.as_str()), ("dev-1", "Brief"));
+        assert_eq!(
+            (dir.as_path(), label.as_deref()),
+            (Path::new("/w"), Some("#1 x"))
+        );
+        assert_eq!(beside, None);
+        let split = [
+            "tower", "worker", "start", "qa-1", "--dir", "/w", "--beside", "h,1", "Test",
+        ];
+        let WorkerCommand::Start { label, beside, .. } = parsed(&split) else {
+            panic!("not a start");
+        };
+        assert_eq!((label, beside.as_deref()), (None, Some("h,1")));
+        let WorkerCommand::Close { handle } = parsed(&["tower", "worker", "close", "h,1"]) else {
+            panic!("not a close");
+        };
+        assert_eq!(handle, "h,1");
     }
 
     #[test]

@@ -477,36 +477,36 @@ and `tower repo show <R>` lists threads by title.
 - Workers are implementers, testers and reviewers: visible sessions, each under you in
   your terminal, named by its Claude session name (`claude -n <name>`), which the watch and
   delivery find it by. Every start is without focus, so the owner stays where they are.
-  - **In Rex** (`$REX_SESSION` is set; `rex` is in `$REX_BIN_DIR` when it is not on PATH).
+  - **Start each one with `tower worker start`,** which starts it in your terminal and
+    prints its handle as one line of JSON (`{"handle":"..."}`); keep the handle, since it
+    is how you close the worker and how you start another beside it. Today that needs Rex
+    (`$REX_SESSION` is set): an implementer is a tab in your Rex session, a tester or
+    reviewer a pane in its implementer's tab. Outside Rex it refuses, saying so.
     An implementer gets a git worktree beside the repo, on its own branch from the default
-    branch, then a tab in your session named after its work item:
+    branch, then a tab named after its work item:
 
         git worktree add ../<repo>.worktrees/<#NN-slug> -b <branch> <default branch>
         w=$(cd ../<repo>.worktrees/<#NN-slug> && pwd)
-        rex window new -s "$REX_SESSION" "<#NN slug>" -c "$w" --focus=false \
-          --json -- claude -n <name> "<brief>"
+        tower worker start <name> --dir "$w" --label "<#NN slug>" "<brief>"
 
     A worker never renames the Rex session (`rex session rename`): it runs in your session,
     so it shares your `$REX_SESSION`, and Rex's start hook tells every Claude session to name
     its session after its work, which would relabel yours. Its tab is already named; a tester
     or reviewer runs as a pane in its implementer's tab.
-    `-c` takes an absolute path (Rex does not resolve one against your folder). Keep the
-    worktree's absolute path, the printed `.window_id` (its tab) and `.block_ids[0]` (its
-    block). A tester or Stage 1 reviewer works as a block beside the implementer's, in its
-    tab, with no worktree of its own; keep its printed `.block_ids[0]`:
+    Keep the worktree's absolute path and the implementer's handle. A tester or Stage 1
+    reviewer works in a pane beside the implementer's, in its tab, with no worktree of its
+    own; `--beside` takes the implementer's handle, and you keep the new one:
 
-        rex split -s "$REX_SESSION" -b <the implementer's block> --split right \
-          --focus=false -c <the worktree's absolute path> --json \
-          -- claude -n <name> "<brief>"
+        tower worker start <name> --dir <the worktree's absolute path> \
+          --beside <the implementer's handle> "<brief>"
 
-    A Stage 2 reviewer works as a block beside the implementer's too, but in a folder of its
+    A Stage 2 reviewer works in a pane beside the implementer's too, but in a folder of its
     own outside any worktree: it reviews the PR on the forge, never local code. Keep its
-    printed `.block_ids[0]`; its folder stays when its block closes:
+    handle; its folder stays when its pane closes:
 
         mkdir -p ../<repo>.review/<name>
-        d=$(cd ../<repo>.review/<name> && pwd)
-        rex split -s "$REX_SESSION" -b <the implementer's block> --split right \
-          --focus=false -c "$d" --json -- claude -n <name> "<brief>"
+        tower worker start <name> --dir ../<repo>.review/<name> \
+          --beside <the implementer's handle> "<brief>"
 
   - **Only in a trusted folder.** A worker at Claude's folder-trust dialog is not listed by
     `claude agents --json`, so the watch cannot see it: it raises nothing and later reads as
@@ -515,16 +515,18 @@ and `tower repo show <R>` lists threads by title.
     covers the checkout and the `<repo>.worktrees`, `<repo>.review` and `<repo>.standing`
     folders beside it. Trusting a Space does not cover it: a Space (Starting, step 0) is not
     above the repo.
-  - **One live worker per name.** Claude does not keep session names unique, so before a
-    start check that no live session has the name, ignoring case:
-    `claude agents --json | jq -e --arg n "<name>" 'any(.[]; (.name // "" | ascii_downcase) == ($n | ascii_downcase))'`
-    exits 0 when the name is taken (pick another, never start a second), 1 when it is free;
-    any other exit means the list was not read: do not start, and retry.
-  - **Check it started:** within about 30 s of the start, `claude agents --json` lists the
-    name. When it does not, look at its block (`rex capture -s "$REX_SESSION" -b <its
-    block>`). A worker at the trust dialog is closed at once by its ids (an implementer:
-    `rex window close`, then `git worktree remove`), and the folder raised with the owner
-    as a `question:` post to `@manager`.
+  - **One live worker per name.** Claude does not keep session names unique, so `tower
+    worker start` first checks that no live session has the name, ignoring case. When the
+    name is taken it starts nothing and says so: pick another, never start a second. When
+    it cannot read Claude's session list it starts nothing either: retry.
+  - **Check it started:** `tower worker start` waits up to 30 s for `claude agents --json`
+    to list the name, and exits 0 when it does. When it does not, it fails, having still
+    printed the handle, and says what the worker's pane shows. A worker at the trust dialog
+    is closed at once by its handle (an implementer: `tower worker close`, then `git
+    worktree remove`), and the folder raised with the owner as a `question:` post to
+    `@manager`. A start that fails with no handle printed may still have left a tab or
+    pane, as its message says: nothing can be closed by handle then, so look at the tab
+    and raise it with the owner the same way.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
   and reviewers (Senior dev for Stage 1, external for Stage 2); how many of each is your call.
 - **Standing roles, optional:** beside them you may keep a few standing workers, read-only
@@ -538,30 +540,32 @@ and `tower repo show <R>` lists threads by title.
   A standing worker runs in its own tab under you with no worktree, working in a folder of
   its own outside any worktree, is named by its role and the repo (`qa-R1`), and takes one
   item at a time from you. The standby and close-when-done rules below do not apply to
-  it: you close it when the milestone ends. In Rex, beside the repo, so trusted as above:
+  it: you close it when the milestone ends. Its folder is beside the repo, so trusted as
+  above, and its tab takes its name:
 
       mkdir -p ../<repo>.standing/<name>
-      d=$(cd ../<repo>.standing/<name> && pwd)
-      rex window new -s "$REX_SESSION" "<name>" -c "$d" --focus=false --json \
-        -- claude -n <name> "<brief>"
+      tower worker start <name> --dir ../<repo>.standing/<name> "<brief>"
 
-  Keep the printed `.window_id`, and close it with `rex window close -s "$REX_SESSION"
-  <window id>`; its folder stays.
+  Keep the printed handle, and close it with `tower worker close <its handle>`; its folder
+  stays.
 - **Start a worker only when it has something to act on:** a tester when there is something
   to test, a reviewer when its stage is ready, never a worker on standby.
 - **Close a finished worker when its step is done,** unless you give it the next step
   straight away. A step is done when its verdict passes, or when the fixes for its findings
   are re-checked (a "changes needed" verdict is not the end of the step: the same worker
-  re-checks the fix). Close only what you started, by the ids its start printed, never by
-  a label or name. Close by what the worker is:
-  - a tester or reviewer working beside the implementer: `rex block close -s
-    "$REX_SESSION" <its block>`, which leaves the worktree alone;
+  re-checks the fix). Close only what you started, by the handle its start printed, never
+  by a label or name: `tower worker close <handle>`, which says `closed`, or that there is
+  no such tab or pane: already closed (as when the worker's pane ended by itself), or never
+  that start's. That is no failure, so when you did not expect it, check the handle is the
+  one the start printed. Close by what the worker is:
+  - a tester or reviewer working beside the implementer: `tower worker close <its
+    handle>`, which closes its pane alone and leaves the worktree alone;
   - the implementer, with its worktree, once its PR is delivered (merged, or handed to
     the owner or the named reviewer to merge): the tester and both reviewers work beside
-    it, a fix from any step is made in its worktree, and closing its tab closes every block
+    it, a fix from any step is made in its worktree, and closing its tab closes every pane
     in it, so it stays until then although its own step ended at Implement:
-    `rex window close -s "$REX_SESSION" <its window>`, then `git worktree remove <its
-    worktree's absolute path>`.
+    `tower worker close <its handle>`, then `git worktree remove <its worktree's absolute
+    path>`.
 
   A later fix on the same branch gets a new worker.
 - **The gate:** a task has an assignee and its task thread before it leaves Waiting (to In
