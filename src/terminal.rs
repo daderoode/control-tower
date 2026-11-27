@@ -12,7 +12,9 @@
 //! the live workers are Claude Code's session list (`claude agents --json`, read by
 //! `listed`), and a prompt is a fresh look for the worker by name, nothing sent to one at a
 //! prompt, then the relay (`relay`) to its Claude session. The core's start and close of a
-//! worker refuse for now, saying they need Rex (#178 makes them Ghostty's). A module
+//! worker are Ghostty's (`ghostty`), a tab or a split there driven through AppleScript, from
+//! whatever terminal the lead runs in; with no Ghostty they say workers need Ghostty or
+//! Rex, and the core reads no pane (`shows`). A module
 //! overrides any of them with its own; what it does not override runs the core's. `Core`
 //! is the core with no module: every default, and what only a terminal can do (starting a
 //! lead, the dashboard's keys) fails saying so. A module is built in: `module` gives the
@@ -24,6 +26,7 @@
 //! `busy` is working, `idle` idle, `waiting` blocked, its kind from `waitingFor`. A value
 //! the core does not know is `Status::Unknown`: present, with nothing to judge by.
 
+pub mod ghostty;
 pub mod relay;
 pub mod rex;
 
@@ -338,24 +341,38 @@ pub trait Terminal: AsTerminal + Send + Sync {
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle>;
     /// Undoes a start: closes the place `handle` names. Says what it did.
     fn undo(&self, db: &Path, handle: &Handle) -> Result<String>;
+    /// The Ghostty the core's start and close of a worker use. The core's: the one this
+    /// process's environment names (`ghostty::Ghostty::from_env`).
+    fn ghostty(&self) -> ghostty::Ghostty {
+        ghostty::Ghostty::from_env()
+    }
     /// Whether this terminal starts workers at all, asked before anything else a start
     /// does (`crate::worker::start`), so one that cannot says so first. The core's: it
-    /// cannot, and says it needs Rex (#178: Ghostty).
+    /// does when Ghostty is installed, and else says workers need Ghostty or Rex.
     fn starts_workers(&self) -> Result<()> {
-        Err(needs_rex("starting a worker"))
+        (self.ghostty().installed()).map_err(|why| needs_ghostty("starting a worker", &why))
     }
     /// Starts a worker (`tower worker start`): a tab of its own, or a split beside another
     /// worker's pane, without taking focus. The handle names what it made, for
-    /// `close_worker`, `shows` and a later split beside it. The core's: it refuses, saying
-    /// it needs Rex (#178: Ghostty).
-    fn start_worker(&self, _db: &Path, _worker: &WorkerStart) -> Result<Handle> {
-        Err(needs_rex("starting a worker"))
+    /// `close_worker`, `shows` and a later split beside it. The core's: Ghostty's
+    /// (`ghostty::Ghostty::start`), a tab in the lead's Ghostty window or a split there,
+    /// with the lead's tab selected again since Ghostty starts nothing without focus; what
+    /// failed after the worker's terminal was made is said on stderr, beside the handle.
+    fn start_worker(&self, db: &Path, worker: &WorkerStart) -> Result<Handle> {
+        let started = self.ghostty().start(db, worker)?;
+        for note in &started.notes {
+            eprintln!("tower: {note}");
+        }
+        Ok(started.handle)
     }
     /// Closes what `handle` names (`tower worker close`): a tab with every pane in it, or
     /// one split. One the terminal does not have is `Closed::Gone`, not an error. The
-    /// core's: it refuses, saying it needs Rex (#178: Ghostty).
-    fn close_worker(&self, _db: &Path, _handle: &Handle) -> Result<Closed> {
-        Err(needs_rex("closing a worker"))
+    /// core's: Ghostty's (`ghostty::Ghostty::close`), and with no Ghostty it says workers
+    /// need Ghostty or Rex.
+    fn close_worker(&self, _db: &Path, handle: &Handle) -> Result<Closed> {
+        let ghostty = self.ghostty();
+        (ghostty.installed()).map_err(|why| needs_ghostty("closing a worker", &why))?;
+        ghostty.close(handle)
     }
     /// What the pane `handle` names shows now, its last lines, where the terminal can read
     /// it: for the line saying a started worker is not in Claude's list. The core's: none.
@@ -459,16 +476,23 @@ fn at_prompt(agent: &Agent) -> String {
 }
 
 /// The core with no terminal module, asking the `claude` at `claude`: the live workers and
-/// prompts are the core's (the trait's defaults); starting a lead and the dashboard's keys
-/// need a terminal, so they fail saying so. Its name in texts is Claude Code's, whose list
-/// it reads.
+/// prompts are the core's (the trait's defaults), and so are a worker's start and close, in
+/// `ghostty`; starting a lead and the dashboard's keys need a terminal, so they fail saying
+/// so. Its name in texts is Claude Code's, whose list it reads.
 pub struct Core {
     claude: PathBuf,
+    ghostty: ghostty::Ghostty,
 }
 
 impl Core {
+    /// The core over the Ghostty this process's environment names.
     pub fn new(claude: PathBuf) -> Core {
-        Core { claude }
+        Core::over(claude, ghostty::Ghostty::from_env())
+    }
+
+    /// The core starting and closing its workers in `ghostty`.
+    pub fn over(claude: PathBuf, ghostty: ghostty::Ghostty) -> Core {
+        Core { claude, ghostty }
     }
 }
 
@@ -477,10 +501,21 @@ fn needs_module(what: &str) -> anyhow::Error {
     anyhow::anyhow!("{what} needs a terminal module (Rex), and there is none")
 }
 
-/// What the core says for `what` (starting or closing a worker), which is Rex's until the
-/// core has its own (#178).
-fn needs_rex(what: &str) -> anyhow::Error {
-    anyhow::anyhow!("{what} needs Rex, and this session is not in Rex (REX_SESSION is not set)")
+/// What the core says for `what` (starting or closing a worker) when Ghostty cannot do it,
+/// for the reason `why` (`ghostty::Ghostty::installed`): only Rex could, and the core is
+/// asked only outside Rex (`for_workers_from_env`).
+fn needs_ghostty(what: &str, why: &str) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{what} needs Ghostty or Rex: {why}, and this session is not in Rex (REX_SESSION is \
+         not set)"
+    )
+}
+
+/// Whether `id` is a word a worker's handle keeps as one of its terminal's ids: not empty,
+/// no comma (the handle's separator), and no leading dash, which a command would read as a
+/// flag.
+pub(crate) fn is_id(id: &str) -> bool {
+    !id.is_empty() && !id.contains(',') && !id.starts_with('-')
 }
 
 impl Terminal for Core {
@@ -500,6 +535,10 @@ impl Terminal for Core {
 
     fn claude(&self) -> &Path {
         &self.claude
+    }
+
+    fn ghostty(&self) -> ghostty::Ghostty {
+        self.ghostty.clone()
     }
 
     fn start_lead(&self, _db: &Path, _lead: &LeadStart) -> Result<Handle> {
@@ -526,7 +565,8 @@ pub fn module(exe: PathBuf) -> Arc<dyn Terminal> {
 }
 
 /// The terminal `tower worker start` and `tower worker close` use, by this process's
-/// environment: Rex's when the caller runs in Rex (`rex::for_workers`), else the core.
+/// environment: Rex's when the caller runs in Rex (`rex::for_workers`), else the core, whose
+/// workers are Ghostty's.
 pub fn for_workers_from_env() -> Arc<dyn Terminal> {
     match rex::for_workers(|name| std::env::var_os(name)) {
         Some(rex) => Arc::new(rex),
@@ -632,6 +672,7 @@ pub(crate) fn not_found(name: &str, exe: &Path, path: Option<&OsStr>) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal::ghostty::fake::FakeGhostty;
     use crate::terminal::rex::fake::FakeRex;
     use crate::watch::TEST_WAIT;
     use std::os::unix::fs::PermissionsExt;
@@ -865,40 +906,61 @@ mod tests {
     }
 
     #[test]
-    fn the_core_refuses_to_start_or_close_a_worker_saying_it_needs_rex_and_shows_nothing() {
-        let (dir, f, core) = over(&[]);
+    fn the_core_starts_and_closes_a_worker_in_ghostty_and_with_none_says_what_it_needs() {
+        let (dir, f, _) = over(&[]);
+        let g = FakeGhostty::new(dir.path());
+        let core = Core::over(dir.path().join("claude"), g.ghostty());
         let db = dir.path().join("board.db");
         let command = ["claude", "-n", "dev-1", "the brief"].map(String::from);
-        let handle = Handle("rex-tab,session:7,window:w1,block:b1".into());
         let worker = WorkerStart {
             label: "dev-1",
             dir: "/srv/shop",
             command: &command,
             beside: None,
         };
+        core.starts_workers().unwrap();
+        let tab = core.start_worker(&db, &worker).unwrap();
+        assert_eq!(tab, Handle("ghostty-tab,T1".into()));
         let beside = WorkerStart {
-            beside: Some(&handle),
+            beside: Some(&tab),
             ..worker
         };
+        let split = core.start_worker(&db, &beside).unwrap();
+        assert_eq!(split, Handle("ghostty-split,T2".into()));
+        assert_eq!(core.close_worker(&db, &split).unwrap(), Closed::Now);
+        // Ghostty has no way to read a pane.
+        assert_eq!(core.shows(&db, &tab), None);
+        assert_eq!(
+            g.calls(),
+            [
+                "installed|",
+                "start||/srv/shop|<command>|dev-1|",
+                "start||/srv/shop|<command>|dev-1|T1",
+                "installed|",
+                "close|split|T2",
+            ]
+        );
+        // No Ghostty: both say what workers need, and nothing is started or closed.
+        g.write(
+            "fail-installed",
+            "syntax error: Can\u{2019}t get application id \"com.mitchellh.ghostty\". (-1728)\n",
+        );
         let said = [
             core.starts_workers(),
-            core.start_worker(&db, &worker).map(|_| ()),
-            core.start_worker(&db, &beside).map(|_| ()),
-            core.close_worker(&db, &handle).map(|_| ()),
+            core.close_worker(&db, &tab).map(|_| ()),
         ]
         .map(|r| r.unwrap_err().to_string());
-        let needs = "needs Rex, and this session is not in Rex (REX_SESSION is not set)";
+        let needs = "needs Ghostty or Rex: Ghostty is not installed, and this session is not in \
+                     Rex (REX_SESSION is not set)";
         assert_eq!(
             said,
             [
                 format!("starting a worker {needs}"),
-                format!("starting a worker {needs}"),
-                format!("starting a worker {needs}"),
                 format!("closing a worker {needs}"),
             ]
         );
-        assert_eq!(core.shows(&db, &handle), None);
-        // Nothing was run to say so: no rex, no claude.
+        assert_eq!(g.calls()[5..], ["installed|", "installed|"]);
+        // Neither rex nor claude was run for any of it.
         assert_eq!(f.calls(), [] as [String; 0]);
     }
 

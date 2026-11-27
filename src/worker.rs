@@ -4,7 +4,7 @@
 //!
 //! A start (`start`) does what the lead skill did by hand around the terminal's own start:
 //! - first, a terminal that starts no workers says so (`Terminal::starts_workers`), before
-//!   anything is asked;
+//!   anything is asked: outside Rex, the core with no Ghostty installed;
 //! - then, one live worker per name: Claude does not keep session names unique, so a name
 //!   Claude's session list already has, ignoring case, is refused, and so is a list that
 //!   cannot be read. Nothing is started.
@@ -101,6 +101,7 @@ pub fn close(terminal: &dyn Terminal, db: &Path, handle: &Handle) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal::ghostty::fake::FakeGhostty;
     use crate::terminal::rex::fake::FakeRex;
 
     /// A wait short enough for a test, asked often.
@@ -255,13 +256,8 @@ mod tests {
         assert_eq!(rex_acts(&f).len(), 1);
     }
 
-    #[test]
-    fn a_terminal_that_starts_no_workers_says_so_before_claudes_list_is_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let f = FakeRex::new(dir.path());
-        // The name is taken, and the core still says what it needs first.
-        f.claude(&[("dev-1", 41)]);
-        let core = crate::terminal::Core::new(dir.path().join("claude"));
+    /// `start` of a tab for dev-1 by `core`: how it went, and what it printed.
+    fn start_by(core: &crate::terminal::Core, db: &Path) -> (Result<()>, String) {
         let command = command("dev-1");
         let worker = WorkerStart {
             label: "dev-1",
@@ -270,21 +266,68 @@ mod tests {
             beside: None,
         };
         let mut out = Vec::new();
-        let went = start(
-            &core,
-            &dir.path().join("board.db"),
-            "dev-1",
-            &worker,
-            SHORT,
-            &mut out,
-        );
+        let went = start(core, db, "dev-1", &worker, SHORT, &mut out);
+        (went, String::from_utf8(out).unwrap())
+    }
+
+    #[test]
+    fn outside_rex_a_worker_starts_in_ghostty_and_one_never_listed_has_no_pane_to_show() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let g = FakeGhostty::new(dir.path());
+        let core = crate::terminal::Core::over(dir.path().join("claude"), g.ghostty());
+        let db = dir.path().join("board.db");
+        // Never listed: the handle is printed, and the core reads no pane.
+        let (went, printed) = start_by(&core, &db);
+        assert_eq!(printed, "{\"handle\":\"ghostty-tab,T1\"}\n");
         assert_eq!(
             format!("{:#}", went.unwrap_err()),
-            "starting a worker needs Rex, and this session is not in Rex (REX_SESSION is not \
-             set)"
+            "dev-1 was started but is not in Claude Code's session list 0 s later. A session \
+             at Claude's folder-trust dialog is never listed: start a worker only in a folder \
+             Claude trusts. Close it with: tower worker close 'ghostty-tab,T1'"
         );
-        assert_eq!(out, b"");
-        // Neither claude nor rex was run.
+        // Listed once Ghostty has started it.
+        f.claude(&[("dev-1", 41)]);
+        let listed = std::fs::read_to_string(dir.path().join("claude.json")).unwrap();
+        f.write("claude-started.json", &listed);
+        f.claude(&[]);
+        let (went, printed) = start_by(&core, &db);
+        went.unwrap();
+        assert_eq!(printed, "{\"handle\":\"ghostty-tab,T1\"}\n");
+        assert_eq!(
+            close(&core, &db, &Handle("ghostty-tab,T1".into())).unwrap(),
+            "closed ghostty-tab,T1"
+        );
+        g.write("reply-close", "gone\n");
+        assert_eq!(
+            close(&core, &db, &Handle("ghostty-tab,T1".into())).unwrap(),
+            "no such terminal in Ghostty (T1): already closed, or never this start's"
+        );
+        // Rex was never run.
+        assert_eq!(rex_acts(&f), [] as [String; 0]);
+    }
+
+    #[test]
+    fn a_terminal_that_starts_no_workers_says_so_before_claudes_list_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let g = FakeGhostty::new(dir.path());
+        g.write(
+            "fail-installed",
+            "syntax error: Can\u{2019}t get application id \"com.mitchellh.ghostty\". (-1728)\n",
+        );
+        // The name is taken, and the core still says what it needs first.
+        f.claude(&[("dev-1", 41)]);
+        let core = crate::terminal::Core::over(dir.path().join("claude"), g.ghostty());
+        let (went, printed) = start_by(&core, &dir.path().join("board.db"));
+        assert_eq!(
+            format!("{:#}", went.unwrap_err()),
+            "starting a worker needs Ghostty or Rex: Ghostty is not installed, and this \
+             session is not in Rex (REX_SESSION is not set)"
+        );
+        assert_eq!(printed, "");
+        // Ghostty was asked nothing more, and neither claude nor rex was run.
+        assert_eq!(g.calls(), ["installed|"]);
         assert_eq!(f.calls(), [] as [String; 0]);
     }
 }

@@ -2132,7 +2132,7 @@ fn space_and_popup_are_the_rex_keys_commands_and_need_where_the_key_was_pressed(
 }
 
 #[test]
-fn a_lead_in_rex_starts_and_closes_workers_through_tower_and_outside_rex_is_refused() {
+fn a_lead_in_rex_starts_and_closes_workers_through_tower_and_outside_it_needs_ghostty() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("board.db");
     std::fs::create_dir(dir.path().join("wt")).unwrap();
@@ -2176,6 +2176,13 @@ esac
          : > \"$d/asked\"\n\
          if [ -f \"$d/sessions.json\" ]; then cat \"$d/sessions.json\"; else echo '[]'; fi\n",
     );
+    // No Ghostty: osascript answers as it does of an application macOS does not have.
+    let osascript = dir.path().join("osascript");
+    test_exe::executable(
+        &osascript,
+        "#!/bin/sh\necho 'syntax error: Can not get application id \"com.mitchellh.ghostty\". \
+         (-1728)' >&2\nexit 1\n",
+    );
     let worker = |in_rex: bool, args: &[&str]| {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
         cmd.arg("worker")
@@ -2184,6 +2191,7 @@ esac
             .env("TOWER_DB", &db)
             .env("TOWER_REX", &rex)
             .env("TOWER_CLAUDE", &claude)
+            .env("TOWER_OSASCRIPT", &osascript)
             .env_remove("REX_SESSION");
         if in_rex {
             cmd.env("REX_SESSION", "session:7");
@@ -2203,9 +2211,10 @@ esac
         "Brief on T3.",
     ];
 
-    // Outside Rex the core refuses both, for now, before Claude's list is read, and rex is
-    // never run.
-    let needs = "needs Rex, and this session is not in Rex (REX_SESSION is not set)";
+    // Outside Rex with no Ghostty the core refuses both, before Claude's list is read, and
+    // rex is never run.
+    let needs = "needs Ghostty or Rex: Ghostty is not installed, and this session is not in \
+                 Rex (REX_SESSION is not set)";
     assert_refused(
         &worker(false, &start_dev),
         &format!("starting a worker {needs}"),
@@ -2333,6 +2342,163 @@ esac
             "--autostart=false|window|close|-s|session:7|window:w1".to_string(),
         ]
     );
+}
+
+#[test]
+fn a_lead_outside_rex_starts_and_closes_workers_in_ghostty_through_tower() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("board.db");
+    std::fs::create_dir(dir.path().join("wt")).unwrap();
+    // A fake osascript: Ghostty is installed, a tab's terminal is T1 and a split's T2, each
+    // start has Claude list the worker, and a close closes a terminal once (a split's with
+    // its pid and a tty no process is on, so nothing is left to end). It refuses to run
+    // with anything in its environment but what an app opened from the Finder has, as the
+    // lead's variables are, or with the lead's PATH. Never a real osascript, Ghostty or claude.
+    let osascript = dir.path().join("osascript");
+    test_exe::executable(
+        &osascript,
+        r#"#!/bin/sh
+d=$(dirname "$0")
+[ "$1" = "-e" ] || exit 2
+more=$(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | grep -v -x -e HOME -e USER -e LOGNAME -e SHELL -e TMPDIR -e LANG -e SSH_AUTH_SOCK -e __CF_USER_TEXT_ENCODING -e PATH -e PWD -e OLDPWD -e SHLVL -e _ | grep -v '^LC_' | tr '\n' ' ')
+[ -z "$more" ] || { echo "more than a Finder launch has reached osascript: $more" >&2; exit 3; }
+[ "$PATH" = /usr/bin:/bin:/usr/sbin:/sbin ] || { echo "osascript got the PATH $PATH" >&2; exit 3; }
+[ "${LC_ALL-}" = C ] || { echo "osascript got no LC_ALL" >&2; exit 3; }
+script=$2; shift 2
+dev='{"name":"dev-12-cart","pid":41,"sessionId":"s41","status":"busy"}'
+qa='{"name":"qa-12-cart","pid":42,"sessionId":"s42","status":"busy"}'
+case "$script" in
+"id of application id"*) echo com.mitchellh.ghostty ;;
+*"new surface configuration"*)
+  printf '%s\n' "$3" >> "$d/commands.log"
+  echo "start|$2|$4|$5" >> "$d/calls.log"
+  if [ -n "$5" ]; then
+    echo "[$dev,$qa]" > "$d/sessions.json"; echo "id T2"
+  else
+    echo "[$dev]" > "$d/sessions.json"; echo "id T1"
+    echo "note the lead's tab was not selected again, so select it yourself: no such tab"
+  fi ;;
+*"close terminal id"*)
+  echo "close|$1|$2" >> "$d/calls.log"
+  if [ -e "$d/closed-$2" ]; then echo gone; else
+    : > "$d/closed-$2"
+    if [ "$1" = split ]; then echo "closed 999999 /dev/no-such-tty"; else echo closed; fi
+  fi ;;
+*) exit 2 ;;
+esac
+"#,
+    );
+    let claude = dir.path().join("claude");
+    test_exe::executable(
+        &claude,
+        "#!/bin/sh\n[ \"$1 $2\" = \"agents --json\" ] || exit 2\nd=$(dirname \"$0\")\n\
+         if [ -f \"$d/sessions.json\" ]; then cat \"$d/sessions.json\"; else echo '[]'; fi\n",
+    );
+    let worker = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_tower"))
+            .arg("worker")
+            .args(args)
+            .current_dir(dir.path())
+            .env("TOWER_DB", &db)
+            .env("TOWER_CLAUDE", &claude)
+            .env("TOWER_OSASCRIPT", &osascript)
+            // A rex that must never be run, and a lead's own variables.
+            .env("TOWER_REX", dir.path().join("no-rex"))
+            .env("CLAUDECODE", "1")
+            .env("GIT_EDITOR", "true")
+            .env("LC_ALL", "C")
+            .env("REX_BLOCK", "block:lead")
+            .env_remove("REX_SESSION")
+            .output()
+            .unwrap()
+    };
+    let (tab, split) = ("ghostty-tab,T1", "ghostty-split,T2");
+
+    // An implementer in a tab, by its label, in the folder made absolute. What failed
+    // after its terminal was made is said beside the handle, and the start stands.
+    let out = worker(&[
+        "start",
+        "dev-12-cart",
+        "--dir",
+        "wt/../wt/.",
+        "--label",
+        "#12 cart",
+        "Brief on T3: it's here.",
+    ]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout), format!("{{\"handle\":\"{tab}\"}}\n"));
+    assert_eq!(
+        text(&out.stderr),
+        "tower: the lead's tab was not selected again, so select it yourself: no such tab\n"
+    );
+    // Its name is taken now, ignoring case: no second start.
+    assert_refused(
+        &worker(&["start", "DEV-12-CART", "--dir", "wt", "Brief."]),
+        "a live Claude session is already named DEV-12-CART (ignoring case)",
+    );
+    // A tester beside it, by the tab's handle.
+    let given = dir.path().join("wt");
+    let given = given.to_str().unwrap();
+    let out = worker(&[
+        "start",
+        "qa-12-cart",
+        "--dir",
+        given,
+        "--beside",
+        tab,
+        "Test it.",
+    ]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout), format!("{{\"handle\":\"{split}\"}}\n"));
+    // Each closes by its handle; one Ghostty no longer has says so and is no failure.
+    let gone = |id: &str| {
+        format!("no such terminal in Ghostty ({id}): already closed, or never this start's\n")
+    };
+    for (handle, said) in [
+        (split, format!("closed {split}\n")),
+        (split, gone("T2")),
+        (tab, format!("closed {tab}\n")),
+        (tab, gone("T1")),
+    ] {
+        let out = worker(&["close", handle]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        assert_eq!(text(&out.stdout), said);
+    }
+    // A handle Rex's start printed is not Ghostty's.
+    assert_refused(
+        &worker(&["close", "rex-tab,session:7,window:w1,block:b1"]),
+        "\"rex-tab,session:7,window:w1,block:b1\" is not a handle tower worker start printed \
+         in Ghostty",
+    );
+    // What Ghostty was asked: the folder, the label (the name without one), the terminal
+    // to split, and each close by its kind and terminal.
+    let wt = dir.path().canonicalize().unwrap().join("wt");
+    let calls = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
+    assert_eq!(
+        calls.lines().collect::<Vec<_>>(),
+        [
+            format!("start|{}|#12 cart|", wt.display()),
+            format!("start|{given}|qa-12-cart|T1"),
+            "close|split|T2".to_string(),
+            "close|split|T2".to_string(),
+            "close|tab|T1".to_string(),
+            "close|tab|T1".to_string(),
+        ]
+    );
+    // The worker's command: env with the lead's variables removed and the board set, then
+    // claude with each word quoted.
+    let commands = std::fs::read_to_string(dir.path().join("commands.log")).unwrap();
+    let dev = commands.lines().next().unwrap();
+    assert!(
+        dev.starts_with("/usr/bin/env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u "),
+        "{dev}"
+    );
+    assert!(dev.contains(" -u REX_SESSION -u REX_BLOCK "), "{dev}");
+    let board = format!(
+        " TOWER_DB='{}' 'claude' '-n' 'dev-12-cart' 'Brief on T3: it'\\''s here.'",
+        db.display()
+    );
+    assert!(dev.ends_with(&board), "{dev}");
 }
 
 #[test]

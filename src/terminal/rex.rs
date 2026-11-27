@@ -56,7 +56,7 @@ use serde::de::DeserializeOwned;
 
 use super::{
     Agent, Answer, Closed, Handle, Here, LeadStart, Listed, Place, Shown, Status, Terminal, Unread,
-    WorkerStart, answers_within, find_exe, listed, not_found, terminal_timeout,
+    WorkerStart, answers_within, find_exe, is_id, listed, not_found, terminal_timeout,
 };
 use crate::ui::runner::{Outcome, Run, run_now};
 
@@ -242,12 +242,6 @@ impl<'a> Made<'a> {
             Made::Tab { session, block, .. } | Made::Split { session, block } => (session, block),
         }
     }
-}
-
-/// Whether `id` is a word a handle keeps as one of Rex's ids: not empty, no comma (the
-/// handle's separator), and no leading dash, which rex would read as a flag.
-fn is_id(id: &str) -> bool {
-    !id.is_empty() && !id.contains(',') && !id.starts_with('-')
 }
 
 /// The handle of what a start made, its ids joined by commas; an id that could not be read

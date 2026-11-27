@@ -49,7 +49,7 @@ enum Command {
     #[command(subcommand)]
     Thread(ThreadCommand),
     /// Workers a lead starts and closes in its terminal: in Rex (REX_SESSION is set), as
-    /// tabs and splits of the lead's session.
+    /// tabs and splits of the lead's session; outside Rex, as tabs and splits in Ghostty.
     #[command(subcommand)]
     Worker(WorkerCommand),
     /// Post a message to an open thread.
