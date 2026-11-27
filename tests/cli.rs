@@ -2350,8 +2350,9 @@ fn a_lead_outside_rex_starts_and_closes_workers_in_ghostty_through_tower() {
     let db = dir.path().join("board.db");
     std::fs::create_dir(dir.path().join("wt")).unwrap();
     // A fake osascript: Ghostty is installed, a tab's terminal is T1 and a split's T2, each
-    // start has Claude list the worker, and a close closes a terminal once. It refuses to
-    // run with a lead's variables. Never a real osascript, Ghostty or claude.
+    // start has Claude list the worker, and a close closes a terminal once (a split's with
+    // its pid and a tty no process is on, so nothing is left to end). It refuses to run
+    // with a lead's variables. Never a real osascript, Ghostty or claude.
     let osascript = dir.path().join("osascript");
     test_exe::executable(
         &osascript,
@@ -2375,7 +2376,10 @@ case "$script" in
   fi ;;
 *"close terminal id"*)
   echo "close|$1|$2" >> "$d/calls.log"
-  if [ -e "$d/closed-$2" ]; then echo gone; else : > "$d/closed-$2"; echo closed; fi ;;
+  if [ -e "$d/closed-$2" ]; then echo gone; else
+    : > "$d/closed-$2"
+    if [ "$1" = split ]; then echo "closed 999999 /dev/no-such-tty"; else echo closed; fi
+  fi ;;
 *) exit 2 ;;
 esac
 "#,

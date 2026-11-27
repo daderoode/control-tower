@@ -30,7 +30,10 @@ tag's date, and a new empty Unreleased goes above it.
   command runs with the lead's Claude Code and Rex variables removed, and with the lead's
   `PATH` and board (`TOWER_DB`). The handle is the terminal's id (`ghostty-tab,<id>` or
   `ghostty-split,<id>`); a close closes a tab with every pane in it or the one split, and
-  an id Ghostty no longer has counts as closed. Ghostty not answering says to approve
+  an id Ghostty no longer has counts as closed, as does any id while Ghostty is not
+  running, which a close never launches. Ghostty leaves a closed split's processes
+  running, so the close ends them: what still runs on that terminal's tty under its login
+  wrapper after a moment is hung up, and the close fails, naming it, if it outlives that. Ghostty not answering says to approve
   Automation for Ghostty, and with no Ghostty installed both say workers need Ghostty or
   Rex. `TOWER_OSASCRIPT` names another `osascript`.
 

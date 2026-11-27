@@ -29,16 +29,27 @@
 //!   does): `ghostty-tab,<id>` or `ghostty-split,<id>`.
 //! - **A close** (`close`): a split's terminal by its id; a tab by finding the tab that
 //!   holds that terminal now and closing it with every pane in it. An id Ghostty no longer
-//!   has (its error -1728) is gone, not a failure. Only an id from a handle is ever closed
-//!   or split, and the lead's tab is only ever selected.
+//!   has (its error -1728) is gone, not a failure, and so is any id while Ghostty is not
+//!   running, which is not launched to say so. Only an id from a handle is ever closed or
+//!   split, and the lead's tab is only ever selected.
+//! - **A closed split's worker** (`end`): Ghostty ends a tab's processes when it closes
+//!   the tab, but leaves a closed split's running, so its Claude session would stay listed
+//!   with its name taken. The close reads the terminal's pid (its `/usr/bin/login` wrapper)
+//!   and tty first; afterwards, what still runs on that tty under that wrapper
+//!   (`on_terminal`) gets a moment to end (`ENDS_WITHIN`), then a hangup (SIGHUP), as a
+//!   terminal closing sends, and the close fails, naming them, when they outlive that too
+//!   (`HUNG_UP_WITHIN`). Nothing else is ever signalled.
 //! - **Time**: each script runs under `with timeout` (`EVENT_SECS`) and `osascript` within
 //!   `terminal_timeout`. Ghostty not answering (-1712), or macOS refusing the event
 //!   (-1743), is what an Automation permission not yet given looks like, so both say to
 //!   approve Automation for Ghostty.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use nix::sys::signal::{Signal, kill};
+use nix::unistd::Pid;
 
 use super::{Closed, Handle, WorkerStart, is_id, terminal_timeout};
 use crate::ui::runner::{Outcome, Run, run_now};
@@ -132,18 +143,23 @@ const START: &str = r#"on run argv
 end run"#;
 
 /// Closes what a handle names. Arguments: `tab` or `split`, the terminal's id. Prints
-/// `closed`, or `gone` when Ghostty has no such terminal.
+/// `closed` for a tab and `closed <pid> <tty>` for a split, the terminal's as they were
+/// before the close; or `gone` when Ghostty has no such terminal, or is not running (it is
+/// not launched to be asked).
 const CLOSE: &str = r#"on run argv
 	set theId to item 2 of argv
+	if application id "com.mitchellh.ghostty" is not running then return "gone"
 	with timeout of 10 seconds
 		tell application id "com.mitchellh.ghostty"
 			if item 1 of argv is "split" then
 				try
+					set thePid to pid of terminal id theId
+					set theTty to tty of terminal id theId
 					close terminal id theId
 				on error number -1728
 					return "gone"
 				end try
-				return "closed"
+				return "closed " & thePid & " " & theTty
 			end if
 			repeat with w in windows
 				repeat with t in tabs of w
@@ -204,13 +220,23 @@ pub struct Started {
     pub notes: Vec<String>,
 }
 
-/// Ghostty as the core reaches it: `osascript`, `ps` to find the lead's terminal, and the
-/// lead's `PATH` for its workers.
+/// How long what runs in a closed split has to end by itself before it is hung up.
+const ENDS_WITHIN: Duration = Duration::from_secs(1);
+/// How long it then has to end: a Claude session takes some seconds to leave.
+const HUNG_UP_WITHIN: Duration = Duration::from_secs(15);
+/// How often `ps` is asked while waiting for either.
+const ASK_EVERY: Duration = Duration::from_millis(250);
+
+/// Ghostty as the core reaches it: `osascript`, `ps` to find the lead's terminal and what
+/// a closed split left running, the lead's `PATH` for its workers, and how long a closed
+/// split's worker has to end by itself and then after a hangup.
 #[derive(Debug, Clone)]
 pub struct Ghostty {
     osascript: PathBuf,
     ps: PathBuf,
     path: Option<String>,
+    ends_within: Duration,
+    hung_up_within: Duration,
 }
 
 /// `word` as one word of a shell line: in single quotes, each one of its own written as
@@ -219,11 +245,10 @@ fn quoted(word: &str) -> String {
     format!("'{}'", word.replace('\'', r"'\''"))
 }
 
-/// The tty of the first process with one from `pid` upwards, as Ghostty names it
-/// (`/dev/ttys010`), in what `ps -A -o pid=,ppid=,tty=` printed (`table`): `None` when no
-/// process up to the first has a terminal. A process with none shows `??` (macOS) or `?`.
-fn tty_of(table: &str, pid: u32) -> Option<String> {
-    let rows: Vec<(u32, u32, &str)> = (table.lines())
+/// What `ps -A -o pid=,ppid=,tty=` printed (`table`), as (pid, parent's pid, tty); a line
+/// that is not such a row is no process.
+fn rows(table: &str) -> Vec<(u32, u32, &str)> {
+    (table.lines())
         .filter_map(|line| {
             let mut words = line.split_whitespace();
             let row = (
@@ -233,7 +258,45 @@ fn tty_of(table: &str, pid: u32) -> Option<String> {
             );
             Some(row)
         })
-        .collect();
+        .collect()
+}
+
+/// The processes of the terminal whose wrapper is `wrapper` and whose tty is `tty` (as
+/// Ghostty names it, `/dev/ttys010`), in what `ps` printed (`table`): the wrapper, and
+/// each process under it, that is on that tty. None while the wrapper is not on that tty
+/// (it ended, and its pid may be another process's by now), and never the first process.
+fn on_terminal(table: &str, wrapper: u32, tty: &str) -> Vec<u32> {
+    let rows = rows(table);
+    let on_tty = |row_tty: &str| format!("/dev/{row_tty}") == tty;
+    let wrapper_there = (rows.iter()).any(|(pid, _, row_tty)| *pid == wrapper && on_tty(row_tty));
+    if wrapper <= 1 || !wrapper_there {
+        return Vec::new();
+    }
+    let under = |pid: u32| {
+        let mut at = pid;
+        // No more steps than there are processes: a table that loops ends.
+        for _ in 0..rows.len() {
+            if at == wrapper {
+                return true;
+            }
+            match rows.iter().find(|(p, _, _)| *p == at) {
+                Some((_, parent, _)) => at = *parent,
+                None => return false,
+            }
+        }
+        false
+    };
+    (rows.iter())
+        .filter(|(pid, _, row_tty)| on_tty(row_tty) && under(*pid))
+        .map(|(pid, _, _)| *pid)
+        .collect()
+}
+
+/// The tty of the first process with one from `pid` upwards, as Ghostty names it
+/// (`/dev/ttys010`), in what `ps -A -o pid=,ppid=,tty=` printed (`table`): `None` when no
+/// process up to the first has a terminal. A process with none shows `??` (macOS) or `?`.
+fn tty_of(table: &str, pid: u32) -> Option<String> {
+    let rows = rows(table);
     let mut at = pid;
     // No more steps than there are processes: a table that loops ends.
     for _ in 0..rows.len() {
@@ -258,6 +321,8 @@ impl Ghostty {
             osascript,
             ps: PathBuf::from("/bin/ps"),
             path: std::env::var("PATH").ok(),
+            ends_within: ENDS_WITHIN,
+            hung_up_within: HUNG_UP_WITHIN,
         }
     }
 
@@ -300,6 +365,14 @@ impl Ghostty {
 
     /// The lead's tty (`tty_of`, from this process upwards), `None` when it has none.
     fn lead_tty(&self) -> Result<Option<String>> {
+        match self.processes() {
+            Ok(table) => Ok(tty_of(&table, std::process::id())),
+            Err(why) => bail!("cannot find the lead's terminal, so nothing was started: {why}"),
+        }
+    }
+
+    /// Every process as `ps -A -o pid=,ppid=,tty=` prints it, or how `ps` failed.
+    fn processes(&self) -> Result<String, String> {
         let outcome = run_now(&Run {
             exe: self.ps.clone(),
             args: ["-A", "-o", "pid=,ppid=,tty="].map(String::from).to_vec(),
@@ -313,12 +386,54 @@ impl Ghostty {
                 code: Some(0),
                 stdout,
                 ..
-            } => Ok(tty_of(&stdout, std::process::id())),
-            other => bail!(
-                "cannot find the lead's terminal, so nothing was started: ps {}",
-                failed(other)
-            ),
+            } => Ok(stdout),
+            other => Err(format!("ps {}", failed(other))),
         }
+    }
+
+    /// What still runs of a closed terminal (`on_terminal`) once it has had `within` to
+    /// end, asked every `ASK_EVERY`: empty as soon as nothing does.
+    fn left(&self, wrapper: u32, tty: &str, within: Duration) -> Result<Vec<u32>> {
+        let deadline = Instant::now() + within;
+        loop {
+            let table = (self.processes()).map_err(|why| {
+                anyhow::anyhow!(
+                    "its pane is closed, but whether its worker ended is not known: {why}"
+                )
+            })?;
+            let left = on_terminal(&table, wrapper, tty);
+            let time = deadline.saturating_duration_since(Instant::now());
+            if left.is_empty() || time.is_zero() {
+                return Ok(left);
+            }
+            std::thread::sleep(ASK_EVERY.min(time));
+        }
+    }
+
+    /// Ends what a closed split left running: the processes on `tty` under `wrapper`, the
+    /// terminal's as they were before its close. Given `ends_within` to end by themselves,
+    /// they are then hung up, each by its own pid, and fail the close when they still run
+    /// `hung_up_within` later.
+    fn end(&self, wrapper: u32, tty: &str) -> Result<()> {
+        let left = self.left(wrapper, tty, self.ends_within)?;
+        if left.is_empty() {
+            return Ok(());
+        }
+        for pid in &left {
+            // One that ended meanwhile is no failure.
+            let _ = kill(Pid::from_raw(*pid as i32), Signal::SIGHUP);
+        }
+        let left = self.left(wrapper, tty, self.hung_up_within)?;
+        if left.is_empty() {
+            return Ok(());
+        }
+        let pids: Vec<String> = left.iter().map(u32::to_string).collect();
+        bail!(
+            "its pane is closed, but its worker still runs {} s after a hangup, on {tty}: end \
+             it with: kill {}",
+            self.hung_up_within.as_secs(),
+            pids.join(" ")
+        )
     }
 
     /// The one shell line a worker's terminal runs: `worker`'s command, each word quoted,
@@ -395,14 +510,21 @@ impl Ghostty {
         })
     }
 
-    /// Closes what `handle` names (`Terminal::close_worker`).
+    /// Closes what `handle` names (`Terminal::close_worker`), and ends what a split's close
+    /// left running (`end`).
     pub fn close(&self, handle: &Handle) -> Result<Closed> {
         let (kind, id) = Made::of(handle)?.terminal();
         let reply = said("close a worker", self.run(CLOSE, &[kind, id]))?;
-        match reply.trim() {
-            "closed" => Ok(Closed::Now),
-            "gone" => Ok(Closed::Gone(format!("no such terminal in Ghostty ({id})"))),
-            other => bail!("osascript said something unexpected: {other}"),
+        let unexpected = || format!("osascript said something unexpected: {}", reply.trim());
+        match (kind, &reply.split_whitespace().collect::<Vec<_>>()[..]) {
+            (_, ["gone"]) => Ok(Closed::Gone(format!("no such terminal in Ghostty ({id})"))),
+            ("tab", ["closed"]) => Ok(Closed::Now),
+            ("split", ["closed", pid, tty]) => {
+                let wrapper: u32 = pid.parse().ok().with_context(unexpected)?;
+                self.end(wrapper, tty)?;
+                Ok(Closed::Now)
+            }
+            _ => bail!(unexpected()),
         }
     }
 }
@@ -464,10 +586,14 @@ fn said(to: &str, outcome: Outcome) -> Result<String> {
 /// those three: `fail-<it>` exits 1 saying that file's text, and `reply-<it>` is printed in
 /// place of the answer. A start answers `id T1` (a tab) or `id T2` (a split), and first
 /// makes `claude-started.json`, when there is one, Claude's list (`rex::fake`'s claude
-/// reads it); a close answers `closed`. `ps` prints the file `ps.txt`.
+/// reads it); a close answers `closed` for a tab and, for a split, `closed 999999
+/// /dev/ttys999`, a terminal with no process left, and first kills (-9) the pids in
+/// `kill-on-close`, when there is one. `ps` prints the file `ps.txt`, then each row of
+/// `live.txt` (invented parents and ttys) whose pid is a process that still runs.
 #[cfg(test)]
 pub(crate) mod fake {
     use std::path::{Path, PathBuf};
+    use std::time::Duration;
 
     use super::Ghostty;
 
@@ -492,23 +618,34 @@ else
   (IFS='|'; echo "$w|$*") >> "$d/osascript.log"
 fi
 [ -e "$d/fail-$w" ] && { cat "$d/fail-$w" >&2; exit 1; }
+if [ "$w" = close ] && [ -e "$d/kill-on-close" ]; then kill -9 $(cat "$d/kill-on-close"); fi
 if [ "$w" = start ] && [ -e "$d/claude-started.json" ]; then cp "$d/claude-started.json" "$d/claude.json"; fi
 if [ -e "$d/reply-$w" ]; then cat "$d/reply-$w"; exit 0; fi
 case "$w" in
 installed) echo com.mitchellh.ghostty ;;
 start) if [ -n "$5" ]; then echo "id T2"; else echo "id T1"; fi ;;
-close) echo closed ;;
+close) if [ "$1" = split ]; then echo "closed 999999 /dev/ttys999"; else echo closed; fi ;;
 esac
+"#;
+
+    /// The fake ps: `ps.txt`, then each row of `live.txt` whose process still runs (one
+    /// that ended and waits to be reaped does not).
+    const PS: &str = r#"#!/bin/sh
+d=$(dirname "$0")
+cat "$d/ps.txt" || exit 1
+if [ -e "$d/live.txt" ]; then
+  while read -r pid rest; do
+    case "$(/bin/ps -o stat= -p "$pid" 2>/dev/null)" in ""|Z*) ;; *) echo "$pid $rest" ;; esac
+  done < "$d/live.txt"
+fi
+exit 0
 "#;
 
     impl FakeGhostty {
         /// The fakes in `dir`: Ghostty installed, and this process with no terminal.
         pub fn new(dir: &Path) -> FakeGhostty {
             crate::test_exe::executable(&dir.join("osascript"), OSASCRIPT);
-            crate::test_exe::executable(
-                &dir.join("ps"),
-                "#!/bin/sh\ncat \"$(dirname \"$0\")/ps.txt\"\n",
-            );
+            crate::test_exe::executable(&dir.join("ps"), PS);
             let f = FakeGhostty {
                 dir: dir.to_path_buf(),
             };
@@ -522,6 +659,8 @@ esac
                 osascript: self.dir.join("osascript"),
                 ps: self.dir.join("ps"),
                 path: Some("/usr/bin:/bin".into()),
+                ends_within: Duration::from_millis(300),
+                hung_up_within: Duration::from_secs(20),
             }
         }
 
@@ -560,7 +699,6 @@ esac
 mod tests {
     use super::fake::FakeGhostty;
     use super::*;
-    use std::time::Duration;
 
     /// The fakes in a temp folder, and its board's path.
     fn fakes() -> (tempfile::TempDir, FakeGhostty, PathBuf) {
@@ -831,11 +969,178 @@ mod tests {
             f.ghostty().close(&tab).unwrap(),
             Closed::Gone("no such terminal in Ghostty (T1)".into())
         );
-        f.write("reply-close", "what\n");
-        assert_eq!(
-            format!("{:#}", f.ghostty().close(&tab).unwrap_err()),
-            "osascript said something unexpected: what"
+        // A reply that is not its kind's: a split's with no pid and tty, or a pid that is
+        // not one, and a tab's with them.
+        for (handle, reply) in [
+            (&tab, "what"),
+            (&split, "closed"),
+            (&split, "closed login /dev/ttys020"),
+            (&split, "closed 41 /dev/ttys020 more"),
+            (&tab, "closed 41 /dev/ttys020"),
+        ] {
+            f.write("reply-close", reply);
+            assert_eq!(
+                format!("{:#}", f.ghostty().close(handle).unwrap_err()),
+                format!("osascript said something unexpected: {reply}")
+            );
+        }
+    }
+
+    /// A process of its own, with no parent here to wait for it, running `script` in a
+    /// shell (30 s at most, as the scripts sleep); killed when dropped.
+    struct Orphan(u32);
+
+    impl Orphan {
+        fn new(script: &str) -> Orphan {
+            let out = std::process::Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    &format!("({script}) </dev/null >/dev/null 2>&1 & echo $!"),
+                ])
+                .output()
+                .unwrap();
+            Orphan(
+                String::from_utf8(out.stdout)
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap(),
+            )
+        }
+
+        /// Whether it still runs: one that ended and waits to be reaped does not.
+        fn runs(&self) -> bool {
+            let out = std::process::Command::new("/bin/ps")
+                .args(["-o", "stat=", "-p", &self.0.to_string()])
+                .output()
+                .unwrap();
+            let stat = String::from_utf8_lossy(&out.stdout);
+            !stat.trim().is_empty() && !stat.trim().starts_with('Z')
+        }
+    }
+
+    impl Drop for Orphan {
+        fn drop(&mut self) {
+            let _ = kill(Pid::from_raw(self.0 as i32), Signal::SIGKILL);
+        }
+    }
+
+    const SLEEPS: &str = "exec sleep 30";
+    const SPLIT: &str = "ghostty-split,T2";
+
+    #[test]
+    fn a_closed_splits_worker_that_ended_with_its_pane_is_closed_and_nothing_is_hung_up() {
+        let (_dir, f, _db) = fakes();
+        // The pane's wrapper ends as Ghostty closes it; another process is on its tty.
+        let (wrapper, other) = (Orphan::new(SLEEPS), Orphan::new(SLEEPS));
+        f.write(
+            "live.txt",
+            &format!("{} 1 ttys020\n{} 1 ttys020\n", wrapper.0, other.0),
         );
+        f.write("kill-on-close", &wrapper.0.to_string());
+        f.write("reply-close", &format!("closed {} /dev/ttys020", wrapper.0));
+        let closed = f.ghostty().close(&Handle(SPLIT.into())).unwrap();
+        assert_eq!(closed, Closed::Now);
+        assert!(!wrapper.runs());
+        assert!(other.runs());
+    }
+
+    #[test]
+    fn a_closed_splits_worker_that_lingers_is_hung_up_and_no_other_process_is() {
+        let (_dir, f, _db) = fakes();
+        // The wrapper and the worker under it outlive the close, as Ghostty leaves a
+        // split's. Beside them: a process under the worker on another tty, and one on the
+        // pane's tty that is not under the wrapper.
+        let (wrapper, worker) = (Orphan::new(SLEEPS), Orphan::new(SLEEPS));
+        let (elsewhere, stranger) = (Orphan::new(SLEEPS), Orphan::new(SLEEPS));
+        f.write(
+            "live.txt",
+            &format!(
+                "{w} 1 ttys020\n{c} {w} ttys020\n{e} {c} ttys077\n{s} 1 ttys020\n",
+                w = wrapper.0,
+                c = worker.0,
+                e = elsewhere.0,
+                s = stranger.0
+            ),
+        );
+        f.write("reply-close", &format!("closed {} /dev/ttys020", wrapper.0));
+        let closed = f.ghostty().close(&Handle(SPLIT.into())).unwrap();
+        assert_eq!(closed, Closed::Now);
+        assert!(!wrapper.runs() && !worker.runs());
+        assert!(elsewhere.runs() && stranger.runs());
+    }
+
+    #[test]
+    fn a_wrapper_pid_that_is_not_on_the_panes_tty_is_never_signalled_nor_what_is_under_it() {
+        let (_dir, f, _db) = fakes();
+        // The pid Ghostty gave is a process on another tty by now, with one under it on
+        // the pane's tty.
+        let (reused, under) = (Orphan::new(SLEEPS), Orphan::new(SLEEPS));
+        f.write(
+            "live.txt",
+            &format!(
+                "{p} 1 ttys099\n{u} {p} ttys020\n",
+                p = reused.0,
+                u = under.0
+            ),
+        );
+        f.write("reply-close", &format!("closed {} /dev/ttys020", reused.0));
+        let closed = f.ghostty().close(&Handle(SPLIT.into())).unwrap();
+        assert_eq!(closed, Closed::Now);
+        assert!(reused.runs() && under.runs());
+    }
+
+    #[test]
+    fn a_worker_that_outlives_the_hangup_fails_the_close_naming_it_and_so_does_no_ps() {
+        let (dir, f, _db) = fakes();
+        let deaf = Orphan::new("trap '' HUP; exec sleep 30");
+        f.write("live.txt", &format!("{} 1 ttys020\n", deaf.0));
+        f.write("reply-close", &format!("closed {} /dev/ttys020", deaf.0));
+        let ghostty = Ghostty {
+            hung_up_within: Duration::from_secs(1),
+            ..f.ghostty()
+        };
+        assert_eq!(
+            format!("{:#}", ghostty.close(&Handle(SPLIT.into())).unwrap_err()),
+            format!(
+                "its pane is closed, but its worker still runs 1 s after a hangup, on \
+                 /dev/ttys020: end it with: kill {}",
+                deaf.0
+            )
+        );
+        assert!(deaf.runs());
+        // Whether it ended cannot be told without ps.
+        std::fs::remove_file(dir.path().join("ps.txt")).unwrap();
+        let why = format!("{:#}", ghostty.close(&Handle(SPLIT.into())).unwrap_err());
+        assert!(
+            why.starts_with(
+                "its pane is closed, but whether its worker ended is not known: ps exited 1: "
+            ),
+            "{why}"
+        );
+    }
+
+    #[test]
+    fn a_terminals_processes_are_its_wrapper_and_what_is_under_it_on_its_tty() {
+        let table = "    1     0 ??\n   50     1 ttys020\n   60    50 ttys020\n   70    60 \
+                     ttys020\n   80    60 ttys077\n   85    80 ttys020\n   90     1 \
+                     ttys020\n   95    90 ttys020\n";
+        let tty = "/dev/ttys020";
+        // The wrapper, the worker under it and what the worker runs there, whatever is
+        // between them; not what is on another tty, nor another terminal's on this one.
+        assert_eq!(on_terminal(table, 50, tty), [50, 60, 70, 85]);
+        assert_eq!(on_terminal(table, 90, tty), [90, 95]);
+        // A wrapper on another tty, or one ps does not list: none, even what is under it.
+        assert_eq!(on_terminal(table, 80, tty), [] as [u32; 0]);
+        assert_eq!(on_terminal(table, 999, tty), [] as [u32; 0]);
+        assert_eq!(on_terminal(table, 50, "/dev/ttys077"), [] as [u32; 0]);
+        // Never the first process, nor none.
+        let first = "    1     0 ttys020\n   50     1 ttys020\n    0     0 ttys020\n";
+        assert_eq!(on_terminal(first, 1, tty), [] as [u32; 0]);
+        assert_eq!(on_terminal(first, 0, tty), [] as [u32; 0]);
+        // A table that loops ends.
+        let loops = "50 60 ttys020\n60 50 ttys020\n70 71 ttys020\n71 70 ttys020\n";
+        assert_eq!(on_terminal(loops, 50, tty), [50, 60]);
     }
 
     #[test]
