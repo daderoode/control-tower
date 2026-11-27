@@ -2253,14 +2253,16 @@ esac
         &worker(true, &["start", "DEV-12-CART", "--dir", "wt", "Brief."]),
         "a live Claude session is already named DEV-12-CART (ignoring case)",
     );
-    // A tester beside it, by the tab's handle; with no label a tab would take the name.
+    // A tester beside it, by the tab's handle, its folder given as an absolute path.
+    let given = dir.path().join("wt");
+    let given = given.to_str().unwrap();
     let out = worker(
         true,
         &[
             "start",
             "qa-12-cart",
             "--dir",
-            "wt",
+            given,
             "--beside",
             tab,
             "Test it.",
@@ -2283,7 +2285,10 @@ esac
         &worker(true, &["close", "window:w1"]),
         "\"window:w1\" is not a handle tower worker start printed in Rex",
     );
-    let wt = dir.path().join("wt");
+    // A relative folder is taken against tower's working directory as the system names it,
+    // which on macOS is the temp folder with its links resolved (/var is /private/var); an
+    // absolute one goes to rex as it was given.
+    let wt = dir.path().canonicalize().unwrap().join("wt");
     let wt = wt.to_str().unwrap();
     let acts: Vec<String> = (calls().lines())
         .filter(|c| !c.contains("|api|call|"))
@@ -2298,7 +2303,7 @@ esac
             ),
             format!(
                 "--autostart=false|split|-s|session:7|-b|block:b1|--split|right|\
-                 --focus=false|-c|{wt}|--json|--|claude|-n|qa-12-cart|Test it."
+                 --focus=false|-c|{given}|--json|--|claude|-n|qa-12-cart|Test it."
             ),
             "--autostart=false|block|close|-s|session:7|block:b2".to_string(),
             "--autostart=false|window|close|-s|session:7|window:w1".to_string(),

@@ -538,7 +538,10 @@ enum WorkerCommand {
     },
 }
 
-/// `folder` as an absolute path in words, for a worker to start in: it must be there.
+/// `folder` as an absolute path in words, for a worker to start in: it must be there. An
+/// absolute one keeps the caller's spelling; a relative one is joined to this process's
+/// working directory as the system names it (on macOS with its links resolved, so under
+/// `/private/var` for a folder in `/var`). No link in what the caller wrote is resolved.
 fn worker_dir(folder: &Path) -> Result<String> {
     let dir = std::path::absolute(folder)
         .with_context(|| format!("cannot make {} an absolute path", folder.display()))?;
