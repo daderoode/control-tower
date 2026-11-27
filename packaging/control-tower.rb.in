@@ -35,10 +35,11 @@ class ControlTower < Formula
 
   def caveats
     <<~EOS
-      control-tower works on its own, in any terminal. A lead's workers open in
-      Ghostty, or in Rex when the lead runs in Rex: install Ghostty, and the first
-      time a worker starts, let the app the lead runs in control Ghostty when macOS
-      asks (System Settings, Privacy & Security, Automation).
+      control-tower works on its own, in any terminal. A lead that runs in Rex opens
+      its workers in Rex. Any other lead opens them in Ghostty: for those, install
+      Ghostty, and the first time a worker starts, let the app the lead runs in
+      control Ghostty when macOS asks (System Settings, Privacy & Security,
+      Automation).
 
       Rex is optional and adds the text of the prompt a worker waits at in its owner
       item, and the dashboard's n and its two keys (tower space, tower popup).

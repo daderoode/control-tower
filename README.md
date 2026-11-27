@@ -643,8 +643,7 @@ by its `waitingFor`; any other value is unknown). The watch's first log line nam
 reads, "watching <board> with <rex> every 20 s" or "with Claude Code's session list
 (<claude>)". When rex cannot be found, the log says once what it tried, how to link it into
 Homebrew's bin, that the watch reads its workers from Claude Code until Rex is found, and
-what Rex would add (the text of the prompt a worker waits at, and the dashboard's `n` and
-its keys); every look still runs. Before each look, the
+what Rex would add (What Rex adds); every look still runs. Before each look, the
 watch asks a found rex for its sessions; when that fails or takes over 3 seconds (the Rex
 app not running), the log says once "Rex does not answer" with why, that the watch reads its
 workers from Claude Code until Rex answers, and what Rex would add. That look and its
@@ -1100,7 +1099,7 @@ the lead itself runs in, and no other terminal is supported for workers:
 
 - **Install Ghostty.** With no Ghostty, a start or close outside Rex fails before anything
   else: "starting a worker needs Ghostty or Rex: Ghostty is not installed, and this session
-  is not in Rex (REX_SESSION is not set)".
+  is not in Rex (REX_SESSION is not set)", and a close says the same of "closing a worker".
 - **Approve Automation, once.** tower drives Ghostty through its AppleScript interface, with
   `osascript`. The first time, macOS asks you to let the app the lead's session runs in
   control Ghostty. Until you allow it, Ghostty does not answer (each event has 10 seconds)

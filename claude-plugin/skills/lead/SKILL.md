@@ -252,10 +252,11 @@ implement, test or review.
       so the control-tower plugin's Stop hook knows you are the lead and the watch can tell
       you are listening. If it, or the SessionStart hook, says this session runs outside Rex,
       you are still attached, and the workers you start open in Ghostty (Workers, below).
-      When it says the watch reads them from Claude Code's session list, the board sees
-      them and there is nothing to raise. When it says the board does not see the workers
-      you start from here, raise that with the owner as a `question:` post to `@manager`
-      before you start any.
+      Go by how the notice opens. When it says rex is not found, or is found but does not
+      answer, the board sees those workers and there is nothing to raise (with rex not
+      answering, only until Rex answers). When it says the board's team runs in Rex, the
+      board does not see them: raise that with the owner as a `question:` post to
+      `@manager` before you start any.
 
    Each time your waiter ends (its notice: the background command completed), in that
    same turn: run `tower lead unread <R>`, handle what it prints, then arm `tower lead wait
@@ -476,9 +477,9 @@ and `tower repo show <R>` lists threads by title.
 
 ## Workers
 
-- Workers are implementers, testers and reviewers: visible sessions, each under you in
-  your terminal, named by its Claude session name (`claude -n <name>`), which the watch and
-  delivery find it by.
+- Workers are implementers, testers and reviewers: visible sessions, each under you (in
+  your Rex session when you run in Rex, else in Ghostty), named by its Claude session name
+  (`claude -n <name>`), which the watch and delivery find it by.
   - **Start each one with `tower worker start`,** which prints its handle as one line of
     JSON (`{"handle":"..."}`); keep the handle, since it is how you close the worker and
     how you start another beside it. The steps are the same in either terminal, and you
