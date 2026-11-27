@@ -515,7 +515,7 @@ enum WorkerCommand {
     /// session list to name it, and fails when it does not: the handle is printed either way.
     Start {
         /// Its Claude session name (claude -n), like dev-119-deliver: the name it posts
-        /// under and is found by.
+        /// under and is found by. Not empty, and not starting with a dash.
         name: String,
         /// The folder it starts in, one Claude trusts: a worktree, or a folder of its own.
         /// A relative one is taken from the current folder.
@@ -529,7 +529,7 @@ enum WorkerCommand {
         /// worker's start printed, in place of a tab of its own.
         #[arg(long)]
         beside: Option<String>,
-        /// Its first prompt: the brief.
+        /// Its first prompt: the brief. Not empty, and not starting with a dash.
         prompt: String,
     },
     /// Close what a handle names: a worker's tab with every split in it, or one split. A
@@ -1415,8 +1415,14 @@ fn run(cli: Cli) -> Result<()> {
             beside,
             prompt,
         }) => {
-            // Each is one word to the terminal and to claude, before the command's `--`.
-            for (what, word) in [("name", Some(&name)), ("label", label.as_ref())] {
+            // Each is one word to the terminal or to claude, which would read a leading
+            // dash as a flag of its own.
+            let words = [
+                ("name", Some(&name)),
+                ("label", label.as_ref()),
+                ("brief", Some(&prompt)),
+            ];
+            for (what, word) in words {
                 if let Some(word) = word.filter(|w| w.is_empty() || w.starts_with('-')) {
                     bail!("a worker's {what} is not empty and does not start with -: {word:?}");
                 }

@@ -13,11 +13,11 @@
 //! `listed`), and a prompt is a fresh look for the worker by name, nothing sent to one at a
 //! prompt, then the relay (`relay`) to its Claude session. The core's start and close of a
 //! worker refuse for now, saying they need Rex (#178 makes them Ghostty's). A module
-//! overrides any of them with its own; what it does not override runs the core's. `Core` is the core with no
-//! module: every default, and what only a terminal can do (starting a lead, the dashboard's
-//! keys) fails saying so. A module is built in: `module` gives the one this build has, Rex
-//! (`rex`), whose `agents` adds the text of the prompt a worker waits at; another slots in
-//! here without touching the core.
+//! overrides any of them with its own; what it does not override runs the core's. `Core`
+//! is the core with no module: every default, and what only a terminal can do (starting a
+//! lead, the dashboard's keys) fails saying so. A module is built in: `module` gives the
+//! one this build has, Rex (`rex`), whose `agents` adds the text of the prompt a worker
+//! waits at; another slots in here without touching the core.
 //!
 //! Status words are the Program Status Protocol's (idle, working, done, blocked, and the
 //! blocked kind where the terminal gives it). Claude's list has its own (`Status::listed`):

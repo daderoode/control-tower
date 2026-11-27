@@ -2215,6 +2215,14 @@ esac
         &format!("closing a worker {needs}"),
     );
     assert!(!dir.path().join("asked").exists());
+    // A brief claude would read as a flag, or an empty one, is refused as the name is.
+    for brief in ["--dangerously-skip-permissions", "-p", ""] {
+        let out = worker(true, &["start", "dev-12-cart", "--dir", "wt", "--", brief]);
+        assert_refused(
+            &out,
+            &format!("a worker's brief is not empty and does not start with -: {brief:?}"),
+        );
+    }
     // A label rex would read as a flag, or an empty one, is refused as the name is.
     for label in ["--label=--json", "--label="] {
         let out = worker(

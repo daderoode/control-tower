@@ -479,9 +479,9 @@ and `tower repo show <R>` lists threads by title.
   delivery find it by. Every start is without focus, so the owner stays where they are.
   - **Start each one with `tower worker start`,** which starts it in your terminal and
     prints its handle as one line of JSON (`{"handle":"..."}`); keep the handle, since it
-    is how you close the worker and how you start another beside it. Today that needs Rex (`$REX_SESSION` is set): an
-    implementer is a tab in your Rex session, a tester or reviewer a pane in its
-    implementer's tab. Outside Rex it refuses, saying so.
+    is how you close the worker and how you start another beside it. Today that needs Rex
+    (`$REX_SESSION` is set): an implementer is a tab in your Rex session, a tester or
+    reviewer a pane in its implementer's tab. Outside Rex it refuses, saying so.
     An implementer gets a git worktree beside the repo, on its own branch from the default
     branch, then a tab named after its work item:
 
