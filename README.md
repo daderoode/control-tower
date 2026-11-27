@@ -1113,8 +1113,11 @@ the lead itself runs in, and no other terminal is supported for workers:
   terminal whose tty is the lead's. For a lead with no such terminal, each implementer is a
   new Ghostty window of its own, each taking focus: a lead in another terminal, and also a
   lead in tmux (or another multiplexer) inside Ghostty, whose tty is the multiplexer's.
-- **What a worker's command gets.** It runs in the folder given, with the lead's Claude Code
-  and Rex variables removed and the lead's `PATH` and board (`TOWER_DB`) set.
+- **What a worker's command gets.** It runs in the folder given, in Ghostty's own
+  environment with no shell profile, never the lead's. Of the lead's, only its `PATH` and
+  board (`TOWER_DB`) are set, and the Claude Code and Rex variables are removed in case
+  Ghostty has them. Nothing else the lead exports reaches a worker (a Claude config folder,
+  a provider's settings, a proxy): what a worker needs must be in Ghostty's environment.
 - **Let tower launch Ghostty.** `osascript` runs with only what an app opened from the
   Finder has in its environment, so a Ghostty that tower launches carries nothing of the
   lead's session into your own tabs. A Ghostty started by hand from inside a Claude session

@@ -494,8 +494,9 @@ and `tower repo show <R>` lists threads by title.
       again afterwards. When you are not in Ghostty (or run in tmux inside it), each
       implementer opens in a new Ghostty window of its own, which takes the owner's focus.
       Read what the start says on stderr beside the handle (a tab not labelled, your tab not
-      selected again): the start still stands. Never start Ghostty yourself (`open -a Ghostty` would
-      carry your session's variables into every terminal it opens); the start launches it.
+      selected again): the start still stands. Never start Ghostty yourself (`open -a
+      Ghostty` would carry your session's variables into every terminal it opens); the
+      start launches it.
       A start that says to approve Automation for Ghostty, or that it needs Ghostty or Rex,
       is the owner's to settle: raise it as a `question:` post to `@manager`, with what it
       said.
@@ -542,10 +543,13 @@ and `tower repo show <R>` lists threads by title.
     printed the handle, and in Rex says what the worker's pane shows. A worker at the trust
     dialog is closed at once by its handle (an implementer: `tower worker close`, then
     `git worktree remove`), and the folder raised with the owner as a `question:` post to
-    `@manager`. Outside Rex nothing reads the pane: treat a worker never listed as at the
-    trust dialog, close it by its handle and raise it with the owner the same way. A start that fails with no handle printed may still have left a tab or
-    pane, as its message says: nothing can be closed by handle then, so look at the tab
-    and raise it with the owner the same way.
+    `@manager`. Outside Rex nothing reads the pane: a worker never listed is at the trust
+    dialog, or lacks a setting you export that it needs, since a worker in Ghostty gets
+    Ghostty's environment and of yours only `PATH` and the board (a Claude config folder, a
+    provider's settings, a proxy). Close it by its handle and raise it with the owner the
+    same way, naming both causes, never guessing which. A start that fails with no handle
+    printed may still have left a tab or pane, as its message says: nothing can be closed
+    by handle then, so look at the tab and raise it with the owner the same way.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
   and reviewers (Senior dev for Stage 1, external for Stage 2); how many of each is your call.
 - **Standing roles, optional:** beside them you may keep a few standing workers, read-only
@@ -574,7 +578,7 @@ and `tower repo show <R>` lists threads by title.
   are re-checked (a "changes needed" verdict is not the end of the step: the same worker
   re-checks the fix). Close only what you started, by the handle its start printed, never
   by a label or name: `tower worker close <handle>`, which says `closed`, or that there is
-  no such tab or pane: already closed (as when the worker's pane ended by itself), or never
+  nothing by that handle: already closed (as when the worker's pane ended by itself), or never
   that start's. That is no failure, so when you did not expect it, check the handle is the
   one the start printed. Close by what the worker is:
   - a tester or reviewer working beside the implementer: `tower worker close <its
