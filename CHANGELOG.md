@@ -13,11 +13,11 @@ tag's date, and a new empty Unreleased goes above it.
 
 - **`tower worker start` and `tower worker close`: a lead starts and closes its workers
   through tower** (#177, part of #171). `tower worker start <name> --dir <folder> "<brief>"`
-  starts a worker without taking focus and prints its handle as JSON; `--label` names its
-  tab, and `--beside <handle>` starts it as a split to the right of another worker's pane.
-  It refuses a name a live Claude session already has (ignoring case), then waits up to
-  30 s for Claude Code's session list to name the worker, and fails, saying what its pane
-  shows, when it does not. `tower worker close <handle>` closes a worker's tab or its one
+  starts a worker (in Rex, without taking focus) and prints its handle as JSON; `--label`
+  names its tab, and `--beside <handle>` starts it as a split to the right of another
+  worker's pane. It refuses a name a live Claude session already has (ignoring case), then
+  waits up to 30 s for Claude Code's session list to name the worker, and fails (in Rex,
+  saying what its pane shows) when it does not. `tower worker close <handle>` closes a worker's tab or its one
   split, and says so, without failing, when there is no such tab or pane (already closed,
   or a handle no start printed). In Rex these are the tabs and splits the
   lead skill made by hand, and the skill's Workers steps now call `tower`, never `rex`.
@@ -41,6 +41,19 @@ tag's date, and a new empty Unreleased goes above it.
   Ghostty not answering says to approve Automation for Ghostty, and with no Ghostty
   installed both say workers need Ghostty or Rex. `TOWER_OSASCRIPT` names another
   `osascript`.
+
+### Changed
+
+- **The docs and notices say workers open in Ghostty, or in Rex inside Rex** (#179, part of
+  #171). A lead outside Rex is no longer told it needs Rex for workers: the notice from
+  `tower lead attach` and the SessionStart hook says `tower worker start` opens them in
+  Ghostty, with nothing to raise while the watch reads them from Claude Code's session
+  list, and to raise it when a start says it needs Ghostty or Rex; with Rex running, it
+  still says the board does not see them (#170). What Rex adds no longer lists starting
+  workers, in that notice, the watch's log line, the brew caveat, the README and the spec.
+  `tower worker start --help` says where focus goes in each terminal instead of "without
+  taking focus". The README's Install has "Workers open in Ghostty" (the one-time
+  Automation approval among it), and the lead skill's attach and Workers steps follow.
 
 ## [0.8.0] - 2026-11-26
 

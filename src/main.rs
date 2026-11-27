@@ -509,8 +509,11 @@ enum ThreadCommand {
 
 #[derive(Subcommand)]
 enum WorkerCommand {
-    /// Start a worker without taking focus, in a tab of its own or as a split beside
-    /// another, and print its handle as JSON ({"handle":"..."}). Refuses a name a live
+    /// Start a worker in a tab of its own or as a split beside another, and print its
+    /// handle as JSON ({"handle":"..."}). In Rex it takes no focus. Ghostty starts nothing
+    /// without focus: a tab opens in the lead's Ghostty window and the lead's tab is
+    /// selected again, and a lead not in Ghostty gets a new window, which takes focus; a
+    /// split takes the focus in its tab. Refuses a name a live
     /// Claude session already has, ignoring case. Then waits up to 30 s for Claude Code's
     /// session list to name it, and fails when it does not: the handle is printed either way.
     Start {

@@ -13,8 +13,9 @@ terms; where two words are easy to mix up, the entry says which is which.
   in it. Splits milestones into tasks, assigns tasks to workers, moves tasks between stages
   and sets each milestone's Done mark. Coordinates and never does the work itself.
 - **Worker**: an agent on a lead's team (implementer, tester, reviewer), a visible session
-  nested under its lead in the terminal, as a tab, or a block in one, in the lead's Rex
-  session. Posts progress and can set its own task to Done.
+  its lead starts with `tower worker start`, as a tab, or a pane in one: in the lead's Rex
+  session when the lead runs in Rex, else in Ghostty. Posts progress and can set its own
+  task to Done.
 - **Team**: a lead and its workers. In a milestone's or task's detail, the team is the
   assignees of the milestone's tasks and everyone who posted on its repo's message board,
   leaving out its lead, other repos' leads posting there, `manager`, `system` and "you".

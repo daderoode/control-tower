@@ -2790,7 +2790,8 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
         " and its Stop hook\ncontrol-tower: this session runs outside Rex (REX_SESSION is not \
          set) and rex is not found, so the watch reads the workers you start from Claude \
          Code's session list:",
-        "and starting workers as visible tabs.\n",
+        "Rex would add the text of the prompt a worker waits at in its owner item, and the \
+         dashboard's n and its keys.\n",
     );
     let not_answering = (
         &mute,
@@ -2800,7 +2801,8 @@ fn a_lead_attaches_its_claude_session_from_that_session_only() {
          (without the prompt's text) and delivers posts and nudges to them. Once Rex answers, \
          the watch reads only the workers in Rex, and the board does not see the workers you \
          start here.",
-        "and starting workers as visible tabs.\n",
+        "Rex would add the text of the prompt a worker waits at in its owner item, and the \
+         dashboard's n and its keys.\n",
     );
     for (tower_rex, notice, end) in [found, not_found, not_answering] {
         for outside in [None, Some("")] {
@@ -4534,9 +4536,10 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
         outside,
         format!(
             "{inside}\ncontrol-tower: this session runs outside Rex (REX_SESSION is not set), \
-             but the board's team runs in Rex. Outside Rex the board does not see the workers \
-             you start: not their prompts, and posts and nudges are not delivered to them. \
-             Raise it with the owner in a question: post to @manager."
+             but the board's team runs in Rex. Outside Rex tower worker start opens the \
+             workers you start in Ghostty, and the board does not see them: not their prompts, \
+             and posts and nudges are not delivered to them. Raise it with the owner in a \
+             question: post to @manager."
         )
     );
     let no_rex = dir.path().join("no-rex");
@@ -4547,9 +4550,10 @@ fn a_restarted_leads_session_start_attaches_it_and_never_blocks_a_start() {
             "{inside}\ncontrol-tower: this session runs outside Rex (REX_SESSION is not set) \
              and rex is not found, so the watch reads the workers you start from Claude Code's \
              session list: it sees them, judges their prompts (without the prompt's text) and \
-             delivers posts and nudges to them. Rex would add the text of the prompt a worker \
-             waits at in its owner item, the dashboard's n and its keys, and starting workers \
-             as visible tabs."
+             delivers posts and nudges to them. tower worker start opens them in Ghostty; when \
+             it says it needs Ghostty or Rex, raise it with the owner in a question: post to \
+             @manager. Rex would add the text of the prompt a worker waits at in its owner \
+             item, and the dashboard's n and its keys."
         )
     );
     let mute = dir.path().join("mute-rex");
