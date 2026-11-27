@@ -1110,9 +1110,9 @@ the lead itself runs in, and no other terminal is supported for workers:
   labelled; a tester or reviewer is a split to the right of its implementer's terminal.
   Ghostty starts nothing without focus, so the lead's tab is selected again afterwards (if
   that fails, the start stands and says so). The lead's window is the one holding the
-  terminal whose tty is the lead's. A lead with no such terminal gets a new Ghostty window,
-  which takes focus: a lead in another terminal, and also a lead in tmux (or another
-  multiplexer) inside Ghostty, whose tty is the multiplexer's.
+  terminal whose tty is the lead's. For a lead with no such terminal, each implementer is a
+  new Ghostty window of its own, each taking focus: a lead in another terminal, and also a
+  lead in tmux (or another multiplexer) inside Ghostty, whose tty is the multiplexer's.
 - **What a worker's command gets.** It runs in the folder given, with the lead's Claude Code
   and Rex variables removed and the lead's `PATH` and board (`TOWER_DB`) set.
 - **Let tower launch Ghostty.** `osascript` runs with only what an app opened from the

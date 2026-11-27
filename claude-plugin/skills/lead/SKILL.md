@@ -311,7 +311,8 @@ implement, test or review.
 3. **The repo first:** the work's git repo is yours, and a new project gets its repo (step 1)
    before any worker starts. Workers start under you (see Workers), so each one shows under
    its lead: in Rex as tabs in your own Rex session, never in a separate session; outside
-   Rex as tabs in Ghostty. Then
+   Rex in Ghostty, as tabs of your window when you run in a Ghostty terminal, else each in
+   a window of its own. Then
    read the repo's SDLC (for example `SDLC.md`), if it has one, and follow it for anything
    it covers: steps, gates, merge rules, releases. Where it says nothing, the default
    lifecycle (see Workers) applies. How you work (the board, threads, workers, the gate,
@@ -490,10 +491,10 @@ and `tower repo show <R>` lists threads by title.
     - **Outside Rex, in Ghostty,** whatever terminal you run in: an implementer is a new
       tab in your Ghostty window, a tester or reviewer a split to the right of its
       implementer's terminal. Ghostty starts nothing without focus, so your tab is selected
-      again afterwards. When you are not in Ghostty (or run in tmux inside it), the
-      implementer opens in a new Ghostty window, which takes the owner's focus. Read what
-      the start says on stderr beside the handle (a tab not labelled, your tab not selected
-      again): the start still stands. Never start Ghostty yourself (`open -a Ghostty` would
+      again afterwards. When you are not in Ghostty (or run in tmux inside it), each
+      implementer opens in a new Ghostty window of its own, which takes the owner's focus.
+      Read what the start says on stderr beside the handle (a tab not labelled, your tab not
+      selected again): the start still stands. Never start Ghostty yourself (`open -a Ghostty` would
       carry your session's variables into every terminal it opens); the start launches it.
       A start that says to approve Automation for Ghostty, or that it needs Ghostty or Rex,
       is the owner's to settle: raise it as a `question:` post to `@manager`, with what it
@@ -541,7 +542,8 @@ and `tower repo show <R>` lists threads by title.
     printed the handle, and in Rex says what the worker's pane shows. A worker at the trust
     dialog is closed at once by its handle (an implementer: `tower worker close`, then
     `git worktree remove`), and the folder raised with the owner as a `question:` post to
-    `@manager`. A start that fails with no handle printed may still have left a tab or
+    `@manager`. Outside Rex nothing reads the pane: treat a worker never listed as at the
+    trust dialog, close it by its handle and raise it with the owner the same way. A start that fails with no handle printed may still have left a tab or
     pane, as its message says: nothing can be closed by handle then, so look at the tab
     and raise it with the owner the same way.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
