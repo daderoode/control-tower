@@ -18,7 +18,8 @@ tag's date, and a new empty Unreleased goes above it.
   It refuses a name a live Claude session already has (ignoring case), then waits up to
   30 s for Claude Code's session list to name the worker, and fails, saying what its pane
   shows, when it does not. `tower worker close <handle>` closes a worker's tab or its one
-  split, and says so when it was already closed. In Rex these are the tabs and splits the
+  split, and says so, without failing, when there is no such tab or pane (already closed,
+  or a handle no start printed). In Rex these are the tabs and splits the
   lead skill made by hand, and the skill's Workers steps now call `tower`, never `rex`.
   Outside Rex both refuse for now, saying they need Rex.
 

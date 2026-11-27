@@ -518,9 +518,11 @@ enum WorkerCommand {
         /// under and is found by.
         name: String,
         /// The folder it starts in, one Claude trusts: a worktree, or a folder of its own.
+        /// A relative one is taken from the current folder.
         #[arg(long)]
         dir: PathBuf,
-        /// The new tab's label, like "#119 deliver"; without it, the name.
+        /// The new tab's label, like "#119 deliver"; without it, the name. Not empty, and
+        /// not starting with a dash.
         #[arg(long, conflicts_with = "beside")]
         label: Option<String>,
         /// Start it as a split to the right of this worker's pane, by the handle that
@@ -530,21 +532,35 @@ enum WorkerCommand {
         /// Its first prompt: the brief.
         prompt: String,
     },
-    /// Close what a handle names: a worker's tab with every split in it, or one split. One
-    /// already closed is no failure, and says so.
+    /// Close what a handle names: a worker's tab with every split in it, or one split. A
+    /// handle the terminal has nothing by (closed already, or mistyped) is no failure, and
+    /// says so.
     Close {
         /// The handle tower worker start printed.
         handle: String,
     },
 }
 
-/// `folder` as an absolute path in words, for a worker to start in: it must be there. An
-/// absolute one keeps the caller's spelling; a relative one is joined to this process's
-/// working directory as the system names it (on macOS with its links resolved, so under
-/// `/private/var` for a folder in `/var`). No link in what the caller wrote is resolved.
+/// `folder` as a clean absolute path in words, for a worker to start in: it must be there.
+/// A relative one is joined to this process's working directory as the system names it (on
+/// macOS with its links resolved, so under `/private/var` for a folder in `/var`). Then
+/// each `.` part is dropped and each `..` takes the part before it, by the words alone, as
+/// a shell's `cd` and `pwd` do: no link in what the caller wrote is resolved.
 fn worker_dir(folder: &Path) -> Result<String> {
-    let dir = std::path::absolute(folder)
+    use std::path::Component;
+    let given = std::path::absolute(folder)
         .with_context(|| format!("cannot make {} an absolute path", folder.display()))?;
+    let mut dir = PathBuf::new();
+    for part in given.components() {
+        match part {
+            Component::CurDir => {}
+            // Above the root is the root.
+            Component::ParentDir => {
+                dir.pop();
+            }
+            part => dir.push(part),
+        }
+    }
     if !dir.is_dir() {
         bail!("{} is not a folder: nothing was started", dir.display());
     }
@@ -1399,8 +1415,11 @@ fn run(cli: Cli) -> Result<()> {
             beside,
             prompt,
         }) => {
-            if name.is_empty() || name.starts_with('-') {
-                bail!("a worker's name is not empty and does not start with -: {name:?}");
+            // Each is one word to the terminal and to claude, before the command's `--`.
+            for (what, word) in [("name", Some(&name)), ("label", label.as_ref())] {
+                if let Some(word) = word.filter(|w| w.is_empty() || w.starts_with('-')) {
+                    bail!("a worker's {what} is not empty and does not start with -: {word:?}");
+                }
             }
             let dir = worker_dir(&dir)?;
             let command = ["claude", "-n", &name, &prompt].map(String::from);
@@ -1488,6 +1507,34 @@ mod tests {
             ]
         );
         assert_eq!(back_path(board), Path::new("/b/board.space-back"));
+    }
+
+    #[test]
+    fn a_workers_folder_is_made_absolute_and_clean_by_its_words_with_no_link_resolved() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = |p: &str| dir.path().join(p);
+        std::fs::create_dir_all(at("shop.review/senior-1")).unwrap();
+        std::fs::create_dir(at("shop")).unwrap();
+        std::os::unix::fs::symlink(at("shop.review"), at("link")).unwrap();
+        let clean = |p: PathBuf| worker_dir(&p).unwrap();
+        let word = |p: &str| at(p).to_str().unwrap().to_string();
+        // The skill's Stage 2 line, from the checkout: `..` takes the part before it.
+        assert_eq!(
+            clean(at("shop/../shop.review/senior-1")),
+            word("shop.review/senior-1")
+        );
+        assert_eq!(clean(at("./shop/./../shop/.")), word("shop"));
+        // A link is kept as written, and `..` after one goes by the words, not the link.
+        assert_eq!(clean(at("link/senior-1")), word("link/senior-1"));
+        assert_eq!(clean(at("link/../shop")), word("shop"));
+        // Above the root is the root.
+        assert_eq!(clean(PathBuf::from("/../../.")), "/");
+        // The cleaned folder must be there.
+        let gone = worker_dir(&at("shop/../nowhere")).unwrap_err().to_string();
+        assert_eq!(
+            gone,
+            format!("{} is not a folder: nothing was started", word("nowhere"))
+        );
     }
 
     #[test]

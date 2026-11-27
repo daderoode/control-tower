@@ -25,7 +25,8 @@
 //! reviewer as a split to the right of another worker's block (`rex split`), both without
 //! focus. Its handle is what Rex made, by id (`Made`): `rex-tab,<session>,<window>,<block>`
 //! or `rex-split,<session>,<block>`. A close (`close_worker`) first asks Rex what it has: a
-//! session, tab or block no longer there is already gone, and nothing is closed; else the
+//! session, tab or block it does not have is gone (closed already, or a handle no start
+//! printed), saying which, and nothing is closed; else the
 //! tab goes with every block in it (`rex window close`), or the one block (`rex block
 //! close`). `shows` is the block's last lines (`rex capture`).
 //!
@@ -812,6 +813,10 @@ impl Terminal for Rex {
         Ok(format!("killed Rex session {}", handle.0))
     }
 
+    fn starts_workers(&self) -> Result<()> {
+        Ok(())
+    }
+
     fn start_worker(&self, db: &Path, worker: &WorkerStart) -> Result<Handle> {
         let beside = worker.beside.map(Made::of).transpose()?;
         let (command, mut args, left) = match &beside {
@@ -891,12 +896,13 @@ impl Terminal for Rex {
     fn close_worker(&self, db: &Path, handle: &Handle) -> Result<Closed> {
         let made = Made::of(handle)?;
         let (session, _) = made.pane();
-        // What Rex has now: a session, tab or block it no longer lists is already gone.
+        // What Rex has now: a session, tab or block it does not list is gone.
+        let no_pane = || Closed::Gone(format!("no such tab or pane in {session}"));
         let time = (Instant::now() + terminal_timeout(), terminal_timeout());
         let sessions: Sessions = self.ask(db, "session.list", serde_json::json!({}), time)?;
         let listed = sessions.sessions.unwrap_or_default();
         if !listed.iter().any(|s| s.session_id == session) {
-            return Ok(Closed::Gone);
+            return Ok(Closed::Gone(format!("no such Rex session {session}")));
         }
         let input = serde_json::json!({ "session_id": session });
         let blocks: Blocks = self.ask(db, "session.list_blocks", input, time)?;
@@ -904,13 +910,13 @@ impl Terminal for Rex {
         let (command, args) = match made {
             Made::Tab { window, .. } => {
                 if !(blocks.iter()).any(|b| b.window_id.as_deref() == Some(window)) {
-                    return Ok(Closed::Gone);
+                    return Ok(no_pane());
                 }
                 ("window close", ["window", "close", "-s", session, window])
             }
             Made::Split { block, .. } => {
                 if !(blocks.iter()).any(|b| b.block_id.as_deref() == Some(block)) {
-                    return Ok(Closed::Gone);
+                    return Ok(no_pane());
                 }
                 ("block close", ["block", "close", "-s", session, block])
             }
@@ -1904,6 +1910,7 @@ mod tests {
         let f = FakeRex::new(dir.path());
         let db = dir.path().join("board.db");
         let rex = f.module_in("session:7");
+        rex.starts_workers().unwrap();
         let dev = ["claude", "-n", "dev-1", "brief"].map(String::from);
         let tab = Handle("rex-tab,session:7,window:w1,block:b1".into());
         let start = |beside: Option<&Handle>| {
@@ -2023,12 +2030,17 @@ mod tests {
         assert_eq!(rex.close_worker(&db, &tab).unwrap(), Closed::Now);
         assert_eq!(worker_calls(&f).len(), 3);
         // Gone: the split's block, the tab (no block in its window), then the whole session.
+        // A handle with a mistyped id reads the same: Rex cannot tell them apart.
+        let no_pane = Closed::Gone("no such tab or pane in session:7".into());
+        let no_session = Closed::Gone("no such Rex session session:7".into());
         f.tabs(&[("session:7", &[("block:lead", "window:w0", "")])]);
-        assert_eq!(rex.close_worker(&db, &split).unwrap(), Closed::Gone);
-        assert_eq!(rex.close_worker(&db, &tab).unwrap(), Closed::Gone);
+        assert_eq!(rex.close_worker(&db, &split).unwrap(), no_pane);
+        assert_eq!(rex.close_worker(&db, &tab).unwrap(), no_pane);
+        let typo = Handle("rex-split,session:7,block:lea".into());
+        assert_eq!(rex.close_worker(&db, &typo).unwrap(), no_pane);
         f.tabs(&[("session:other", &[("block:b2", "window:w1", "")])]);
-        assert_eq!(rex.close_worker(&db, &split).unwrap(), Closed::Gone);
-        assert_eq!(rex.close_worker(&db, &tab).unwrap(), Closed::Gone);
+        assert_eq!(rex.close_worker(&db, &split).unwrap(), no_session);
+        assert_eq!(rex.close_worker(&db, &tab).unwrap(), no_session);
         // Nothing more was closed.
         assert_eq!(worker_calls(&f).len(), 3);
         // Rex cannot say what it has, or refuses the close: a failure, never "gone".

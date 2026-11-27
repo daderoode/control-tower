@@ -207,12 +207,14 @@ pub struct WorkerStart<'a> {
 }
 
 /// How a close of a worker went.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Closed {
     /// It was there and is closed now.
     Now,
-    /// It was already gone: nothing was closed.
-    Gone,
+    /// The terminal has nothing by that handle, so nothing was closed: what it did not
+    /// find, like "no such tab or pane in session:7". It was closed already, or the handle
+    /// was never a start's (a typo), which the terminal cannot tell apart.
+    Gone(String),
 }
 
 /// Where a key was pressed: its session and block, as the terminal names them.
@@ -336,6 +338,12 @@ pub trait Terminal: AsTerminal + Send + Sync {
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle>;
     /// Undoes a start: closes the place `handle` names. Says what it did.
     fn undo(&self, db: &Path, handle: &Handle) -> Result<String>;
+    /// Whether this terminal starts workers at all, asked before anything else a start
+    /// does (`crate::worker::start`), so one that cannot says so first. The core's: it
+    /// cannot, and says it needs Rex (#178: Ghostty).
+    fn starts_workers(&self) -> Result<()> {
+        Err(needs_rex("starting a worker"))
+    }
     /// Starts a worker (`tower worker start`): a tab of its own, or a split beside another
     /// worker's pane, without taking focus. The handle names what it made, for
     /// `close_worker`, `shows` and a later split beside it. The core's: it refuses, saying
@@ -344,8 +352,8 @@ pub trait Terminal: AsTerminal + Send + Sync {
         Err(needs_rex("starting a worker"))
     }
     /// Closes what `handle` names (`tower worker close`): a tab with every pane in it, or
-    /// one split. One already gone is `Closed::Gone`, not an error. The core's: it refuses,
-    /// saying it needs Rex (#178: Ghostty).
+    /// one split. One the terminal does not have is `Closed::Gone`, not an error. The
+    /// core's: it refuses, saying it needs Rex (#178: Ghostty).
     fn close_worker(&self, _db: &Path, _handle: &Handle) -> Result<Closed> {
         Err(needs_rex("closing a worker"))
     }
@@ -873,6 +881,7 @@ mod tests {
             ..worker
         };
         let said = [
+            core.starts_workers(),
             core.start_worker(&db, &worker).map(|_| ()),
             core.start_worker(&db, &beside).map(|_| ()),
             core.close_worker(&db, &handle).map(|_| ()),
@@ -882,6 +891,7 @@ mod tests {
         assert_eq!(
             said,
             [
+                format!("starting a worker {needs}"),
                 format!("starting a worker {needs}"),
                 format!("starting a worker {needs}"),
                 format!("closing a worker {needs}"),

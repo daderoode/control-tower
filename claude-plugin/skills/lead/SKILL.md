@@ -552,9 +552,10 @@ and `tower repo show <R>` lists threads by title.
   straight away. A step is done when its verdict passes, or when the fixes for its findings
   are re-checked (a "changes needed" verdict is not the end of the step: the same worker
   re-checks the fix). Close only what you started, by the handle its start printed, never
-  by a label or name: `tower worker close <handle>`, which says `closed`, or that it was
-  already closed (no failure, as when the worker's pane ended by itself). Close by what
-  the worker is:
+  by a label or name: `tower worker close <handle>`, which says `closed`, or that there is
+  no such tab or pane: already closed (as when the worker's pane ended by itself), or never
+  that start's. That is no failure, so when you did not expect it, check the handle is the
+  one the start printed. Close by what the worker is:
   - a tester or reviewer working beside the implementer: `tower worker close <its
     handle>`, which closes its pane alone and leaves the worktree alone;
   - the implementer, with its worktree, once its PR is delivered (merged, or handed to

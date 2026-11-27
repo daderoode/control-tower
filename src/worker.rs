@@ -3,7 +3,9 @@
 //! (`terminal::for_workers_from_env`), so the lead skill's steps are the same in any terminal.
 //!
 //! A start (`start`) does what the lead skill did by hand around the terminal's own start:
-//! - first, one live worker per name: Claude does not keep session names unique, so a name
+//! - first, a terminal that starts no workers says so (`Terminal::starts_workers`), before
+//!   anything is asked;
+//! - then, one live worker per name: Claude does not keep session names unique, so a name
 //!   Claude's session list already has, ignoring case, is refused, and so is a list that
 //!   cannot be read. Nothing is started.
 //! - it starts the worker (`Terminal::start_worker`) and prints its handle at once, one
@@ -14,7 +16,8 @@
 //!   it (`Terminal::shows`), and how to close it. Nothing is closed: the lead decides.
 //!
 //! A close (`close`) closes what a handle names and says which it was: closed now, or
-//! already closed, which is no failure.
+//! nothing the terminal has by that handle (closed already, or never a start's handle, so a
+//! mistyped one is not read as a clean close), which is no failure.
 
 use std::io::Write;
 use std::path::Path;
@@ -47,6 +50,7 @@ pub fn start(
     (within, every): (Duration, Duration),
     out: &mut dyn Write,
 ) -> Result<()> {
+    terminal.starts_workers()?;
     let taken = is_listed(terminal, db, name).with_context(|| {
         format!("cannot tell whether the name {name} is free, so nothing was started")
     })?;
@@ -90,7 +94,7 @@ pub fn start(
 pub fn close(terminal: &dyn Terminal, db: &Path, handle: &Handle) -> Result<String> {
     Ok(match terminal.close_worker(db, handle)? {
         Closed::Now => format!("closed {}", handle.0),
-        Closed::Gone => format!("{} was already closed", handle.0),
+        Closed::Gone(what) => format!("{what}: already closed, or never this start's"),
     })
 }
 
@@ -241,8 +245,46 @@ mod tests {
         f.tabs(&[("session:7", &[])]);
         assert_eq!(
             close(&rex, &db, &handle).unwrap(),
-            "rex-tab,session:7,window:w1,block:b1 was already closed"
+            "no such tab or pane in session:7: already closed, or never this start's"
+        );
+        f.tabs(&[("session:other", &[])]);
+        assert_eq!(
+            close(&rex, &db, &handle).unwrap(),
+            "no such Rex session session:7: already closed, or never this start's"
         );
         assert_eq!(rex_acts(&f).len(), 1);
+    }
+
+    #[test]
+    fn a_terminal_that_starts_no_workers_says_so_before_claudes_list_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        // The name is taken, and the core still says what it needs first.
+        f.claude(&[("dev-1", 41)]);
+        let core = crate::terminal::Core::new(dir.path().join("claude"));
+        let command = command("dev-1");
+        let worker = WorkerStart {
+            label: "dev-1",
+            dir: "/srv/shop",
+            command: &command,
+            beside: None,
+        };
+        let mut out = Vec::new();
+        let went = start(
+            &core,
+            &dir.path().join("board.db"),
+            "dev-1",
+            &worker,
+            SHORT,
+            &mut out,
+        );
+        assert_eq!(
+            format!("{:#}", went.unwrap_err()),
+            "starting a worker needs Rex, and this session is not in Rex (REX_SESSION is not \
+             set)"
+        );
+        assert_eq!(out, b"");
+        // Neither claude nor rex was run.
+        assert_eq!(f.calls(), [] as [String; 0]);
     }
 }

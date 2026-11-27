@@ -2173,6 +2173,7 @@ esac
     test_exe::executable(
         &claude,
         "#!/bin/sh\n[ \"$1 $2\" = \"agents --json\" ] || exit 2\nd=$(dirname \"$0\")\n\
+         : > \"$d/asked\"\n\
          if [ -f \"$d/sessions.json\" ]; then cat \"$d/sessions.json\"; else echo '[]'; fi\n",
     );
     let worker = |in_rex: bool, args: &[&str]| {
@@ -2196,13 +2197,14 @@ esac
         "start",
         "dev-12-cart",
         "--dir",
-        "wt",
+        "wt/../wt/.",
         "--label",
         "#12 cart",
         "Brief on T3.",
     ];
 
-    // Outside Rex the core refuses both, for now, and rex is never run.
+    // Outside Rex the core refuses both, for now, before Claude's list is read, and rex is
+    // never run.
     let needs = "needs Rex, and this session is not in Rex (REX_SESSION is not set)";
     assert_refused(
         &worker(false, &start_dev),
@@ -2212,6 +2214,19 @@ esac
         &worker(false, &["close", tab]),
         &format!("closing a worker {needs}"),
     );
+    assert!(!dir.path().join("asked").exists());
+    // A label rex would read as a flag, or an empty one, is refused as the name is.
+    for label in ["--label=--json", "--label="] {
+        let out = worker(
+            true,
+            &["start", "dev-12-cart", "--dir", "wt", label, "Brief."],
+        );
+        let word = label.trim_start_matches("--label=");
+        assert_refused(
+            &out,
+            &format!("a worker's label is not empty and does not start with -: {word:?}"),
+        );
+    }
     // Refused before anything starts: a folder that is not there, a name claude -n would
     // misread, and a tab's label for a split.
     assert_refused(
@@ -2270,12 +2285,13 @@ esac
     );
     assert!(out.status.success(), "{}", text(&out.stderr));
     assert_eq!(text(&out.stdout), format!("{{\"handle\":\"{split}\"}}\n"));
-    // Each closes by its handle; one already closed says so and is no failure.
+    // Each closes by its handle; one Rex no longer has says so and is no failure.
+    let gone = "no such tab or pane in session:7: already closed, or never this start's\n";
     for (handle, said) in [
         (split, format!("closed {split}\n")),
-        (split, format!("{split} was already closed\n")),
+        (split, gone.to_string()),
         (tab, format!("closed {tab}\n")),
-        (tab, format!("{tab} was already closed\n")),
+        (tab, gone.to_string()),
     ] {
         let out = worker(true, &["close", handle]);
         assert!(out.status.success(), "{}", text(&out.stderr));
@@ -2286,8 +2302,8 @@ esac
         "\"window:w1\" is not a handle tower worker start printed in Rex",
     );
     // A relative folder is taken against tower's working directory as the system names it,
-    // which on macOS is the temp folder with its links resolved (/var is /private/var); an
-    // absolute one goes to rex as it was given.
+    // which on macOS is the temp folder with its links resolved (/var is /private/var), and
+    // cleaned of its `..` and `.` parts; an absolute one goes to rex as it was given.
     let wt = dir.path().canonicalize().unwrap().join("wt");
     let wt = wt.to_str().unwrap();
     let acts: Vec<String> = (calls().lines())
