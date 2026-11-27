@@ -251,10 +251,11 @@ implement, test or review.
       `tower lead set <R> --session "<new name>"`, then attach), and records your session,
       so the control-tower plugin's Stop hook knows you are the lead and the watch can tell
       you are listening. If it, or the SessionStart hook, says this session runs outside Rex,
-      you are still attached, but starting workers needs Rex (Workers, below), so raise it
-      with the owner as a `question:` post to `@manager` before you start any. When it says
-      the board does not see the workers you start from here, say that too; when it says the
-      watch reads them from Claude Code's session list, the board would see them.
+      you are still attached, and the workers you start open in Ghostty (Workers, below).
+      When it says the watch reads them from Claude Code's session list, the board sees
+      them and there is nothing to raise. When it says the board does not see the workers
+      you start from here, raise that with the owner as a `question:` post to `@manager`
+      before you start any.
 
    Each time your waiter ends (its notice: the background command completed), in that
    same turn: run `tower lead unread <R>`, handle what it prints, then arm `tower lead wait
@@ -308,7 +309,8 @@ implement, test or review.
    too the standing rules you recorded (principle 7): your memory and the standing context.
 3. **The repo first:** the work's git repo is yours, and a new project gets its repo (step 1)
    before any worker starts. Workers start under you (see Workers), so each one shows under
-   its lead: in Rex as tabs in your own Rex session, never in a separate session. Then
+   its lead: in Rex as tabs in your own Rex session, never in a separate session; outside
+   Rex as tabs in Ghostty. Then
    read the repo's SDLC (for example `SDLC.md`), if it has one, and follow it for anything
    it covers: steps, gates, merge rules, releases. Where it says nothing, the default
    lifecycle (see Workers) applies. How you work (the board, threads, workers, the gate,
@@ -476,12 +478,26 @@ and `tower repo show <R>` lists threads by title.
 
 - Workers are implementers, testers and reviewers: visible sessions, each under you in
   your terminal, named by its Claude session name (`claude -n <name>`), which the watch and
-  delivery find it by. Every start is without focus, so the owner stays where they are.
-  - **Start each one with `tower worker start`,** which starts it in your terminal and
-    prints its handle as one line of JSON (`{"handle":"..."}`); keep the handle, since it
-    is how you close the worker and how you start another beside it. Today that needs Rex
-    (`$REX_SESSION` is set): an implementer is a tab in your Rex session, a tester or
-    reviewer a pane in its implementer's tab. Outside Rex it refuses, saying so.
+  delivery find it by.
+  - **Start each one with `tower worker start`,** which prints its handle as one line of
+    JSON (`{"handle":"..."}`); keep the handle, since it is how you close the worker and
+    how you start another beside it. The steps are the same in either terminal, and you
+    never run `rex` or `osascript` for a worker yourself:
+    - **In Rex** (`$REX_SESSION` is set): an implementer is a tab in your Rex session, a
+      tester or reviewer a pane in its implementer's tab, each started without focus, so
+      the owner stays where they are.
+    - **Outside Rex, in Ghostty,** whatever terminal you run in: an implementer is a new
+      tab in your Ghostty window, a tester or reviewer a split to the right of its
+      implementer's terminal. Ghostty starts nothing without focus, so your tab is selected
+      again afterwards. When you are not in Ghostty (or run in tmux inside it), the
+      implementer opens in a new Ghostty window, which takes the owner's focus. Read what
+      the start says on stderr beside the handle (a tab not labelled, your tab not selected
+      again): the start still stands. Never start Ghostty yourself (`open -a Ghostty` would
+      carry your session's variables into every terminal it opens); the start launches it.
+      A start that says to approve Automation for Ghostty, or that it needs Ghostty or Rex,
+      is the owner's to settle: raise it as a `question:` post to `@manager`, with what it
+      said.
+
     An implementer gets a git worktree beside the repo, on its own branch from the default
     branch, then a tab named after its work item:
 
@@ -489,10 +505,10 @@ and `tower repo show <R>` lists threads by title.
         w=$(cd ../<repo>.worktrees/<#NN-slug> && pwd)
         tower worker start <name> --dir "$w" --label "<#NN slug>" "<brief>"
 
-    A worker never renames the Rex session (`rex session rename`): it runs in your session,
-    so it shares your `$REX_SESSION`, and Rex's start hook tells every Claude session to name
-    its session after its work, which would relabel yours. Its tab is already named; a tester
-    or reviewer runs as a pane in its implementer's tab.
+    In Rex, a worker never renames the Rex session (`rex session rename`): it runs in your
+    session, so it shares your `$REX_SESSION`, and Rex's start hook tells every Claude
+    session to name its session after its work, which would relabel yours. Its tab is
+    already named; a tester or reviewer runs as a pane in its implementer's tab.
     Keep the worktree's absolute path and the implementer's handle. A tester or Stage 1
     reviewer works in a pane beside the implementer's, in its tab, with no worktree of its
     own; `--beside` takes the implementer's handle, and you keep the new one:
@@ -521,9 +537,9 @@ and `tower repo show <R>` lists threads by title.
     it cannot read Claude's session list it starts nothing either: retry.
   - **Check it started:** `tower worker start` waits up to 30 s for `claude agents --json`
     to list the name, and exits 0 when it does. When it does not, it fails, having still
-    printed the handle, and says what the worker's pane shows. A worker at the trust dialog
-    is closed at once by its handle (an implementer: `tower worker close`, then `git
-    worktree remove`), and the folder raised with the owner as a `question:` post to
+    printed the handle, and in Rex says what the worker's pane shows. A worker at the trust
+    dialog is closed at once by its handle (an implementer: `tower worker close`, then
+    `git worktree remove`), and the folder raised with the owner as a `question:` post to
     `@manager`. A start that fails with no handle printed may still have left a tab or
     pane, as its message says: nothing can be closed by handle then, so look at the tab
     and raise it with the owner the same way.
@@ -710,8 +726,8 @@ and `tower repo show <R>` lists threads by title.
   start a sub-lead for it, as a worker nested under you, briefed with that piece. It reports
   on the repo's board like a worker, in the piece's task thread; it does not register as a
   lead. Label starting one as your decision on the board. Its brief gives it your terminal's
-  place for the workers it starts: your Rex session (`$REX_SESSION`), so they open as tabs
-  there.
+  place for the workers it starts: in Rex, your Rex session (`$REX_SESSION`), so they open
+  as tabs there; outside Rex they open in Ghostty as yours do.
 
 ## The message board
 

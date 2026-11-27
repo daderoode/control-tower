@@ -1645,8 +1645,8 @@ mod tests {
         let missing = crate::terminal::module(rex.to_path_buf()).missing(None);
         format!(
             "{}. Until Rex is found, the watch reads its workers from Claude Code (said once); \
-             Rex would add the text of the prompt a worker waits at in its owner item, the \
-             dashboard's n and its keys, and starting workers as visible tabs",
+             Rex would add the text of the prompt a worker waits at in its owner item, and \
+             the dashboard's n and its keys",
             missing.unwrap()
         )
     }
@@ -1807,8 +1807,8 @@ mod tests {
         format!(
             "Rex does not answer: rex api call session.list exited 1: {NOT_RUNNING}. Until Rex \
              answers, the watch reads its workers from Claude Code (said once); Rex would add \
-             the text of the prompt a worker waits at in its owner item, the dashboard's n and \
-             its keys, and starting workers as visible tabs"
+             the text of the prompt a worker waits at in its owner item, and the dashboard's n \
+             and its keys"
         )
     }
 

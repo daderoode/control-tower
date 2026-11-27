@@ -42,6 +42,19 @@ tag's date, and a new empty Unreleased goes above it.
   installed both say workers need Ghostty or Rex. `TOWER_OSASCRIPT` names another
   `osascript`.
 
+### Changed
+
+- **The docs and notices say workers open in Ghostty, or in Rex inside Rex** (#179, part of
+  #171). A lead outside Rex is no longer told it needs Rex for workers: the notice from
+  `tower lead attach` and the SessionStart hook says `tower worker start` opens them in
+  Ghostty, with nothing to raise while the watch reads them from Claude Code's session
+  list, and to raise it when a start says it needs Ghostty or Rex; with Rex running, it
+  still says the board does not see them (#170). What Rex adds no longer lists starting
+  workers, in that notice, the watch's log line, the brew caveat, the README and the spec.
+  `tower worker start --help` says where focus goes in each terminal instead of "without
+  taking focus". The README's Install has "Workers open in Ghostty" (the one-time
+  Automation approval among it), and the lead skill's attach and Workers steps follow.
+
 ## [0.8.0] - 2026-11-26
 
 ### Changed

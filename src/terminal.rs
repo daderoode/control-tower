@@ -197,7 +197,8 @@ pub struct LeadStart<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Handle(pub String);
 
-/// A worker to start, without taking focus, in the absolute folder `dir`, running `command`
+/// A worker to start, without taking focus where the terminal can start one so
+/// (`Terminal::start_worker`), in the absolute folder `dir`, running `command`
 /// (one word per argument, never a shell string): in a tab of its own labelled `label`, or,
 /// with `beside`, as a split to the right of the pane that handle names (its `label` is then
 /// not used).

@@ -130,9 +130,10 @@ pub fn dashboard_status(
 }
 
 /// What Rex adds over the core (`Terminal::adds`), which a lead outside Rex with no rex
-/// found, or one that does not answer, is also told.
-const ADDS: &str = "the text of the prompt a worker waits at in its owner item, the \
-                    dashboard's n and its keys, and starting workers as visible tabs";
+/// found, or one that does not answer, is also told. Not starting workers: the core starts
+/// them too, in Ghostty.
+const ADDS: &str = "the text of the prompt a worker waits at in its owner item, and the \
+                    dashboard's n and its keys";
 
 /// What a lead running outside Rex is told, by `env`: `None` inside Rex, where Rex sets
 /// `REX_SESSION` (an empty one counts as unset). Outside it, what the watch sees of the
@@ -140,7 +141,9 @@ const ADDS: &str = "the text of the prompt a worker waits at in its owner item, 
 /// name on `env`'s PATH) and answers as the watch asks it (`Terminal::silent`, within
 /// `answers_within`, with `db` as the board): with rex answering, nothing outside Rex; else
 /// Claude Code's session list (with rex not answering, only until it answers, when the watch
-/// reads only the workers in Rex), and what Rex would add. `env` is the lead's, not the watch's
+/// reads only the workers in Rex), and what Rex would add. Either way, where those workers
+/// open: in Ghostty, the core's (`Terminal::start_worker`), which is not asked here whether
+/// it is installed, since a start says so first. `env` is the lead's, not the watch's
 /// (the watch service runs with brew's PATH). With rex linked into Homebrew's bin, they agree
 /// unless the lead's env names another rex (`TOWER_REX`, `REX_BIN_DIR`); both ask the same
 /// local Rex server. Where only the PATHs differ (rex on the lead's PATH only), rex counts as
@@ -163,10 +166,10 @@ pub fn outside(env: impl Fn(&str) -> Option<OsString>, db: &Path) -> Option<Stri
             None => {
                 return Some(
                     "control-tower: this session runs outside Rex (REX_SESSION is not set), but \
-                     the board's team runs in Rex. Outside Rex the board does not see the \
-                     workers you start: not their prompts, and posts and nudges are not \
-                     delivered to them. Raise it with the owner in a question: post to \
-                     @manager."
+                     the board's team runs in Rex. Outside Rex tower worker start opens the \
+                     workers you start in Ghostty, and the board does not see them: not their \
+                     prompts, and posts and nudges are not delivered to them. Raise it with \
+                     the owner in a question: post to @manager."
                         .into(),
                 );
             }
@@ -176,7 +179,9 @@ pub fn outside(env: impl Fn(&str) -> Option<OsString>, db: &Path) -> Option<Stri
         "control-tower: this session runs outside Rex (REX_SESSION is not set) and {why}, so \
          {until}the watch reads the workers you start from Claude Code's session list: it sees \
          them, judges their prompts (without the prompt's text) and delivers posts and nudges \
-         to them.{then} Rex would add {ADDS}."
+         to them.{then} tower worker start opens them in Ghostty; when it says it needs \
+         Ghostty or Rex, raise it with the owner in a question: post to @manager. Rex would \
+         add {ADDS}."
     ))
 }
 
@@ -1702,16 +1707,19 @@ mod tests {
                 None
             );
         }
-        // Outside Rex (unset, or empty) with rex found: the board does not see the workers,
-        // and whom to ask.
+        // Outside Rex (unset, or empty) with rex found: the workers open in Ghostty, the
+        // board does not see them, and whom to ask.
         let told = with(&[("TOWER_REX", found)]).unwrap();
         let empty_session = with(&[("REX_SESSION", empty), ("TOWER_REX", found)]);
         assert_eq!(empty_session.as_deref(), Some(told.as_str()));
         assert!(
             told.starts_with(
                 "control-tower: this session runs outside Rex (REX_SESSION is not set), but"
-            ) && told.contains("not their prompts, and posts and nudges are not delivered")
-                && told.ends_with("question: post to @manager."),
+            ) && told.contains(
+                "Outside Rex tower worker start opens the workers you start in Ghostty, and \
+                 the board does not see them: not their prompts, and posts and nudges are not \
+                 delivered"
+            ) && told.ends_with("question: post to @manager."),
             "{told}"
         );
         // Found on the PATH as the watch finds it: the same.
@@ -1730,7 +1738,9 @@ mod tests {
                 "control-tower: this session runs outside Rex (REX_SESSION is not set) and rex \
                  is not found, so the watch reads the workers you start from Claude Code's \
                  session list: it sees them, judges their prompts (without the prompt's text) \
-                 and delivers posts and nudges to them. Rex would add {ADDS}."
+                 and delivers posts and nudges to them. tower worker start opens them in \
+                 Ghostty; when it says it needs Ghostty or Rex, raise it with the owner in a \
+                 question: post to @manager. Rex would add {ADDS}."
             )
         );
         // Found but not answering (named, or on the PATH): as with none, saying so.

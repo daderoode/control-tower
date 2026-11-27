@@ -1,8 +1,9 @@
 # control-tower
 
 A taskboard for a team of Claude Code agents: what the work is, how far along it is, and
-where the owner is needed. It works on its own, in any terminal; Rex adds to it (Install,
-"What Rex adds").
+where the owner is needed. It works on its own, in any terminal; a lead's workers open in
+Ghostty, or in Rex when the lead runs in Rex (Install, "Workers open in Ghostty"), and Rex
+adds to it (Install, "What Rex adds").
 
 It is one binary, `tower`. Agents change the board only through the `tower` commands,
 which check every write and refuse a bad one with a message and a non-zero exit. The
@@ -642,8 +643,8 @@ by its `waitingFor`; any other value is unknown). The watch's first log line nam
 reads, "watching <board> with <rex> every 20 s" or "with Claude Code's session list
 (<claude>)". When rex cannot be found, the log says once what it tried, how to link it into
 Homebrew's bin, that the watch reads its workers from Claude Code until Rex is found, and
-what Rex would add (the text of the prompt a worker waits at, the dashboard's `n` and its
-keys, and starting workers as visible tabs); every look still runs. Before each look, the
+what Rex would add (the text of the prompt a worker waits at, and the dashboard's `n` and
+its keys); every look still runs. Before each look, the
 watch asks a found rex for its sessions; when that fails or takes over 3 seconds (the Rex
 app not running), the log says once "Rex does not answer" with why, that the watch reads its
 workers from Claude Code until Rex answers, and what Rex would add. That look and its
@@ -964,15 +965,17 @@ and an idle lead is never woken while nothing is posted:
   attached all the same, by `tower lead attach` and by the SessionStart hook, and both tell
   it what the watch sees of the workers it starts there, by whether rex is found as the
   watch finds it (`TOWER_REX`, else `REX_BIN_DIR`, else the PATH, in the lead's own
-  environment) and answers as the watch asks it (its sessions listed within 3 seconds). With
-  rex found and answering: the board's team runs in Rex and the board does not see those
-  workers (their prompts, and delivery to them), to raise with you. With rex not found or
-  not answering: the watch reads them from Claude Code's session list, so it sees them,
-  judges their prompts (without the prompt's text) and delivers to them, and what Rex would
-  add (What Rex adds); with rex not answering, that this lasts only until Rex answers, when
-  the watch reads only the workers in Rex and the board no longer sees them. Either way the
-  lead skill starts workers only in Rex, so the lead raises it with you before it starts
-  any. The hook gives the notice after the rest, a compaction's reply too. With
+  environment) and answers as the watch asks it (its sessions listed within 3 seconds).
+  Either way it says `tower worker start` opens those workers in Ghostty (Workers open in
+  Ghostty). With rex not found or not answering: the watch reads them from Claude Code's
+  session list, so it sees them, judges their prompts (without the prompt's text) and
+  delivers to them, so there is nothing to raise with you unless a start says it needs
+  Ghostty or Rex, and what Rex would add (What Rex adds); with rex not answering, that this
+  lasts only until Rex answers, when the watch reads only the workers in Rex and the board
+  no longer sees them. With rex found and answering: the board's team runs in Rex and the
+  board does not see the workers started in Ghostty (their prompts, and delivery to them),
+  to raise with you (#170). The notice does not ask whether Ghostty is installed: a start
+  says so first. The hook gives the notice after the rest, a compaction's reply too. With
   `REX_SESSION` set, nothing more is said.
 - **Lead not listening:** each look, the watch checks every registered lead, attached or
   not, asking no terminal, so the check runs whether or not the terminal answers; an
@@ -1035,8 +1038,9 @@ Give a dev build a test board in `TOWER_DB`.
 
 ## Install
 
-Runs on macOS (Apple silicon), in any terminal. Releases are built for Apple silicon only;
-on an Intel Mac `brew install` refuses with Homebrew's own message.
+Runs on macOS (Apple silicon), in any terminal; a lead's workers open in Ghostty, or in Rex
+when the lead runs in Rex (Workers open in Ghostty, below). Releases are built for Apple
+silicon only; on an Intel Mac `brew install` refuses with Homebrew's own message.
 
     brew install daderoode/tap/control-tower
     brew services start control-tower
@@ -1086,19 +1090,61 @@ Every `tower` command, the dashboard and the watch use the board at
 `~/.local/state/control-tower/board.db`; set `TOWER_DB` to another file in each of their
 environments to use another board (see "The board" above).
 
+### Workers open in Ghostty
+
+A lead starts and closes its workers with `tower worker start` and `tower worker close`
+(`tower worker start --help`). They are visible sessions, never background ones. When the
+lead runs in Rex (`REX_SESSION` is set), they are tabs and panes of its Rex session (What
+Rex adds). Everywhere else they open in [Ghostty](https://ghostty.org), whatever terminal
+the lead itself runs in, and no other terminal is supported for workers:
+
+- **Install Ghostty.** With no Ghostty, a start or close outside Rex fails before anything
+  else: "starting a worker needs Ghostty or Rex: Ghostty is not installed, and this session
+  is not in Rex (REX_SESSION is not set)".
+- **Approve Automation, once.** tower drives Ghostty through its AppleScript interface, with
+  `osascript`. The first time, macOS asks you to let the app the lead's session runs in
+  control Ghostty. Until you allow it, Ghostty does not answer (each event has 10 seconds)
+  and the start fails saying to approve Automation for Ghostty: System Settings, Privacy &
+  Security, Automation, then run it again. Such a start may have left a tab in Ghostty, as
+  its message says; close it there.
+- **Where a worker opens.** An implementer is a new tab in the lead's Ghostty window,
+  labelled; a tester or reviewer is a split to the right of its implementer's terminal.
+  Ghostty starts nothing without focus, so the lead's tab is selected again afterwards (if
+  that fails, the start stands and says so). The lead's window is the one holding the
+  terminal whose tty is the lead's. A lead with no such terminal gets a new Ghostty window,
+  which takes focus: a lead in another terminal, and also a lead in tmux (or another
+  multiplexer) inside Ghostty, whose tty is the multiplexer's.
+- **What a worker's command gets.** It runs in the folder given, with the lead's Claude Code
+  and Rex variables removed and the lead's `PATH` and board (`TOWER_DB`) set.
+- **Let tower launch Ghostty.** `osascript` runs with only what an app opened from the
+  Finder has in its environment, so a Ghostty that tower launches carries nothing of the
+  lead's session into your own tabs. A Ghostty started by hand from inside a Claude session
+  (`open -a Ghostty`) does carry that session's variables into every terminal it opens
+  from then on: start Ghostty from the Finder or the Dock, never from a session.
+- **Closing.** A close takes the handle the start printed: a tab with every pane in it, or
+  one split. A terminal Ghostty no longer has counts as closed, as does any while Ghostty
+  is not running (a close never launches it). Ghostty leaves a closed split's processes
+  running, so the close hangs them up, and fails, naming them, if they outlive that.
+
+The watch finds these workers in Claude Code's session list, as it does every worker
+without Rex. While Rex runs and rex is linked (above), the watch reads only the workers in
+Rex, so it does not see workers a lead outside Rex starts in Ghostty (#170); a lead outside
+Rex is told which holds (How posts reach a lead, "A lead outside Rex").
+
 ### What Rex adds
 
 control-tower works without Rex: the board, the `tower` commands, the dashboard in any
 terminal, the watch (worker state, stuck and stopped workers, orphans, from Claude Code's
-session list), live delivery, the lead-listening check and the hooks. Rex, its one terminal
-module, adds:
+session list), live delivery, the lead-listening check, the hooks, and starting and closing
+workers, in Ghostty (above). Rex, its one terminal module, adds:
 
 - the text of the prompt a worker waits at, quoted in its owner item ("It asks: ...");
 - the dashboard's `n`, which starts a lead in a new Rex session;
 - `tower space` and `tower popup`, the dashboard's two keys (below): its own tab, and a
   popup over yours;
-- starting and closing workers as visible tabs: the lead skill does this only in Rex, and a
-  lead outside it is told so.
+- for a lead that runs in Rex, its workers as tabs and panes of its own Rex session,
+  started without taking focus, and, when a started worker never shows in Claude Code's
+  session list, what its pane shows.
 
 ### The dashboard's keys in Rex
 

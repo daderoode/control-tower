@@ -35,9 +35,13 @@ class ControlTower < Formula
 
   def caveats
     <<~EOS
-      control-tower works on its own, in any terminal. Rex is optional and adds the
-      text of the prompt a worker waits at in its owner item, the dashboard's n and
-      its two keys (tower space, tower popup), and starting workers as visible tabs.
+      control-tower works on its own, in any terminal. A lead's workers open in
+      Ghostty, or in Rex when the lead runs in Rex: install Ghostty, and the first
+      time a worker starts, let the app the lead runs in control Ghostty when macOS
+      asks (System Settings, Privacy & Security, Automation).
+
+      Rex is optional and adds the text of the prompt a worker waits at in its owner
+      item, and the dashboard's n and its two keys (tower space, tower popup).
       To use Rex: the watch finds rex on Homebrew's PATH; Rex keeps it in
       REX_BIN_DIR, which it sets in its own tabs, so from a Rex tab link it into
       Homebrew's bin:
