@@ -34,6 +34,10 @@ tag's date, and a new empty Unreleased goes above it.
   running, which a close never launches. Ghostty leaves a closed split's processes
   running, so the close ends them: what still runs on that terminal's tty under its login
   wrapper after a moment is hung up, and the close fails, naming it, if it outlives that.
+  A handle is always a terminal Ghostty did not have before the start, so a new window
+  that macOS makes a tab of another never hands tower the owner's terminal. `osascript`
+  runs with only what an app opened from the Finder has in its environment, so a Ghostty
+  it launches carries nothing of the lead's session into the owner's own tabs.
   Ghostty not answering says to approve Automation for Ghostty, and with no Ghostty
   installed both say workers need Ghostty or Rex. `TOWER_OSASCRIPT` names another
   `osascript`.

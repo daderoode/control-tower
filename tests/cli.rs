@@ -2352,14 +2352,18 @@ fn a_lead_outside_rex_starts_and_closes_workers_in_ghostty_through_tower() {
     // A fake osascript: Ghostty is installed, a tab's terminal is T1 and a split's T2, each
     // start has Claude list the worker, and a close closes a terminal once (a split's with
     // its pid and a tty no process is on, so nothing is left to end). It refuses to run
-    // with a lead's variables. Never a real osascript, Ghostty or claude.
+    // with anything in its environment but what an app opened from the Finder has, as the
+    // lead's variables are, or with the lead's PATH. Never a real osascript, Ghostty or claude.
     let osascript = dir.path().join("osascript");
     test_exe::executable(
         &osascript,
         r#"#!/bin/sh
 d=$(dirname "$0")
 [ "$1" = "-e" ] || exit 2
-[ -z "${CLAUDECODE+x}${REX_BLOCK+x}${TOWER_DB+x}" ] || { echo "a lead's variable reached osascript" >&2; exit 3; }
+more=$(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | grep -v -x -e HOME -e USER -e LOGNAME -e SHELL -e TMPDIR -e LANG -e SSH_AUTH_SOCK -e __CF_USER_TEXT_ENCODING -e PATH -e PWD -e OLDPWD -e SHLVL -e _ | grep -v '^LC_' | tr '\n' ' ')
+[ -z "$more" ] || { echo "more than a Finder launch has reached osascript: $more" >&2; exit 3; }
+[ "$PATH" = /usr/bin:/bin:/usr/sbin:/sbin ] || { echo "osascript got the PATH $PATH" >&2; exit 3; }
+[ "${LC_ALL-}" = C ] || { echo "osascript got no LC_ALL" >&2; exit 3; }
 script=$2; shift 2
 dev='{"name":"dev-12-cart","pid":41,"sessionId":"s41","status":"busy"}'
 qa='{"name":"qa-12-cart","pid":42,"sessionId":"s42","status":"busy"}'
@@ -2401,6 +2405,8 @@ esac
             // A rex that must never be run, and a lead's own variables.
             .env("TOWER_REX", dir.path().join("no-rex"))
             .env("CLAUDECODE", "1")
+            .env("GIT_EDITOR", "true")
+            .env("LC_ALL", "C")
             .env("REX_BLOCK", "block:lead")
             .env_remove("REX_SESSION")
             .output()

@@ -6,9 +6,10 @@
 //!
 //! Each call is one constant script (`START`, `CLOSE`) given to `osascript -e`, and every
 //! value (a tty, a folder, a command, a terminal's id) is one of its arguments, never text
-//! pasted into a script. `osascript` runs with the lead's Claude, Rex and board variables
-//! removed (`UNSET`), since a Ghostty it launches takes its environment into every terminal
-//! it opens from then on. Ghostty is named by its bundle id (`APP`).
+//! pasted into a script. `osascript` runs with nothing of the lead's session in its
+//! environment but what an app opened from the Finder has (`kept`): a Ghostty it launches
+//! takes its environment into every terminal it opens from then on, the owner's own tabs
+//! included. Ghostty is named by its bundle id (`APP`).
 //!
 //! - **Installed** (`installed`): `id of application id`, which sends Ghostty no event and
 //!   launches nothing. A start or close with no Ghostty says workers need Ghostty or Rex.
@@ -26,7 +27,11 @@
 //!   shell profile, so neither `claude` nor the hooks' `tower` would be found, and a lead on
 //!   another board would get workers on the default one.
 //! - **The handle** is the new terminal's id, which Ghostty never reuses (a tab's id it
-//!   does): `ghostty-tab,<id>` or `ghostty-split,<id>`.
+//!   does): `ghostty-tab,<id>` or `ghostty-split,<id>`. It is always an id Ghostty did not
+//!   have before the start: the script reads every terminal's id first, and a start whose
+//!   new terminal reads back as one of those fails, labelling nothing. macOS can make a new
+//!   window a tab of another, and what is focused there is read a moment later, so the
+//!   terminal read back could be the owner's, which a close would then close.
 //! - **A close** (`close`): a split's terminal by its id; a tab by finding the tab that
 //!   holds that terminal now and closing it with every pane in it. An id Ghostty no longer
 //!   has (its error -1728) is gone, not a failure, and so is any id while Ghostty is not
@@ -57,10 +62,10 @@ use crate::ui::runner::{Outcome, Run, run_now};
 /// Ghostty's bundle id.
 const APP: &str = "com.mitchellh.ghostty";
 
-/// What a lead's session sets that must reach neither a Ghostty that `osascript` launches
-/// nor a worker: Claude Code's and Rex's own, naming the lead's session, pane and sockets.
-/// A fixed list, not every `CLAUDE*`: a setting the owner exports on purpose (a config
-/// folder, a provider) stays.
+/// What a lead's session sets that must not reach a worker, removed from its command's
+/// environment: Claude Code's and Rex's own, naming the lead's session, pane and sockets. A
+/// fixed list, not every `CLAUDE*`: a setting the owner exports on purpose (a config folder,
+/// a provider) stays.
 const UNSET: [&str; 14] = [
     "CLAUDECODE",
     "CLAUDE_CODE_CHILD_SESSION",
@@ -78,6 +83,35 @@ const UNSET: [&str; 14] = [
     "REX_BIN_DIR",
 ];
 
+/// What `osascript` keeps of this process's environment, with every `LC_` name: what an
+/// app opened from the Finder has, and nothing a session adds (`kept`).
+const KEPT: [&str; 8] = [
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TMPDIR",
+    "LANG",
+    "SSH_AUTH_SOCK",
+    "__CF_USER_TEXT_ENCODING",
+];
+
+/// The `PATH` `osascript` runs with, as macOS gives an app opened from the Finder: never
+/// the lead's.
+const SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+/// The environment `osascript` runs with, of `vars`: the `KEPT` names and each `LC_` one,
+/// as they are, and `SYSTEM_PATH`. Nothing else, so a Ghostty that `osascript` launches
+/// starts as one opened from the Finder would and carries none of the lead's session (its
+/// Claude and Rex variables, its board, `GIT_EDITOR`) into the owner's own tabs.
+fn kept(vars: impl Iterator<Item = (String, String)>) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = vars
+        .filter(|(name, _)| KEPT.contains(&name.as_str()) || name.starts_with("LC_"))
+        .collect();
+    env.push(("PATH".into(), SYSTEM_PATH.into()));
+    env
+}
+
 /// How long Ghostty has to answer one event of a script, in seconds, as the scripts say it
 /// (`with timeout`).
 const EVENT_SECS: u64 = 10;
@@ -85,12 +119,14 @@ const EVENT_SECS: u64 = 10;
 /// Starts a worker. Arguments: the lead's tty ("" for none), the folder, the command, the
 /// tab's label, the terminal id to split beside ("" for a tab). Prints `id <terminal id>`,
 /// then a `note <text>` line for each thing that failed after the terminal was made; or
-/// `gone` when there is no terminal to split beside.
+/// `gone` when there is no terminal to split beside; or `reused <terminal id>` when the
+/// new terminal reads back as one Ghostty had before the start, which is then not touched.
 const START: &str = r#"on run argv
 	set leadTty to item 1 of argv
 	set besideId to item 5 of argv
 	with timeout of 10 seconds
 		tell application id "com.mitchellh.ghostty"
+			set hadIds to id of every terminal
 			set cfg to new surface configuration
 			set initial working directory of cfg to item 2 of argv
 			set command of cfg to item 3 of argv
@@ -108,14 +144,13 @@ const START: &str = r#"on run argv
 					end repeat
 				end repeat
 			end if
-			set said to ""
+			set newTab to missing value
 			if besideId is not "" then
 				try
 					set made to split terminal id besideId direction right with configuration cfg
 				on error number -1728
 					return "gone"
 				end try
-				set said to "id " & (id of made)
 			else
 				if leadWindow is "" then
 					set newWindow to new window with configuration cfg
@@ -123,7 +158,12 @@ const START: &str = r#"on run argv
 				else
 					set newTab to new tab in window id leadWindow with configuration cfg
 				end if
-				set said to "id " & (id of focused terminal of newTab)
+				set made to focused terminal of newTab
+			end if
+			set newId to id of made
+			if hadIds contains newId then return "reused " & newId
+			set said to "id " & newId
+			if newTab is not missing value then
 				try
 					set name override of newTab to item 4 of argv
 				on error why
@@ -227,12 +267,14 @@ const HUNG_UP_WITHIN: Duration = Duration::from_secs(15);
 /// How often `ps` is asked while waiting for either.
 const ASK_EVERY: Duration = Duration::from_millis(250);
 
-/// Ghostty as the core reaches it: `osascript`, `ps` to find the lead's terminal and what
-/// a closed split left running, the lead's `PATH` for its workers, and how long a closed
-/// split's worker has to end by itself and then after a hangup.
+/// Ghostty as the core reaches it: `osascript` and the whole environment it runs with
+/// (`kept`), `ps` to find the lead's terminal and what a closed split left running, the
+/// lead's `PATH` for its workers, and how long a closed split's worker has to end by itself
+/// and then after a hangup.
 #[derive(Debug, Clone)]
 pub struct Ghostty {
     osascript: PathBuf,
+    env: Vec<(String, String)>,
     ps: PathBuf,
     path: Option<String>,
     ends_within: Duration,
@@ -313,14 +355,19 @@ fn tty_of(table: &str, pid: i32) -> Option<String> {
 
 impl Ghostty {
     /// Ghostty by this process's environment: `osascript` as `TOWER_OSASCRIPT` names it,
-    /// else the system's; the system's `ps`; and `PATH` (one that is not text is not
-    /// passed on).
+    /// else the system's, run with `kept` of this environment (a variable that is not text
+    /// is not kept); the system's `ps`; and `PATH` for the workers (one that is not text is
+    /// not passed on).
     pub fn from_env() -> Ghostty {
         let osascript = std::env::var_os("TOWER_OSASCRIPT")
             .filter(|p| !p.is_empty())
             .map_or_else(|| PathBuf::from("/usr/bin/osascript"), PathBuf::from);
+        let vars = std::env::vars_os().filter_map(|(name, value)| {
+            Some((name.into_string().ok()?, value.into_string().ok()?))
+        });
         Ghostty {
             osascript,
+            env: kept(vars),
             ps: PathBuf::from("/bin/ps"),
             path: std::env::var("PATH").ok(),
             ends_within: ENDS_WITHIN,
@@ -328,20 +375,22 @@ impl Ghostty {
         }
     }
 
-    /// Runs `osascript -e <script> <args>` with `UNSET` and the board removed from its
-    /// environment, bounded by `terminal_timeout`.
+    /// Runs `osascript -e <script> <args>` with `env` as its whole environment (`env -i`),
+    /// bounded by `terminal_timeout`.
     fn run(&self, script: &str, args: &[&str]) -> Outcome {
-        let mut words: Vec<String> = Vec::new();
-        for name in UNSET.into_iter().chain(["TOWER_DB"]) {
-            words.extend(["-u".to_string(), name.to_string()]);
-        }
+        let mut words: Vec<String> = vec!["-i".to_string()];
+        words.extend(
+            self.env
+                .iter()
+                .map(|(name, value)| format!("{name}={value}")),
+        );
         words.push(self.osascript.to_string_lossy().into_owned());
         words.extend(["-e".to_string(), script.to_string()]);
         words.extend(args.iter().map(|a| a.to_string()));
         run_now(&Run {
             exe: PathBuf::from("/usr/bin/env"),
             args: words,
-            // No board is asked: `TOWER_DB` is among what is removed.
+            // No board is asked: `TOWER_DB` goes with everything `env -i` drops.
             db: PathBuf::new(),
             env: Vec::new(),
             stdin: None,
@@ -501,6 +550,13 @@ impl Ghostty {
                  or the handle was never a start's; nothing was started"
             );
         }
+        if let Some(id) = first.strip_prefix("reused ") {
+            return Err(anyhow::anyhow!(
+                "Ghostty named terminal {id} as the worker's, but had it before the start, so \
+                 it is not the worker's: it was not labelled and is no handle"
+            )
+            .context(left));
+        }
         let id = (first.strip_prefix("id ").filter(|id| is_id(id)))
             .with_context(|| format!("osascript said something unexpected: {}", reply.trim()))
             .context(left)?;
@@ -586,7 +642,8 @@ fn said(to: &str, outcome: Outcome) -> Result<String> {
 }
 
 /// Test only: a fake `osascript` and `ps` in a temp folder, and Ghostty over them. Each
-/// osascript call goes to `osascript.log`, one per line: which script it was (`installed`,
+/// osascript call writes the names in its environment to `osascript.env` and goes to
+/// `osascript.log`, one per line: which script it was (`installed`,
 /// `start`, `close`) and its arguments, joined by `|`, with a start's command (its third
 /// argument) written to the file `command` and logged as `<command>`. For `<it>` one of
 /// those three: `fail-<it>` exits 1 saying that file's text, and `reply-<it>` is printed in
@@ -617,6 +674,7 @@ case "$script" in
 *"close terminal id"*) w=close ;;
 *) echo "unexpected script: $script" >&2; exit 2 ;;
 esac
+env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort > "$d/osascript.env"
 if [ "$w" = start ]; then
   printf '%s' "$3" > "$d/command"
   echo "start|$1|$2|<command>|$4|$5" >> "$d/osascript.log"
@@ -663,6 +721,11 @@ exit 0
         pub fn ghostty(&self) -> Ghostty {
             Ghostty {
                 osascript: self.dir.join("osascript"),
+                env: super::kept(
+                    [("HOME", "/Users/someone"), ("LC_ALL", "C")]
+                        .map(|(name, value)| (name.to_string(), value.to_string()))
+                        .into_iter(),
+                ),
                 ps: self.dir.join("ps"),
                 path: Some("/usr/bin:/bin".into()),
                 ends_within: Duration::from_millis(300),
@@ -690,6 +753,18 @@ exit 0
         pub fn calls(&self) -> Vec<String> {
             (std::fs::read_to_string(self.dir.join("osascript.log")).unwrap_or_default())
                 .lines()
+                .map(String::from)
+                .collect()
+        }
+
+        /// The names in the last osascript call's environment, but those a shell sets for
+        /// itself.
+        pub fn env(&self) -> Vec<String> {
+            (std::fs::read_to_string(self.dir.join("osascript.env")).unwrap())
+                .lines()
+                .filter(|name| !["PWD", "OLDPWD", "SHLVL", "_"].contains(name))
+                // macOS may add this one to a process by itself; it is one of the kept.
+                .filter(|name| *name != "__CF_USER_TEXT_ENCODING")
                 .map(String::from)
                 .collect()
         }
@@ -912,6 +987,15 @@ mod tests {
                 ],
             }
         );
+        // The new terminal reads back as one Ghostty had before the start (a window macOS
+        // made a tab of the owner's): no handle, and what may be left.
+        f.write("reply-start", "reused 8A1F-22\n");
+        assert_eq!(
+            format!("{:#}", start(None).unwrap_err()),
+            "a tab labelled \"#1 x\" may be left in Ghostty: close it there: Ghostty named \
+             terminal 8A1F-22 as the worker's, but had it before the start, so it is not the \
+             worker's: it was not labelled and is no handle"
+        );
         // The terminal to split beside is gone: nothing started, nothing left.
         f.write("reply-start", "gone\n");
         let tab = Handle("ghostty-tab,T1".into());
@@ -990,6 +1074,61 @@ mod tests {
                 format!("osascript said something unexpected: {reply}")
             );
         }
+    }
+
+    #[test]
+    fn osascript_runs_with_what_a_finder_launch_has_and_nothing_of_the_leads_session() {
+        let pairs = |vars: &[(&str, &str)]| -> Vec<(String, String)> {
+            (vars.iter())
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect()
+        };
+        let lead = pairs(&[
+            ("HOME", "/Users/someone"),
+            ("PATH", "/opt/homebrew/bin:/usr/bin"),
+            ("CLAUDECODE", "1"),
+            ("GIT_EDITOR", "true"),
+            ("REX_SESSION", "session:7"),
+            ("TOWER_DB", "/b/board.db"),
+            ("LC_ALL", "en_US.UTF-8"),
+            ("LCX", "no"),
+            ("USER", "someone"),
+            ("LOGNAME", "someone"),
+            ("SHELL", "/bin/zsh"),
+            ("TMPDIR", "/var/tmp/"),
+            ("LANG", "en_US.UTF-8"),
+            ("SSH_AUTH_SOCK", "/private/tmp/agent"),
+            ("__CF_USER_TEXT_ENCODING", "0x1F5:0x0:0x0"),
+            ("TERM", "xterm"),
+        ]);
+        // Each kept name as it was, and the system's PATH, never the lead's.
+        assert_eq!(
+            kept(lead.into_iter()),
+            pairs(&[
+                ("HOME", "/Users/someone"),
+                ("LC_ALL", "en_US.UTF-8"),
+                ("USER", "someone"),
+                ("LOGNAME", "someone"),
+                ("SHELL", "/bin/zsh"),
+                ("TMPDIR", "/var/tmp/"),
+                ("LANG", "en_US.UTF-8"),
+                ("SSH_AUTH_SOCK", "/private/tmp/agent"),
+                ("__CF_USER_TEXT_ENCODING", "0x1F5:0x0:0x0"),
+                ("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+            ])
+        );
+        assert_eq!(kept(std::iter::empty()), pairs(&[("PATH", SYSTEM_PATH)]));
+        // What reaches osascript is that and no more, whatever this process holds (the
+        // board `run_now` sets included): for the installed check, a start and a close.
+        let (_dir, f, db) = fakes();
+        let dev = words(&["claude", "-n", "dev-1", "Brief."]);
+        let reached = ["HOME", "LC_ALL", "PATH"];
+        f.ghostty().installed().unwrap();
+        assert_eq!(f.env(), reached);
+        (f.ghostty().start(&db, &worker("dev-1", &dev, None))).unwrap();
+        assert_eq!(f.env(), reached);
+        (f.ghostty().close(&Handle("ghostty-tab,T1".into()))).unwrap();
+        assert_eq!(f.env(), reached);
     }
 
     /// A process of its own, with no parent here to wait for it, running `script` in a
