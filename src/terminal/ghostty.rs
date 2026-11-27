@@ -245,18 +245,20 @@ fn quoted(word: &str) -> String {
     format!("'{}'", word.replace('\'', r"'\''"))
 }
 
-/// What `ps -A -o pid=,ppid=,tty=` printed (`table`), as (pid, parent's pid, tty); a line
-/// that is not such a row is no process.
-fn rows(table: &str) -> Vec<(u32, u32, &str)> {
+/// What `ps -A -o pid=,ppid=,tty=` printed (`table`), as (pid, parent's pid, tty), each pid
+/// as a signal takes one. A line that is not such a row is no process, and neither is one
+/// whose pid is not above 1: the first process is never a worker's, and 0 or a negative
+/// one would, as a signal's target, name whole groups of processes or every process.
+fn rows(table: &str) -> Vec<(i32, i32, &str)> {
     (table.lines())
         .filter_map(|line| {
             let mut words = line.split_whitespace();
-            let row = (
+            let row: (i32, i32, &str) = (
                 words.next()?.parse().ok()?,
                 words.next()?.parse().ok()?,
                 words.next()?,
             );
-            Some(row)
+            (row.0 > 1).then_some(row)
         })
         .collect()
 }
@@ -265,14 +267,14 @@ fn rows(table: &str) -> Vec<(u32, u32, &str)> {
 /// Ghostty names it, `/dev/ttys010`), in what `ps` printed (`table`): the wrapper, and
 /// each process under it, that is on that tty. None while the wrapper is not on that tty
 /// (it ended, and its pid may be another process's by now), and never the first process.
-fn on_terminal(table: &str, wrapper: u32, tty: &str) -> Vec<u32> {
+fn on_terminal(table: &str, wrapper: i32, tty: &str) -> Vec<i32> {
     let rows = rows(table);
     let on_tty = |row_tty: &str| format!("/dev/{row_tty}") == tty;
     let wrapper_there = (rows.iter()).any(|(pid, _, row_tty)| *pid == wrapper && on_tty(row_tty));
     if wrapper <= 1 || !wrapper_there {
         return Vec::new();
     }
-    let under = |pid: u32| {
+    let under = |pid: i32| {
         let mut at = pid;
         // No more steps than there are processes: a table that loops ends.
         for _ in 0..rows.len() {
@@ -295,7 +297,7 @@ fn on_terminal(table: &str, wrapper: u32, tty: &str) -> Vec<u32> {
 /// The tty of the first process with one from `pid` upwards, as Ghostty names it
 /// (`/dev/ttys010`), in what `ps -A -o pid=,ppid=,tty=` printed (`table`): `None` when no
 /// process up to the first has a terminal. A process with none shows `??` (macOS) or `?`.
-fn tty_of(table: &str, pid: u32) -> Option<String> {
+fn tty_of(table: &str, pid: i32) -> Option<String> {
     let rows = rows(table);
     let mut at = pid;
     // No more steps than there are processes: a table that loops ends.
@@ -366,7 +368,10 @@ impl Ghostty {
     /// The lead's tty (`tty_of`, from this process upwards), `None` when it has none.
     fn lead_tty(&self) -> Result<Option<String>> {
         match self.processes() {
-            Ok(table) => Ok(tty_of(&table, std::process::id())),
+            // A pid of this process's that no signal could take is no row of ps's either.
+            Ok(table) => Ok(i32::try_from(std::process::id())
+                .ok()
+                .and_then(|me| tty_of(&table, me))),
             Err(why) => bail!("cannot find the lead's terminal, so nothing was started: {why}"),
         }
     }
@@ -393,12 +398,13 @@ impl Ghostty {
 
     /// What still runs of a closed terminal (`on_terminal`) once it has had `within` to
     /// end, asked every `ASK_EVERY`: empty as soon as nothing does.
-    fn left(&self, wrapper: u32, tty: &str, within: Duration) -> Result<Vec<u32>> {
+    fn left(&self, wrapper: i32, tty: &str, within: Duration) -> Result<Vec<i32>> {
         let deadline = Instant::now() + within;
         loop {
             let table = (self.processes()).map_err(|why| {
                 anyhow::anyhow!(
-                    "its pane is closed, but whether its worker ended is not known: {why}"
+                    "its pane is closed, but whether its worker ended is not known, on {tty} \
+                     under pid {wrapper}: {why}"
                 )
             })?;
             let left = on_terminal(&table, wrapper, tty);
@@ -414,20 +420,20 @@ impl Ghostty {
     /// terminal's as they were before its close. Given `ends_within` to end by themselves,
     /// they are then hung up, each by its own pid, and fail the close when they still run
     /// `hung_up_within` later.
-    fn end(&self, wrapper: u32, tty: &str) -> Result<()> {
+    fn end(&self, wrapper: i32, tty: &str) -> Result<()> {
         let left = self.left(wrapper, tty, self.ends_within)?;
         if left.is_empty() {
             return Ok(());
         }
         for pid in &left {
             // One that ended meanwhile is no failure.
-            let _ = kill(Pid::from_raw(*pid as i32), Signal::SIGHUP);
+            let _ = kill(Pid::from_raw(*pid), Signal::SIGHUP);
         }
         let left = self.left(wrapper, tty, self.hung_up_within)?;
         if left.is_empty() {
             return Ok(());
         }
-        let pids: Vec<String> = left.iter().map(u32::to_string).collect();
+        let pids: Vec<String> = left.iter().map(i32::to_string).collect();
         bail!(
             "its pane is closed, but its worker still runs {} s after a hangup, on {tty}: end \
              it with: kill {}",
@@ -520,7 +526,7 @@ impl Ghostty {
             (_, ["gone"]) => Ok(Closed::Gone(format!("no such terminal in Ghostty ({id})"))),
             ("tab", ["closed"]) => Ok(Closed::Now),
             ("split", ["closed", pid, tty]) => {
-                let wrapper: u32 = pid.parse().ok().with_context(unexpected)?;
+                let wrapper: i32 = pid.parse().ok().with_context(unexpected)?;
                 self.end(wrapper, tty)?;
                 Ok(Closed::Now)
             }
@@ -672,7 +678,7 @@ exit 0
         /// with `tty` (none when `None`).
         pub fn lead_tty(&self, tty: Option<&str>) {
             let me = std::process::id();
-            let parent = u32::MAX - 1;
+            let parent = i32::MAX - 1;
             let tty = tty.unwrap_or("??");
             self.write(
                 "ps.txt",
@@ -988,7 +994,7 @@ mod tests {
 
     /// A process of its own, with no parent here to wait for it, running `script` in a
     /// shell (30 s at most, as the scripts sleep); killed when dropped.
-    struct Orphan(u32);
+    struct Orphan(i32);
 
     impl Orphan {
         fn new(script: &str) -> Orphan {
@@ -1021,7 +1027,7 @@ mod tests {
 
     impl Drop for Orphan {
         fn drop(&mut self) {
-            let _ = kill(Pid::from_raw(self.0 as i32), Signal::SIGKILL);
+            let _ = kill(Pid::from_raw(self.0), Signal::SIGKILL);
         }
     }
 
@@ -1113,9 +1119,11 @@ mod tests {
         std::fs::remove_file(dir.path().join("ps.txt")).unwrap();
         let why = format!("{:#}", ghostty.close(&Handle(SPLIT.into())).unwrap_err());
         assert!(
-            why.starts_with(
-                "its pane is closed, but whether its worker ended is not known: ps exited 1: "
-            ),
+            why.starts_with(&format!(
+                "its pane is closed, but whether its worker ended is not known, on \
+                     /dev/ttys020 under pid {}: ps exited 1: ",
+                deaf.0
+            )),
             "{why}"
         );
     }
@@ -1131,13 +1139,22 @@ mod tests {
         assert_eq!(on_terminal(table, 50, tty), [50, 60, 70, 85]);
         assert_eq!(on_terminal(table, 90, tty), [90, 95]);
         // A wrapper on another tty, or one ps does not list: none, even what is under it.
-        assert_eq!(on_terminal(table, 80, tty), [] as [u32; 0]);
-        assert_eq!(on_terminal(table, 999, tty), [] as [u32; 0]);
-        assert_eq!(on_terminal(table, 50, "/dev/ttys077"), [] as [u32; 0]);
+        assert_eq!(on_terminal(table, 80, tty), [] as [i32; 0]);
+        assert_eq!(on_terminal(table, 999, tty), [] as [i32; 0]);
+        assert_eq!(on_terminal(table, 50, "/dev/ttys077"), [] as [i32; 0]);
         // Never the first process, nor none.
         let first = "    1     0 ttys020\n   50     1 ttys020\n    0     0 ttys020\n";
-        assert_eq!(on_terminal(first, 1, tty), [] as [u32; 0]);
-        assert_eq!(on_terminal(first, 0, tty), [] as [u32; 0]);
+        assert_eq!(on_terminal(first, 1, tty), [] as [i32; 0]);
+        assert_eq!(on_terminal(first, 0, tty), [] as [i32; 0]);
+        // A row whose pid no signal could take, or that would name more than one process
+        // (as a u32 the first would read as -1, every process), is no process, though it is
+        // on the tty and under the wrapper; nor is what is under it.
+        let odd = "50 1 ttys020\n4294967295 50 ttys020\n2147483648 50 ttys020\n-1 50 \
+                   ttys020\n-60 50 ttys020\n0 50 ttys020\n1 50 ttys020\n70 -1 ttys020\n60 50 \
+                   ttys020\n";
+        assert_eq!(on_terminal(odd, 50, tty), [50, 60]);
+        assert_eq!(on_terminal(odd, -1, tty), [] as [i32; 0]);
+        assert_eq!(tty_of("4294967295 1 ttys020\n-1 1 ttys020\n", -1), None);
         // A table that loops ends.
         let loops = "50 60 ttys020\n60 50 ttys020\n70 71 ttys020\n71 70 ttys020\n";
         assert_eq!(on_terminal(loops, 50, tty), [50, 60]);
