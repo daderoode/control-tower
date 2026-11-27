@@ -2132,6 +2132,181 @@ fn space_and_popup_are_the_rex_keys_commands_and_need_where_the_key_was_pressed(
 }
 
 #[test]
+fn a_lead_in_rex_starts_and_closes_workers_through_tower_and_outside_rex_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("board.db");
+    std::fs::create_dir(dir.path().join("wt")).unwrap();
+    // A fake rex: a tab is window:w1 with block:b1, a split block:b2; each start has Claude
+    // list the worker, and a close takes what it closes out of Rex's blocks. Never a real
+    // rex or claude.
+    let rex = dir.path().join("rex");
+    test_exe::executable(
+        &rex,
+        r#"#!/bin/sh
+d=$(dirname "$0")
+(IFS='|'; echo "$*") >> "$d/calls.log"
+[ "$1" = "--autostart=false" ] || exit 2
+shift
+dev='{"name":"dev-12-cart","pid":41,"sessionId":"s41","status":"busy"}'
+qa='{"name":"qa-12-cart","pid":42,"sessionId":"s42","status":"busy"}'
+case "$1 $2" in
+"window new") echo "[$dev]" > "$d/sessions.json"; echo '{"window_id":"window:w1","block_ids":["block:b1"]}' ;;
+"window close") : > "$d/closed-window" ;;
+"block close") : > "$d/closed-block" ;;
+"api call")
+  case "$3" in
+  session.list) echo '{"sessions":[{"session_id":"session:7"}]}' ;;
+  session.list_blocks)
+    b=
+    [ -e "$d/closed-window" ] || b='{"block_id":"block:b1","window_id":"window:w1"}'
+    [ -e "$d/closed-window" ] || [ -e "$d/closed-block" ] || b="$b,{\"block_id\":\"block:b2\",\"window_id\":\"window:w1\"}"
+    echo "{\"blocks\":[$b]}" ;;
+  *) exit 2 ;;
+  esac ;;
+*)
+  [ "$1" = split ] || exit 2
+  echo "[$dev,$qa]" > "$d/sessions.json"; echo '{"block_ids":["block:b2"]}' ;;
+esac
+"#,
+    );
+    let claude = dir.path().join("claude");
+    test_exe::executable(
+        &claude,
+        "#!/bin/sh\n[ \"$1 $2\" = \"agents --json\" ] || exit 2\nd=$(dirname \"$0\")\n\
+         if [ -f \"$d/sessions.json\" ]; then cat \"$d/sessions.json\"; else echo '[]'; fi\n",
+    );
+    let worker = |in_rex: bool, args: &[&str]| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tower"));
+        cmd.arg("worker")
+            .args(args)
+            .current_dir(dir.path())
+            .env("TOWER_DB", &db)
+            .env("TOWER_REX", &rex)
+            .env("TOWER_CLAUDE", &claude)
+            .env_remove("REX_SESSION");
+        if in_rex {
+            cmd.env("REX_SESSION", "session:7");
+        }
+        cmd.output().unwrap()
+    };
+    let calls = || std::fs::read_to_string(dir.path().join("calls.log")).unwrap_or_default();
+    let tab = "rex-tab,session:7,window:w1,block:b1";
+    let split = "rex-split,session:7,block:b2";
+    let start_dev = [
+        "start",
+        "dev-12-cart",
+        "--dir",
+        "wt",
+        "--label",
+        "#12 cart",
+        "Brief on T3.",
+    ];
+
+    // Outside Rex the core refuses both, for now, and rex is never run.
+    let needs = "needs Rex, and this session is not in Rex (REX_SESSION is not set)";
+    assert_refused(
+        &worker(false, &start_dev),
+        &format!("starting a worker {needs}"),
+    );
+    assert_refused(
+        &worker(false, &["close", tab]),
+        &format!("closing a worker {needs}"),
+    );
+    // Refused before anything starts: a folder that is not there, a name claude -n would
+    // misread, and a tab's label for a split.
+    assert_refused(
+        &worker(
+            true,
+            &["start", "dev-12-cart", "--dir", "nowhere", "Brief."],
+        ),
+        "nowhere is not a folder: nothing was started",
+    );
+    assert_refused(
+        &worker(true, &["start", "--dir", "wt", "--", "-n", "Brief."]),
+        "a worker's name is not empty and does not start with -: \"-n\"",
+    );
+    assert_refused(
+        &worker(
+            true,
+            &[
+                "start",
+                "qa-12-cart",
+                "--dir",
+                "wt",
+                "--label",
+                "x",
+                "--beside",
+                tab,
+                "Test.",
+            ],
+        ),
+        "cannot be used with",
+    );
+    assert_eq!(calls(), "");
+
+    // In Rex: an implementer in a tab, by its label, in the folder made absolute.
+    let out = worker(true, &start_dev);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout), format!("{{\"handle\":\"{tab}\"}}\n"));
+    // Its name is taken now, ignoring case: no second start.
+    assert_refused(
+        &worker(true, &["start", "DEV-12-CART", "--dir", "wt", "Brief."]),
+        "a live Claude session is already named DEV-12-CART (ignoring case)",
+    );
+    // A tester beside it, by the tab's handle; with no label a tab would take the name.
+    let out = worker(
+        true,
+        &[
+            "start",
+            "qa-12-cart",
+            "--dir",
+            "wt",
+            "--beside",
+            tab,
+            "Test it.",
+        ],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout), format!("{{\"handle\":\"{split}\"}}\n"));
+    // Each closes by its handle; one already closed says so and is no failure.
+    for (handle, said) in [
+        (split, format!("closed {split}\n")),
+        (split, format!("{split} was already closed\n")),
+        (tab, format!("closed {tab}\n")),
+        (tab, format!("{tab} was already closed\n")),
+    ] {
+        let out = worker(true, &["close", handle]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        assert_eq!(text(&out.stdout), said);
+    }
+    assert_refused(
+        &worker(true, &["close", "window:w1"]),
+        "\"window:w1\" is not a handle tower worker start printed in Rex",
+    );
+    let wt = dir.path().join("wt");
+    let wt = wt.to_str().unwrap();
+    let acts: Vec<String> = (calls().lines())
+        .filter(|c| !c.contains("|api|call|"))
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        acts,
+        [
+            format!(
+                "--autostart=false|window|new|-s|session:7|#12 cart|-c|{wt}|--focus=false|\
+                 --json|--|claude|-n|dev-12-cart|Brief on T3."
+            ),
+            format!(
+                "--autostart=false|split|-s|session:7|-b|block:b1|--split|right|\
+                 --focus=false|-c|{wt}|--json|--|claude|-n|qa-12-cart|Test it."
+            ),
+            "--autostart=false|block|close|-s|session:7|block:b2".to_string(),
+            "--autostart=false|window|close|-s|session:7|window:w1".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn task_stage_done_by_records_who_and_refuses_by_for_another_stage() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("board.db");

@@ -20,6 +20,15 @@
 //! each argument its own word, never through a shell string. The handle is the session's id,
 //! and undo kills it (`rex kill`).
 //!
+//! A worker starts as the lead skill started one by hand (`start_worker`): an implementer or
+//! standing worker in a new tab of the lead's session (`rex window new`), a tester or
+//! reviewer as a split to the right of another worker's block (`rex split`), both without
+//! focus. Its handle is what Rex made, by id (`Made`): `rex-tab,<session>,<window>,<block>`
+//! or `rex-split,<session>,<block>`. A close (`close_worker`) first asks Rex what it has: a
+//! session, tab or block no longer there is already gone, and nothing is closed; else the
+//! tab goes with every block in it (`rex window close`), or the one block (`rex block
+//! close`). `shows` is the block's last lines (`rex capture`).
+//!
 //! The dashboard's key (`space`, run by `rex/control-tower.lua`'s `tower_space` action with
 //! the session and block the key was pressed in) finds the dashboard's tab by asking Rex, not
 //! by its label: the dashboard in a tab of its own names itself and its board in its root
@@ -45,8 +54,8 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::{
-    Agent, Answer, Handle, Here, LeadStart, Listed, Place, Shown, Status, Terminal, Unread,
-    answers_within, find_exe, listed, not_found, terminal_timeout,
+    Agent, Answer, Closed, Handle, Here, LeadStart, Listed, Place, Shown, Status, Terminal, Unread,
+    WorkerStart, answers_within, find_exe, listed, not_found, terminal_timeout,
 };
 use crate::ui::runner::{Outcome, Run, run_now};
 
@@ -170,16 +179,94 @@ pub fn outside(env: impl Fn(&str) -> Option<OsString>, db: &Path) -> Option<Stri
     ))
 }
 
+/// Rex for `tower worker start` and `tower worker close`, by `env`: `None` outside Rex,
+/// where Rex sets `REX_SESSION` (an empty one counts as unset); inside it, the rex `env`
+/// names (`path_in`), starting a worker's tab in that session, the caller's own.
+pub fn for_workers(env: impl Fn(&str) -> Option<OsString>) -> Option<Rex> {
+    let session = env("REX_SESSION").filter(|s| !s.is_empty())?;
+    let rex = Rex::new(path_in(&env), crate::register::claude_path());
+    Some(rex.in_session(session.to_string_lossy().into_owned()))
+}
+
 /// Rex as the terminal module, run from `exe`, asking the `claude` at `claude` for the
-/// names of the Claude sessions it finds.
+/// names of the Claude sessions it finds. `session` is the Rex session a worker's tab
+/// starts in, the lead's own, when the module is built for that (`for_workers`).
 pub struct Rex {
     exe: PathBuf,
     claude: PathBuf,
+    session: Option<String>,
 }
+
+/// What a worker's handle names, by Rex's ids.
+#[derive(Debug, PartialEq, Eq)]
+enum Made<'a> {
+    /// A tab (`window`) of `session`, and the worker's `block` in it.
+    Tab {
+        session: &'a str,
+        window: &'a str,
+        block: &'a str,
+    },
+    /// A split: one `block` of `session`.
+    Split { session: &'a str, block: &'a str },
+}
+
+impl<'a> Made<'a> {
+    /// What `handle` names, when it is one `start_worker` wrote.
+    fn of(handle: &'a Handle) -> Result<Made<'a>> {
+        let parts: Vec<&str> = handle.0.split(',').collect();
+        match parts[..] {
+            ["rex-tab", session, window, block] if ![session, window, block].contains(&"") => {
+                Ok(Made::Tab {
+                    session,
+                    window,
+                    block,
+                })
+            }
+            ["rex-split", session, block] if ![session, block].contains(&"") => {
+                Ok(Made::Split { session, block })
+            }
+            _ => bail!(
+                "{:?} is not a handle tower worker start printed in Rex",
+                handle.0
+            ),
+        }
+    }
+
+    /// Its session and the worker's block.
+    fn pane(&self) -> (&'a str, &'a str) {
+        match *self {
+            Made::Tab { session, block, .. } | Made::Split { session, block } => (session, block),
+        }
+    }
+}
+
+/// The handle of what a start made, its ids joined by commas; an id with a comma in it
+/// could not be read back, so it fails, saying what is `left`.
+fn handle_of(parts: &[&str], left: impl Fn() -> String) -> Result<Handle> {
+    if let Some(id) = parts.iter().find(|p| p.is_empty() || p.contains(',')) {
+        return Err(anyhow::anyhow!("Rex gave an id tower cannot keep: {id:?}").context(left()));
+    }
+    Ok(Handle(parts.join(",")))
+}
+
+/// How many of a block's last lines `shows` gives.
+const SHOWN_LINES: usize = 15;
 
 impl Rex {
     pub fn new(exe: PathBuf, claude: PathBuf) -> Rex {
-        Rex { exe, claude }
+        Rex {
+            exe,
+            claude,
+            session: None,
+        }
+    }
+
+    /// This Rex, starting a worker's tab in `session`.
+    fn in_session(self, session: String) -> Rex {
+        Rex {
+            session: Some(session),
+            ..self
+        }
     }
 
     /// Runs `rex <args>`, bounded by `terminal_timeout`.
@@ -542,6 +629,15 @@ struct NewWindow {
     window_id: String,
 }
 
+/// What `rex window new --json` and `rex split --json` print, as far as a start reads it:
+/// the window made (a tab's only) and the blocks in it, the worker's first.
+#[derive(Deserialize)]
+struct Started {
+    window_id: Option<String>,
+    #[serde(default)]
+    block_ids: Vec<String>,
+}
+
 /// What `com.superlogical.terminal.process` says, as far as the key reads it.
 #[derive(Deserialize)]
 struct Processes {
@@ -716,6 +812,132 @@ impl Terminal for Rex {
         Ok(format!("killed Rex session {}", handle.0))
     }
 
+    fn start_worker(&self, db: &Path, worker: &WorkerStart) -> Result<Handle> {
+        let beside = worker.beside.map(Made::of).transpose()?;
+        let (command, mut args, left) = match &beside {
+            None => {
+                let Some(session) = self.session.as_deref() else {
+                    bail!("starting a worker in a tab needs the lead's Rex session (REX_SESSION)");
+                };
+                let args = vec![
+                    "--autostart=false",
+                    "window",
+                    "new",
+                    "-s",
+                    session,
+                    worker.label,
+                    "-c",
+                    worker.dir,
+                    "--focus=false",
+                    "--json",
+                    "--",
+                ];
+                let left = format!(
+                    "a tab labelled {:?} may be left in Rex session {session}: close it in Rex",
+                    worker.label
+                );
+                ("window new", args, left)
+            }
+            Some(made) => {
+                let (session, block) = made.pane();
+                let args = vec![
+                    "--autostart=false",
+                    "split",
+                    "-s",
+                    session,
+                    "-b",
+                    block,
+                    "--split",
+                    "right",
+                    "--focus=false",
+                    "-c",
+                    worker.dir,
+                    "--json",
+                    "--",
+                ];
+                let left = format!(
+                    "a pane right of {block} may be left in Rex session {session}: close it in Rex"
+                );
+                ("split", args, left)
+            }
+        };
+        args.extend(worker.command.iter().map(String::as_str));
+        // Rex may have made it before it stopped, or before a reply this cannot read; with
+        // no id it cannot be closed here.
+        let left = || left.clone();
+        let outcome = self.run(db, &args);
+        let timed_out = matches!(outcome, Outcome::TimedOut { .. });
+        let reply =
+            stdout(command, outcome).map_err(|e| if timed_out { e.context(left()) } else { e })?;
+        let unexpected = || format!("rex {command} said something unexpected: {}", reply.trim());
+        let started: Started = serde_json::from_str(&reply)
+            .with_context(unexpected)
+            .with_context(left)?;
+        let block = (started.block_ids.first())
+            .with_context(|| format!("{}: no block", unexpected()))
+            .with_context(left)?;
+        match beside {
+            None => {
+                let session = self.session.as_deref().unwrap_or_default();
+                let window = (started.window_id.as_deref())
+                    .with_context(|| format!("{}: no window", unexpected()))
+                    .with_context(left)?;
+                handle_of(&["rex-tab", session, window, block], left)
+            }
+            Some(made) => handle_of(&["rex-split", made.pane().0, block], left),
+        }
+    }
+
+    fn close_worker(&self, db: &Path, handle: &Handle) -> Result<Closed> {
+        let made = Made::of(handle)?;
+        let (session, _) = made.pane();
+        // What Rex has now: a session, tab or block it no longer lists is already gone.
+        let time = (Instant::now() + terminal_timeout(), terminal_timeout());
+        let sessions: Sessions = self.ask(db, "session.list", serde_json::json!({}), time)?;
+        let listed = sessions.sessions.unwrap_or_default();
+        if !listed.iter().any(|s| s.session_id == session) {
+            return Ok(Closed::Gone);
+        }
+        let input = serde_json::json!({ "session_id": session });
+        let blocks: Blocks = self.ask(db, "session.list_blocks", input, time)?;
+        let blocks = blocks.blocks.unwrap_or_default();
+        let (command, args) = match made {
+            Made::Tab { window, .. } => {
+                if !(blocks.iter()).any(|b| b.window_id.as_deref() == Some(window)) {
+                    return Ok(Closed::Gone);
+                }
+                ("window close", ["window", "close", "-s", session, window])
+            }
+            Made::Split { block, .. } => {
+                if !(blocks.iter()).any(|b| b.block_id.as_deref() == Some(block)) {
+                    return Ok(Closed::Gone);
+                }
+                ("block close", ["block", "close", "-s", session, block])
+            }
+        };
+        let mut words = vec!["--autostart=false"];
+        words.extend(args);
+        stdout(command, self.run(db, &words))?;
+        Ok(Closed::Now)
+    }
+
+    fn shows(&self, db: &Path, handle: &Handle) -> Option<String> {
+        let (session, block) = Made::of(handle).ok()?.pane();
+        let args = [
+            "--autostart=false",
+            "capture",
+            "-s",
+            session,
+            "-b",
+            block,
+            "--trim",
+        ];
+        let screen = stdout("capture", self.run(db, &args)).ok()?;
+        let lines: Vec<&str> = screen.trim_end().lines().collect();
+        let last = lines[lines.len().saturating_sub(SHOWN_LINES)..].join("\n");
+        (!last.trim().is_empty()).then_some(last)
+    }
+
     fn space(&self, db: &Path, here: &Here, back: &Path, dashboard: &[String]) -> Result<Answer> {
         let mut passed_over = Vec::new();
         let asked = (here, back, dashboard);
@@ -760,6 +982,13 @@ impl Terminal for Rex {
 /// agents --json` prints. Each call's words go to `calls.log`, one call per line joined by
 /// `|`; a call whose method or session or block has a file `fail-<it>` exits 1 saying so.
 ///
+/// The worker commands: `window new` makes `window:w1` with `block:b1`, `split` makes
+/// `block:b2`, `window close` and `block close` say nothing, and `capture` prints the file
+/// `screen`. For `<it>` one of `window-new`, `split`, `window-close`, `block-close` or
+/// `capture`: `fail-<it>` exits 1 saying that file's text, and `reply-<it>` is printed in
+/// place of the answer. A start (`window new`, `split`) first makes `claude-started.json`,
+/// when there is one, Claude's list.
+///
 /// The fake claude is the relay too (`claude -p`): it reads the instruction on stdin
 /// and sends the text between its two marker lines (the first line shaped as one, and
 /// its closing twin) to the name it gives, printing the stream a relay prints; it
@@ -794,7 +1023,22 @@ pub(crate) mod fake {
     const REX: &str = r#"#!/bin/sh
 d=$(dirname "$0")
 (IFS='|'; echo "$*") >> "$d/calls.log"
-[ "$1" = "--autostart=false" ] && [ "$2 $3" = "api call" ] || { echo "unexpected: $*" >&2; exit 2; }
+[ "$1" = "--autostart=false" ] || { echo "unexpected: $*" >&2; exit 2; }
+w=
+case "$2 $3" in "window new"|"window close"|"block close") w="$2-$3" ;; esac
+case "$2" in split|capture) w=$2 ;; esac
+if [ -n "$w" ]; then
+  [ -e "$d/fail-$w" ] && { cat "$d/fail-$w" >&2; exit 1; }
+  case "$w" in window-new|split) [ -e "$d/claude-started.json" ] && cp "$d/claude-started.json" "$d/claude.json" ;; esac
+  if [ -e "$d/reply-$w" ]; then cat "$d/reply-$w"; exit 0; fi
+  case "$w" in
+  window-new) echo '{"window_id":"window:w1","block_ids":["block:b1"],"revision":7}' ;;
+  split) echo '{"block_ids":["block:b2"],"revision":8}' ;;
+  capture) [ -e "$d/screen" ] && cat "$d/screen" ;;
+  esac
+  exit 0
+fi
+[ "$2 $3" = "api call" ] || { echo "unexpected: $*" >&2; exit 2; }
 m=$4
 field() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
 s=$(field session_id "$5"); b=$(field block_id "$5")
@@ -880,6 +1124,11 @@ echo '{"type":"result","is_error":false,"num_turns":3,"total_cost_usd":0.00593,"
 
         pub fn module(&self) -> Rex {
             Rex::new(self.dir.join("rex"), self.dir.join("claude"))
+        }
+
+        /// The module as `tower worker` builds it for a lead in `session`.
+        pub fn module_in(&self, session: &str) -> Rex {
+            self.module().in_session(session.into())
         }
 
         pub fn write(&self, file: &str, contents: &str) {
@@ -1584,6 +1833,268 @@ mod tests {
             format!("{:#}", rex.undo(&db, &handle).unwrap_err()),
             "rex kill exited 3: Error: session target \"session:7\" not found"
         );
+    }
+
+    /// The words of each call to rex that starts, closes or reads a worker's place.
+    fn worker_calls(f: &FakeRex) -> Vec<String> {
+        (f.calls().into_iter())
+            .filter(|c| !c.starts_with("claude|") && !c.contains("|api|call|"))
+            .collect()
+    }
+
+    fn worker<'a>(
+        label: &'a str,
+        command: &'a [String],
+        beside: Option<&'a Handle>,
+    ) -> WorkerStart<'a> {
+        WorkerStart {
+            label,
+            dir: "/srv/shop.worktrees/#12-cart",
+            command,
+            beside,
+        }
+    }
+
+    #[test]
+    fn a_worker_starts_in_a_tab_of_the_leads_session_or_right_of_another_without_focus() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let db = dir.path().join("board.db");
+        let rex = f.module_in("session:7");
+        let dev = ["claude", "-n", "dev-12-cart", "Your brief is on T3."].map(String::from);
+        let tab = rex
+            .start_worker(&db, &worker("#12 cart", &dev, None))
+            .unwrap();
+        assert_eq!(tab, Handle("rex-tab,session:7,window:w1,block:b1".into()));
+        // A tester beside the implementer's block, and a reviewer beside the tester's: the
+        // session is the handle's, not this module's.
+        let elsewhere = f.module_in("session:other");
+        let qa = ["claude", "-n", "qa-12-cart", "Test it."].map(String::from);
+        let split = elsewhere
+            .start_worker(&db, &worker("unused", &qa, Some(&tab)))
+            .unwrap();
+        assert_eq!(split, Handle("rex-split,session:7,block:b2".into()));
+        f.write(
+            "reply-split",
+            r#"{"block_ids":["block:b3","block:b9"],"revision":9}"#,
+        );
+        let senior = ["claude", "-n", "senior-12-cart", "Review it."].map(String::from);
+        let third = f
+            .module()
+            .start_worker(&db, &worker("unused", &senior, Some(&split)))
+            .unwrap();
+        assert_eq!(third, Handle("rex-split,session:7,block:b3".into()));
+        assert_eq!(
+            worker_calls(&f),
+            [
+                "--autostart=false|window|new|-s|session:7|#12 cart|-c|\
+                 /srv/shop.worktrees/#12-cart|--focus=false|--json|--|claude|-n|dev-12-cart|\
+                 Your brief is on T3.",
+                "--autostart=false|split|-s|session:7|-b|block:b1|--split|right|--focus=false|\
+                 -c|/srv/shop.worktrees/#12-cart|--json|--|claude|-n|qa-12-cart|Test it.",
+                "--autostart=false|split|-s|session:7|-b|block:b2|--split|right|--focus=false|\
+                 -c|/srv/shop.worktrees/#12-cart|--json|--|claude|-n|senior-12-cart|Review it.",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_start_rex_refuses_or_answers_oddly_fails_saying_what_may_be_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let db = dir.path().join("board.db");
+        let rex = f.module_in("session:7");
+        let dev = ["claude", "-n", "dev-1", "brief"].map(String::from);
+        let tab = Handle("rex-tab,session:7,window:w1,block:b1".into());
+        let start = |beside: Option<&Handle>| {
+            let went = rex.start_worker(&db, &worker("#1 cart", &dev, beside));
+            format!("{:#}", went.unwrap_err())
+        };
+        // A tab with no session to start it in: Rex is not asked.
+        let no_session = f.module().start_worker(&db, &worker("#1 cart", &dev, None));
+        assert_eq!(
+            format!("{:#}", no_session.unwrap_err()),
+            "starting a worker in a tab needs the lead's Rex session (REX_SESSION)"
+        );
+        // A handle that is not one a start in Rex wrote: Rex is not asked.
+        for bad in [
+            "",
+            "window:w1",
+            "ghostty,8A1F",
+            "rex-tab,session:7,window:w1",
+            "rex-tab,session:7,,block:b1",
+            "rex-tab,session:7,window:w1,block:b1,more",
+            "rex-split,session:7",
+            "rex-split,,block:b2",
+            "rex-split,session:7,window:w1,block:b2",
+        ] {
+            let bad = Handle(bad.into());
+            let said = format!("{bad:?}", bad = bad.0)
+                + " is not a handle tower worker start printed in Rex";
+            assert_eq!(start(Some(&bad)), said);
+            assert_eq!(
+                format!("{:#}", rex.close_worker(&db, &bad).unwrap_err()),
+                said
+            );
+            assert_eq!(rex.shows(&db, &bad), None);
+        }
+        assert_eq!(worker_calls(&f), [] as [String; 0]);
+        // Rex refuses: its words, and nothing was made.
+        f.write(
+            "fail-window-new",
+            "Error: session target \"session:7\" not found",
+        );
+        assert_eq!(
+            start(None),
+            "rex window new exited 1: Error: session target \"session:7\" not found"
+        );
+        std::fs::remove_file(dir.path().join("fail-window-new")).unwrap();
+        // A reply it cannot read, or one without the ids, or an id it could not read back:
+        // Rex may have made it.
+        let tab_left = "a tab labelled \"#1 cart\" may be left in Rex session session:7: close \
+                        it in Rex";
+        f.write("reply-window-new", "made it");
+        assert!(
+            start(None).starts_with(&format!(
+                "{tab_left}: rex window new said something unexpected: made it: "
+            )),
+            "{}",
+            start(None)
+        );
+        f.write("reply-window-new", r#"{"block_ids":["block:b1"]}"#);
+        assert_eq!(
+            start(None),
+            format!(
+                "{tab_left}: rex window new said something unexpected: \
+                 {{\"block_ids\":[\"block:b1\"]}}: no window"
+            )
+        );
+        f.write("reply-window-new", r#"{"window_id":"window:w1"}"#);
+        assert_eq!(
+            start(None),
+            format!(
+                "{tab_left}: rex window new said something unexpected: \
+                 {{\"window_id\":\"window:w1\"}}: no block"
+            )
+        );
+        f.write(
+            "reply-window-new",
+            r#"{"window_id":"window:w,1","block_ids":["block:b1"]}"#,
+        );
+        assert_eq!(
+            start(None),
+            format!("{tab_left}: Rex gave an id tower cannot keep: \"window:w,1\"")
+        );
+        f.write("reply-split", r#"{"block_ids":[]}"#);
+        assert_eq!(
+            start(Some(&tab)),
+            "a pane right of block:b1 may be left in Rex session session:7: close it in Rex: \
+             rex split said something unexpected: {\"block_ids\":[]}: no block"
+        );
+    }
+
+    #[test]
+    fn a_close_closes_a_tab_or_one_split_by_id_and_one_rex_no_longer_has_is_already_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let db = dir.path().join("board.db");
+        // Built with no session: a close goes by the handle's alone.
+        let rex = f.module();
+        let tab = Handle("rex-tab,session:7,window:w1,block:b1".into());
+        let split = Handle("rex-split,session:7,block:b2".into());
+        // The tab holds the implementer's block and the tester's; another tab stands by.
+        f.tabs(&[(
+            "session:7",
+            &[
+                ("block:b1", "window:w1", ""),
+                ("block:b2", "window:w1", ""),
+                ("block:lead", "window:w0", ""),
+            ],
+        )]);
+        assert_eq!(rex.close_worker(&db, &split).unwrap(), Closed::Now);
+        assert_eq!(rex.close_worker(&db, &tab).unwrap(), Closed::Now);
+        let closes = [
+            "--autostart=false|block|close|-s|session:7|block:b2",
+            "--autostart=false|window|close|-s|session:7|window:w1",
+        ];
+        assert_eq!(worker_calls(&f), closes);
+        // The implementer's own block gone, the tester's still in its tab: the tab is there.
+        f.tabs(&[("session:7", &[("block:b2", "window:w1", "")])]);
+        assert_eq!(rex.close_worker(&db, &tab).unwrap(), Closed::Now);
+        assert_eq!(worker_calls(&f).len(), 3);
+        // Gone: the split's block, the tab (no block in its window), then the whole session.
+        f.tabs(&[("session:7", &[("block:lead", "window:w0", "")])]);
+        assert_eq!(rex.close_worker(&db, &split).unwrap(), Closed::Gone);
+        assert_eq!(rex.close_worker(&db, &tab).unwrap(), Closed::Gone);
+        f.tabs(&[("session:other", &[("block:b2", "window:w1", "")])]);
+        assert_eq!(rex.close_worker(&db, &split).unwrap(), Closed::Gone);
+        assert_eq!(rex.close_worker(&db, &tab).unwrap(), Closed::Gone);
+        // Nothing more was closed.
+        assert_eq!(worker_calls(&f).len(), 3);
+        // Rex cannot say what it has, or refuses the close: a failure, never "gone".
+        f.tabs(&[("session:7", &[("block:b2", "window:w1", "")])]);
+        f.write("fail-session.list_blocks", "server busy");
+        assert_eq!(
+            format!("{:#}", rex.close_worker(&db, &split).unwrap_err()),
+            "rex api call session.list_blocks exited 1: server busy"
+        );
+        std::fs::remove_file(dir.path().join("fail-session.list_blocks")).unwrap();
+        f.write("fail-block-close", "Error: block is busy");
+        assert_eq!(
+            format!("{:#}", rex.close_worker(&db, &split).unwrap_err()),
+            "rex block close exited 1: Error: block is busy"
+        );
+    }
+
+    #[test]
+    fn a_workers_pane_shows_its_blocks_last_lines_or_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = FakeRex::new(dir.path());
+        let db = dir.path().join("board.db");
+        let rex = f.module();
+        let tab = Handle("rex-tab,session:7,window:w1,block:b1".into());
+        let split = Handle("rex-split,session:7,block:b2".into());
+        let screen: String = (1..=20).map(|n| format!("line {n}\n")).collect();
+        f.write("screen", &format!("{screen}\n\n"));
+        let last: Vec<String> = (6..=20).map(|n| format!("line {n}")).collect();
+        assert_eq!(rex.shows(&db, &tab), Some(last.join("\n")));
+        f.write("screen", "Do you trust the files in this folder?\n");
+        assert_eq!(
+            rex.shows(&db, &split).as_deref(),
+            Some("Do you trust the files in this folder?")
+        );
+        assert_eq!(
+            worker_calls(&f),
+            [
+                "--autostart=false|capture|-s|session:7|-b|block:b1|--trim",
+                "--autostart=false|capture|-s|session:7|-b|block:b2|--trim",
+            ]
+        );
+        // A blank screen, and a block Rex cannot read: nothing.
+        f.write("screen", "\n  \n");
+        assert_eq!(rex.shows(&db, &tab), None);
+        f.write("fail-capture", "Error: block target not found");
+        assert_eq!(rex.shows(&db, &tab), None);
+    }
+
+    #[test]
+    fn rex_is_the_workers_terminal_only_where_rex_session_is_set() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                (vars.iter())
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, v)| OsString::from(v))
+            }
+        };
+        assert!(for_workers(env(&[])).is_none());
+        assert!(for_workers(env(&[("REX_SESSION", "")])).is_none());
+        let rex = for_workers(env(&[
+            ("REX_SESSION", "session:7"),
+            ("TOWER_REX", "/opt/rex"),
+        ]))
+        .unwrap();
+        assert_eq!(rex.session.as_deref(), Some("session:7"));
+        assert_eq!(rex.exe, Path::new("/opt/rex"));
     }
 
     fn here(session: &str, block: &str) -> Here {

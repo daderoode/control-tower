@@ -3,12 +3,17 @@
 //! the live workers (`agents`), has it deliver a text to one by name (`prompt`), and has it
 //! open a new place for a lead (`start_lead`, undone by `undo`), and serves the dashboard's
 //! keys (`space`, `popup`); its display name names the terminal in the core's texts and logs.
+//! `tower worker start` and `tower worker close` (`crate::worker`) reach it too: a worker
+//! starts in a tab of its own or as a split beside another (`start_worker`), is closed by the
+//! handle its start gave (`close_worker`), and its pane is read where the terminal can
+//! (`shows`). The terminal those two commands use is `for_workers_from_env`'s.
 //!
 //! The core has its own version of what it can do with no terminal, as the trait's defaults:
 //! the live workers are Claude Code's session list (`claude agents --json`, read by
 //! `listed`), and a prompt is a fresh look for the worker by name, nothing sent to one at a
-//! prompt, then the relay (`relay`) to its Claude session. A module overrides any of them
-//! with its own; what it does not override runs the core's. `Core` is the core with no
+//! prompt, then the relay (`relay`) to its Claude session. The core's start and close of a
+//! worker refuse for now, saying they need Rex (#178 makes them Ghostty's). A module
+//! overrides any of them with its own; what it does not override runs the core's. `Core` is the core with no
 //! module: every default, and what only a terminal can do (starting a lead, the dashboard's
 //! keys) fails saying so. A module is built in: `module` gives the one this build has, Rex
 //! (`rex`), whose `agents` adds the text of the prompt a worker waits at; another slots in
@@ -183,9 +188,32 @@ pub struct LeadStart<'a> {
     pub command: &'a [String],
 }
 
-/// A started lead's place, as its module names it: what `Terminal::undo` closes.
+/// A started lead's place, as its module names it: what `Terminal::undo` closes. Also a
+/// started worker's: what `tower worker start` prints, `Terminal::close_worker` closes and
+/// another worker is split beside. Only the module that wrote one reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Handle(pub String);
+
+/// A worker to start, without taking focus, in the absolute folder `dir`, running `command`
+/// (one word per argument, never a shell string): in a tab of its own labelled `label`, or,
+/// with `beside`, as a split to the right of the pane that handle names (its `label` is then
+/// not used).
+#[derive(Debug, Clone, Copy)]
+pub struct WorkerStart<'a> {
+    pub label: &'a str,
+    pub dir: &'a str,
+    pub command: &'a [String],
+    pub beside: Option<&'a Handle>,
+}
+
+/// How a close of a worker went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Closed {
+    /// It was there and is closed now.
+    Now,
+    /// It was already gone: nothing was closed.
+    Gone,
+}
 
 /// Where a key was pressed: its session and block, as the terminal names them.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,6 +336,24 @@ pub trait Terminal: AsTerminal + Send + Sync {
     fn start_lead(&self, db: &Path, lead: &LeadStart) -> Result<Handle>;
     /// Undoes a start: closes the place `handle` names. Says what it did.
     fn undo(&self, db: &Path, handle: &Handle) -> Result<String>;
+    /// Starts a worker (`tower worker start`): a tab of its own, or a split beside another
+    /// worker's pane, without taking focus. The handle names what it made, for
+    /// `close_worker`, `shows` and a later split beside it. The core's: it refuses, saying
+    /// it needs Rex (#178: Ghostty).
+    fn start_worker(&self, _db: &Path, _worker: &WorkerStart) -> Result<Handle> {
+        Err(needs_rex("starting a worker"))
+    }
+    /// Closes what `handle` names (`tower worker close`): a tab with every pane in it, or
+    /// one split. One already gone is `Closed::Gone`, not an error. The core's: it refuses,
+    /// saying it needs Rex (#178: Ghostty).
+    fn close_worker(&self, _db: &Path, _handle: &Handle) -> Result<Closed> {
+        Err(needs_rex("closing a worker"))
+    }
+    /// What the pane `handle` names shows now, its last lines, where the terminal can read
+    /// it: for the line saying a started worker is not in Claude's list. The core's: none.
+    fn shows(&self, _db: &Path, _handle: &Handle) -> Option<String> {
+        None
+    }
     /// The dashboard's key, pressed `here`, for the board `db`'s dashboard only: from a tab
     /// holding one, the place the key was last pressed outside it, as `back` (a file) holds
     /// it; from anywhere else, the dashboard's tab, opening one running `dashboard` (one word
@@ -423,6 +469,12 @@ fn needs_module(what: &str) -> anyhow::Error {
     anyhow::anyhow!("{what} needs a terminal module (Rex), and there is none")
 }
 
+/// What the core says for `what` (starting or closing a worker), which is Rex's until the
+/// core has its own (#178).
+fn needs_rex(what: &str) -> anyhow::Error {
+    anyhow::anyhow!("{what} needs Rex, and this session is not in Rex (REX_SESSION is not set)")
+}
+
 impl Terminal for Core {
     fn name(&self) -> &'static str {
         "Claude Code"
@@ -463,6 +515,15 @@ impl Terminal for Core {
 /// environment names (`register::claude_path`) for the names of the Claude sessions it finds.
 pub fn module(exe: PathBuf) -> Arc<dyn Terminal> {
     Arc::new(rex::Rex::new(exe, crate::register::claude_path()))
+}
+
+/// The terminal `tower worker start` and `tower worker close` use, by this process's
+/// environment: Rex's when the caller runs in Rex (`rex::for_workers`), else the core.
+pub fn for_workers_from_env() -> Arc<dyn Terminal> {
+    match rex::for_workers(|name| std::env::var_os(name)) {
+        Some(rex) => Arc::new(rex),
+        None => Arc::new(Core::new(crate::register::claude_path())),
+    }
 }
 
 /// The built-in module's executable as the environment names it.
@@ -793,6 +854,42 @@ mod tests {
                 "the popup's key needs a terminal module (Rex), and there is none",
             ]
         );
+    }
+
+    #[test]
+    fn the_core_refuses_to_start_or_close_a_worker_saying_it_needs_rex_and_shows_nothing() {
+        let (dir, f, core) = over(&[]);
+        let db = dir.path().join("board.db");
+        let command = ["claude", "-n", "dev-1", "the brief"].map(String::from);
+        let handle = Handle("rex-tab,session:7,window:w1,block:b1".into());
+        let worker = WorkerStart {
+            label: "dev-1",
+            dir: "/srv/shop",
+            command: &command,
+            beside: None,
+        };
+        let beside = WorkerStart {
+            beside: Some(&handle),
+            ..worker
+        };
+        let said = [
+            core.start_worker(&db, &worker).map(|_| ()),
+            core.start_worker(&db, &beside).map(|_| ()),
+            core.close_worker(&db, &handle).map(|_| ()),
+        ]
+        .map(|r| r.unwrap_err().to_string());
+        let needs = "needs Rex, and this session is not in Rex (REX_SESSION is not set)";
+        assert_eq!(
+            said,
+            [
+                format!("starting a worker {needs}"),
+                format!("starting a worker {needs}"),
+                format!("closing a worker {needs}"),
+            ]
+        );
+        assert_eq!(core.shows(&db, &handle), None);
+        // Nothing was run to say so: no rex, no claude.
+        assert_eq!(f.calls(), [] as [String; 0]);
     }
 
     #[test]
