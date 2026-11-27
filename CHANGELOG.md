@@ -9,51 +9,56 @@ tag's date, and a new empty Unreleased goes above it.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-27
+
 ### Added
 
-- **`tower worker start` and `tower worker close`: a lead starts and closes its workers
-  through tower** (#177, part of #171). `tower worker start <name> --dir <folder> "<brief>"`
-  starts a worker (in Rex, without taking focus) and prints its handle as JSON; `--label`
-  names its tab, and `--beside <handle>` starts it as a split to the right of another
-  worker's pane. It refuses a name a live Claude session already has (ignoring case), then
-  waits up to 30 s for Claude Code's session list to name the worker, and fails (in Rex,
-  saying what its pane shows) when it does not. `tower worker close <handle>` closes a worker's tab or its one
-  split, and says so, without failing, when there is no such tab or pane (already closed,
-  or a handle no start printed). In Rex these are the tabs and splits the
-  lead skill made by hand, and the skill's Workers steps now call `tower`, never `rex`.
-- **Outside Rex, `tower worker start` and `tower worker close` use Ghostty** (#178, part of
-  #171), driven through its AppleScript dictionary with `osascript`, from whatever terminal
-  the lead runs in. An implementer is a new tab in the lead's Ghostty window (the one
-  holding the lead's tty), or a new Ghostty window when the lead is not in Ghostty; a
+- **Workers open in Ghostty from any terminal, or in Rex inside Rex.** By the owner's decision,
+  the core is tied to Ghostty: outside Rex, `tower worker start` and `tower worker close` drive
+  Ghostty through its AppleScript dictionary with `osascript`, from whatever terminal the lead
+  runs in; inside Rex they use Rex. An implementer is a new tab in the lead's Ghostty window
+  (the one holding the lead's tty), or a new Ghostty window when the lead is not in Ghostty; a
   tester or reviewer is a split to the right of its implementer's terminal. Ghostty starts
-  nothing without focus, so the lead's tab is selected again afterwards. The worker's
-  command runs with the lead's Claude Code and Rex variables removed, and with the lead's
-  `PATH` and board (`TOWER_DB`). The handle is the terminal's id (`ghostty-tab,<id>` or
-  `ghostty-split,<id>`); a close closes a tab with every pane in it or the one split, and
-  an id Ghostty no longer has counts as closed, as does any id while Ghostty is not
-  running, which a close never launches. Ghostty leaves a closed split's processes
-  running, so the close ends them: what still runs on that terminal's tty under its login
-  wrapper after a moment is hung up, and the close fails, naming it, if it outlives that.
-  A handle is always a terminal Ghostty did not have before the start, so a new window
-  that macOS makes a tab of another never hands tower the owner's terminal. `osascript`
-  runs with only what an app opened from the Finder has in its environment, so a Ghostty
-  it launches carries nothing of the lead's session into the owner's own tabs.
-  Ghostty not answering says to approve Automation for Ghostty, and with no Ghostty
-  installed both say workers need Ghostty or Rex. `TOWER_OSASCRIPT` names another
-  `osascript`.
+  nothing without focus, so the lead's tab is selected again afterwards. It needs a one-time
+  approval: the first time, macOS asks to let the app the lead's session runs in control
+  Ghostty (Automation), and until that is allowed Ghostty does not answer and the start says to
+  approve Automation for Ghostty. With no Ghostty installed, both commands say workers need
+  Ghostty or Rex. The worker's command runs with the lead's Claude Code and Rex variables
+  removed, and with the lead's `PATH` and board (`TOWER_DB`). The handle is the terminal's id
+  (`ghostty-tab,<id>` or `ghostty-split,<id>`), always a terminal Ghostty did not have before
+  the start, so a new window that macOS makes a tab of another never hands tower the owner's
+  terminal. A close closes a tab with every pane in it or the one split; an id Ghostty no
+  longer has counts as closed, as does any id while Ghostty is not running, which a close never
+  launches. Ghostty leaves a closed split's processes running, so the close ends them: what
+  still runs on that terminal's tty under its login wrapper after a moment is hung up, and the
+  close fails, naming it, if it outlives that. `osascript` runs with only what an app opened
+  from the Finder has in its environment, so a Ghostty it launches carries nothing of the
+  lead's session into the owner's own tabs. `TOWER_OSASCRIPT` names another `osascript` (#178,
+  part of #171).
+
+- **`tower worker start` and `tower worker close`: a lead starts and closes its workers through
+  tower.** `tower worker start <name> --dir <folder> "<brief>"` starts a worker and prints its
+  handle as JSON; `--label` names its tab, and `--beside <handle>` starts it as a split to the
+  right of another worker's pane. It refuses a name a live Claude session already has (ignoring
+  case), then waits up to 30 s for Claude Code's session list to name the worker, and fails (in
+  Rex, saying what its pane shows) when it does not. `tower worker close <handle>` closes a
+  worker's tab or its one split, and says so, without failing, when there is no such tab or
+  pane (already closed, or a handle no start printed). In Rex a worker starts without taking
+  focus, in the tabs and splits the lead skill made by hand, and the skill's Workers steps now
+  call `tower`, never `rex` (#177, part of #171).
 
 ### Changed
 
-- **The docs and notices say workers open in Ghostty, or in Rex inside Rex** (#179, part of
-  #171). A lead outside Rex is no longer told it needs Rex for workers: the notice from
-  `tower lead attach` and the SessionStart hook says `tower worker start` opens them in
-  Ghostty, with nothing to raise while the watch reads them from Claude Code's session
-  list, and to raise it when a start says it needs Ghostty or Rex; with Rex running, it
-  still says the board does not see them (#170). What Rex adds no longer lists starting
-  workers, in that notice, the watch's log line, the brew caveat, the README and the spec.
-  `tower worker start --help` says where focus goes in each terminal instead of "without
-  taking focus". The README's Install has "Workers open in Ghostty" (the one-time
-  Automation approval among it), and the lead skill's attach and Workers steps follow.
+- **The docs and notices say workers open in Ghostty, or in Rex inside Rex.** A lead outside
+  Rex is no longer told it needs Rex for workers: the notice from `tower lead attach` and the
+  SessionStart hook says `tower worker start` opens them in Ghostty, with nothing to raise
+  while the watch reads them from Claude Code's session list, and to raise it when a start says
+  it needs Ghostty or Rex; with Rex running, it still says the board does not see them. What
+  Rex adds no longer lists starting workers, in that notice, the watch's log line, the brew
+  caveat, the README and the spec. `tower worker start --help` says where focus goes in each
+  terminal instead of "without taking focus". The README's Install has "Workers open in
+  Ghostty" (the one-time Automation approval among it), and the lead skill's attach and Workers
+  steps follow (#179, #170, part of #171).
 
 ## [0.8.0] - 2026-11-26
 
