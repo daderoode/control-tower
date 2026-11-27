@@ -881,6 +881,9 @@ impl Terminal for Chosen {
     fn undo(&self, db: &Path, handle: &crate::terminal::Handle) -> Result<String> {
         self.now().undo(db, handle)
     }
+    fn ghostty(&self) -> crate::terminal::ghostty::Ghostty {
+        self.now().ghostty()
+    }
     fn starts_workers(&self) -> Result<()> {
         self.now().starts_workers()
     }
@@ -1678,8 +1681,9 @@ mod tests {
         use crate::terminal::{Closed, Core, Handle, WorkerStart};
         let dir = tempfile::tempdir().unwrap();
         let rex = FakeRex::new(dir.path());
+        let ghostty = crate::terminal::ghostty::fake::FakeGhostty::new(dir.path());
         let db = dir.path().join("board.db");
-        let core = Core::new(dir.path().join("claude"));
+        let core = Core::over(dir.path().join("claude"), ghostty.ghostty());
         let chosen = Chosen::new(Arc::new(rex.module_in("session:7")), Arc::new(core));
         let command = ["claude", "-n", "dev-1", "the brief"].map(String::from);
         let worker = WorkerStart {
@@ -1697,25 +1701,34 @@ mod tests {
         assert_eq!(chosen.shows(&db, &tab).as_deref(), Some("ready"));
         rex.tabs(&[("session:7", &[("block:b1", "window:w1", "")])]);
         assert_eq!(chosen.close_worker(&db, &tab).unwrap(), Closed::Now);
-        // Rex gone: each is the core's, which refuses and reads nothing.
+        // Ghostty was asked nothing while Rex answered.
+        assert_eq!(ghostty.calls(), [] as [String; 0]);
+        // Rex gone: each is the core's, in Ghostty, which reads no pane and takes no handle
+        // of Rex's.
         std::fs::rename(dir.path().join("rex"), dir.path().join("rex.away")).unwrap();
         assert!(chosen.choose(&db, None).is_some());
-        let needs = "needs Rex, and this session is not in Rex (REX_SESSION is not set)";
-        let said = [
-            chosen.starts_workers(),
-            chosen.start_worker(&db, &worker).map(|_| ()),
-            chosen.close_worker(&db, &tab).map(|_| ()),
-        ]
-        .map(|r| r.unwrap_err().to_string());
+        chosen.starts_workers().unwrap();
+        let in_ghostty = Handle("ghostty-tab,T1".into());
+        assert_eq!(chosen.start_worker(&db, &worker).unwrap(), in_ghostty);
+        assert_eq!(chosen.shows(&db, &in_ghostty), None);
+        assert_eq!(chosen.close_worker(&db, &in_ghostty).unwrap(), Closed::Now);
         assert_eq!(
-            said,
+            chosen.close_worker(&db, &tab).unwrap_err().to_string(),
+            format!(
+                "{:?} is not a handle tower worker start printed in Ghostty",
+                tab.0
+            )
+        );
+        assert_eq!(
+            ghostty.calls(),
             [
-                format!("starting a worker {needs}"),
-                format!("starting a worker {needs}"),
-                format!("closing a worker {needs}"),
+                "installed|",
+                "start||/srv/shop|<command>|dev-1|",
+                "installed|",
+                "close|tab|T1",
+                "installed|",
             ]
         );
-        assert_eq!(chosen.shows(&db, &tab), None);
     }
 
     #[test]

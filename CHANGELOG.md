@@ -21,7 +21,18 @@ tag's date, and a new empty Unreleased goes above it.
   split, and says so, without failing, when there is no such tab or pane (already closed,
   or a handle no start printed). In Rex these are the tabs and splits the
   lead skill made by hand, and the skill's Workers steps now call `tower`, never `rex`.
-  Outside Rex both refuse for now, saying they need Rex.
+- **Outside Rex, `tower worker start` and `tower worker close` use Ghostty** (#178, part of
+  #171), driven through its AppleScript dictionary with `osascript`, from whatever terminal
+  the lead runs in. An implementer is a new tab in the lead's Ghostty window (the one
+  holding the lead's tty), or a new Ghostty window when the lead is not in Ghostty; a
+  tester or reviewer is a split to the right of its implementer's terminal. Ghostty starts
+  nothing without focus, so the lead's tab is selected again afterwards. The worker's
+  command runs with the lead's Claude Code and Rex variables removed, and with the lead's
+  `PATH` and board (`TOWER_DB`). The handle is the terminal's id (`ghostty-tab,<id>` or
+  `ghostty-split,<id>`); a close closes a tab with every pane in it or the one split, and
+  an id Ghostty no longer has counts as closed. Ghostty not answering says to approve
+  Automation for Ghostty, and with no Ghostty installed both say workers need Ghostty or
+  Rex. `TOWER_OSASCRIPT` names another `osascript`.
 
 ## [0.8.0] - 2026-11-26
 
