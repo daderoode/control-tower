@@ -26,9 +26,9 @@
 //! focus. Its handle is what Rex made, by id (`Made`): `rex-tab,<session>,<window>,<block>`
 //! or `rex-split,<session>,<block>`. A close (`close_worker`) first asks Rex what it has: a
 //! session, tab or block it does not have is gone (closed already, or a handle no start
-//! printed), saying which, and nothing is closed; else the
-//! tab goes with every block in it (`rex window close`), or the one block (`rex block
-//! close`). `shows` is the block's last lines (`rex capture`).
+//! printed), saying which, and nothing is closed; else the tab goes with every block in
+//! it (`rex window close`), or the one block (`rex block close`). `shows` is the block's
+//! last lines (`rex capture`).
 //!
 //! The dashboard's key (`space`, run by `rex/control-tower.lua`'s `tower_space` action with
 //! the session and block the key was pressed in) finds the dashboard's tab by asking Rex, not
@@ -212,18 +212,21 @@ enum Made<'a> {
 }
 
 impl<'a> Made<'a> {
-    /// What `handle` names, when it is one `start_worker` wrote.
+    /// What `handle` names, when it is one `start_worker` wrote: each id a word rex takes
+    /// as an id (`is_id`), since each is passed to rex as one.
     fn of(handle: &'a Handle) -> Result<Made<'a>> {
         let parts: Vec<&str> = handle.0.split(',').collect();
         match parts[..] {
-            ["rex-tab", session, window, block] if ![session, window, block].contains(&"") => {
+            ["rex-tab", session, window, block]
+                if [session, window, block].into_iter().all(is_id) =>
+            {
                 Ok(Made::Tab {
                     session,
                     window,
                     block,
                 })
             }
-            ["rex-split", session, block] if ![session, block].contains(&"") => {
+            ["rex-split", session, block] if [session, block].into_iter().all(is_id) => {
                 Ok(Made::Split { session, block })
             }
             _ => bail!(
@@ -241,10 +244,16 @@ impl<'a> Made<'a> {
     }
 }
 
-/// The handle of what a start made, its ids joined by commas; an id with a comma in it
-/// could not be read back, so it fails, saying what is `left`.
+/// Whether `id` is a word a handle keeps as one of Rex's ids: not empty, no comma (the
+/// handle's separator), and no leading dash, which rex would read as a flag.
+fn is_id(id: &str) -> bool {
+    !id.is_empty() && !id.contains(',') && !id.starts_with('-')
+}
+
+/// The handle of what a start made, its ids joined by commas; an id that could not be read
+/// back (`is_id`) fails, saying what is `left`.
 fn handle_of(parts: &[&str], left: impl Fn() -> String) -> Result<Handle> {
-    if let Some(id) = parts.iter().find(|p| p.is_empty() || p.contains(',')) {
+    if let Some(id) = parts.iter().find(|p| !is_id(p)) {
         return Err(anyhow::anyhow!("Rex gave an id tower cannot keep: {id:?}").context(left()));
     }
     Ok(Handle(parts.join(",")))
@@ -1934,6 +1943,12 @@ mod tests {
             "rex-split,session:7",
             "rex-split,,block:b2",
             "rex-split,session:7,window:w1,block:b2",
+            // An id rex would read as a flag.
+            "rex-split,session:7,--help",
+            "rex-split,-S,block:b2",
+            "rex-tab,session:7,-w,block:b1",
+            "rex-tab,--server=elsewhere,window:w1,block:b1",
+            "rex-tab,session:7,window:w1,-",
         ] {
             let bad = Handle(bad.into());
             let said = format!("{bad:?}", bad = bad.0)

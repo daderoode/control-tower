@@ -524,7 +524,9 @@ and `tower repo show <R>` lists threads by title.
     printed the handle, and says what the worker's pane shows. A worker at the trust dialog
     is closed at once by its handle (an implementer: `tower worker close`, then `git
     worktree remove`), and the folder raised with the owner as a `question:` post to
-    `@manager`.
+    `@manager`. A start that fails with no handle printed may still have left a tab or
+    pane, as its message says: nothing can be closed by handle then, so look at the tab
+    and raise it with the owner the same way.
 - You decide the team's size and make the calls. Roles are implementer (Dev), tester (QA)
   and reviewers (Senior dev for Stage 1, external for Stage 2); how many of each is your call.
 - **Standing roles, optional:** beside them you may keep a few standing workers, read-only

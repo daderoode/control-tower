@@ -1549,12 +1549,26 @@ mod tests {
         let from = skill.find("\n## Workers\n").unwrap();
         let to = from + skill[from..].find("\n## The message board\n").unwrap();
         let workers = &skill[from..to];
-        // No step runs rex: the only rex command named is the one a worker must never run.
-        let named: Vec<&str> = (workers.match_indices("rex "))
-            .map(|(at, _)| workers[at..].split('`').next().unwrap())
-            .filter(|rest| !rest.starts_with("rex session rename"))
+        // Each rex command a text names, by its first three words, on one line or wrapped
+        // over two: `rex` and then any whitespace.
+        let rex_commands = |text: &str| -> Vec<String> {
+            (text.match_indices("rex"))
+                .filter(|(at, rex)| text[at + rex.len()..].starts_with(char::is_whitespace))
+                .map(|(at, _)| {
+                    let words: Vec<&str> = text[at..].split_whitespace().take(3).collect();
+                    words.join(" ")
+                })
+                .collect()
+        };
+        assert_eq!(
+            rex_commands("close it: `rex\n    window close <id>`, or `rex split -b <b>`"),
+            ["rex window close", "rex split -b"]
+        );
+        // No step runs rex: the only one named is the one a worker must never run.
+        let named: Vec<String> = (rex_commands(workers).into_iter())
+            .filter(|command| !command.starts_with("rex session rename"))
             .collect();
-        assert_eq!(named, [] as [&str; 0]);
+        assert_eq!(named, [] as [String; 0]);
         // Each start it shows, and the close, as tower takes them.
         for shown in [
             "tower worker start <name> --dir \"$w\" --label \"<#NN slug>\" \"<brief>\"",
